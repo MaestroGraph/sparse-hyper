@@ -61,7 +61,7 @@ class Net(nn.Module):
         self.conv8 = nn.Conv2d(in_channels=BIG, out_channels=BIG, kernel_size=1, padding=1) # out res 8
         self.conv9 = nn.Conv2d(in_channels=BIG, out_channels=128, kernel_size=1, padding=1) # out res 8
 
-        self.fin = nn.Linear(128, 10)
+        # self.fin = nn.Linear(128, 10)
 
     def forward(self, x):
 
@@ -81,7 +81,7 @@ class Net(nn.Module):
 
         x = x.view(-1, self.num_flat_features(x)) # flatten
 
-        x = self.fin(x)
+        #x = self.fin(x)
 
         x = F.softmax(x)
 

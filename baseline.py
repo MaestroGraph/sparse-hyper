@@ -105,7 +105,6 @@ trainer = ModuleTrainer(model)
 
 trainer.compile(
     loss=nn.CrossEntropyLoss(),
-#    optimizer='adam',
     optimizer=optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.001),
     metrics=[CategoricalAccuracy()])
 

@@ -1,4 +1,5 @@
 import torch
+from numpy.core.multiarray import dtype
 from torch.autograd import Variable
 
 import torch.nn as nn
@@ -59,7 +60,7 @@ class HyperLayer(nn.Module):
             torch.nn.Linear(hyper_size, 1),
         )
 
-        self.hyper_input = Variable(torch.ones( (in_size * out_size, 3) ), requires_grad=False)
+        self.hyper_input = Variable(torch.ones( (in_size * out_size, 3)), requires_grad=False)
 
         index = 0
         for i in range(self.in_size):
@@ -83,10 +84,10 @@ class Net(nn.Module):
         super(Net, self).__init__()
         # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
-        self.hyper1 = HyperLayer(in_size = 3072, out_size=128)
-        self.hyper2 = HyperLayer(in_size = 128, out_size=128)
-        self.hyper3 = HyperLayer(in_size = 128, out_size=128)
-        self.hyper4 = HyperLayer(in_size = 128, out_size=256)
+        self.hyper1 = HyperLayer(in_size = 3072, out_size=256)
+        #self.hyper2 = HyperLayer(in_size = 128, out_size=128)
+        #self.hyper3 = HyperLayer(in_size = 128, out_size=128)
+        #self.hyper4 = HyperLayer(in_size = 128, out_size=256)
 
         self.fin = nn.Linear(256, 10)
 
@@ -96,12 +97,12 @@ class Net(nn.Module):
 
         x = self.hyper1(x)
         x = F.relu(x)
-        x = self.hyper2(x)
-        x = F.relu(x)
-        x = self.hyper3(x)
-        x = F.relu(x)
-        x = self.hyper4(x)
-        x = F.relu(x)
+        # x = self.hyper2(x)
+        # x = F.relu(x)
+        # x = self.hyper3(x)
+        # x = F.relu(x)
+        # x = self.hyper4(x)
+        # x = F.relu(x)
 
         x = self.fin(x)
         x = F.softmax(x)
@@ -129,7 +130,8 @@ trainer = ModuleTrainer(model)
 
 trainer.compile(
     loss=nn.CrossEntropyLoss(),
-    optimizer=optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.001),
+    # optimizer=optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.001),
+    optimizer='adam',
     metrics=[CategoricalAccuracy()])
 
 trainer.fit_loader(trainloader, testloader,

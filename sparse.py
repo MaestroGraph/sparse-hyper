@@ -84,9 +84,9 @@ class Net(nn.Module):
         super(Net, self).__init__()
         # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
-        self.hyper1 = HyperLayer(in_size = 3072, out_size=256)
-        #self.hyper2 = HyperLayer(in_size = 128, out_size=128)
-        #self.hyper3 = HyperLayer(in_size = 128, out_size=128)
+        self.hyper1 = HyperLayer(in_size = 3072, out_size=1024)
+        self.hyper2 = HyperLayer(in_size = 1024, out_size=512)
+        self.hyper3 = HyperLayer(in_size = 512, out_size=256)
         #self.hyper4 = HyperLayer(in_size = 128, out_size=256)
 
         self.fin = nn.Linear(256, 10)
@@ -97,10 +97,10 @@ class Net(nn.Module):
 
         x = self.hyper1(x)
         x = F.relu(x)
-        # x = self.hyper2(x)
-        # x = F.relu(x)
-        # x = self.hyper3(x)
-        # x = F.relu(x)
+        x = self.hyper2(x)
+        x = F.relu(x)
+        x = self.hyper3(x)
+        x = F.relu(x)
         # x = self.hyper4(x)
         # x = F.relu(x)
 

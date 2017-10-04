@@ -49,6 +49,7 @@ classes = ('plane', 'car', 'bird', 'cat',
 class HyperLayer(nn.Module):
 
     def __init__(self, in_size : int, out_size : int, hyper_size = 16):
+
         super(HyperLayer, self).__init__()
 
         self.in_size = in_size
@@ -60,7 +61,7 @@ class HyperLayer(nn.Module):
             torch.nn.Linear(hyper_size, 1),
         )
 
-        self.hyper_input = Variable(torch.ones( (in_size * out_size, 3)), requires_grad=False)
+        self.hyper_input = Variable(torch.ones( (in_size * out_size, 3) ), requires_grad=False)
 
         index = 0
         for i in range(self.in_size):

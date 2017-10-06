@@ -82,6 +82,7 @@ def flatten_indices(indices, in_shape, out_shape):
 
     return result, (prod(in_shape), prod(out_shape))
 
+
 def cache(indices, vals):
     """
     Store the parameters of the sparse matrix in a dictionary for easy computation of W * x
@@ -89,9 +90,11 @@ def cache(indices, vals):
 
     batchsize, n, _ = indices.size()
 
-    result = [{}] * batchsize
+    result = [None] * batchsize
 
     for b in range(batchsize):
+
+        result[b] = {}
 
         for row in range(n):
             i, j = indices[b, row, :]
@@ -102,6 +105,7 @@ def cache(indices, vals):
             result[b][i].append( (j, vals[b, row]) )
 
     return result
+
 
 def discretize(ind, val):
     """
@@ -185,9 +189,6 @@ class HyperLayer(nn.Module):
 
         real_indices, real_values = self.hyper(input)
 
-        if random.random() < 0.001:
-            print(real_indices, real_values)
-
         # NB: due to batching, real_indices has shape batchsize x K x rank(W)
         #     real_values has shape batchsize x K
 
@@ -215,12 +216,15 @@ class HyperLayer(nn.Module):
 
         for b in range(batchsize):
             for i in range(ly):
-                y_flat[b, i] = sum([val * x_flat[b, j] for (j, val) in w[b][i]])
+                y_flat[b, i] = sum([val * x_flat[b, j] for (j, val) in w[b][i] ])
 
         y_shape = [batchsize]
         y_shape.extend(self.out_shape)
 
         y = y_flat.view(y_shape) # reshape y into a proper tensor
+
+        # if random.random() < 0.001:
+        #    print(real_indices, real_values)
 
         return y
 
@@ -278,8 +282,8 @@ if __name__ == '__main__':
     # print(y)
 
 
-    N = 20000
-    B = 5
+    N = 1000
+    B = 50
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters())

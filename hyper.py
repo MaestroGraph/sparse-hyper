@@ -1,6 +1,7 @@
 import torch
 from numpy.core.multiarray import dtype
 from torch.autograd import Variable
+from torch import FloatTensor, LongTensor
 
 import abc, itertools, math
 from numpy import prod
@@ -9,8 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import torch.optim as optim
-
-from torch.sparse import FloatTensor
 
 import torchvision
 import torchvision.transforms as transforms
@@ -22,34 +21,14 @@ from torchsample.metrics import *
 
 import time
 
-EPOCHS = 350
-BATCH_SIZE = 64
-GPU = False
+from tqdm import trange
 
-SMALL = 96
-BIG = 192
+"""
+TODO:
+- Add batch dimension...
 
-# Set up the dataset
 
-normalize = transforms.Compose(
-    [transforms.ToTensor(),
-     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-train = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                        download=True, transform=normalize)
-
-trainloader = torch.utils.data.DataLoader(train, batch_size=BATCH_SIZE,
-                                          shuffle=True, num_workers=2)
-
-test = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                       download=True, transform=normalize)
-
-testloader = torch.utils.data.DataLoader(test, batch_size=BATCH_SIZE,
-                                         shuffle=False, num_workers=2)
-
-classes = ('plane', 'car', 'bird', 'cat',
-           'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
+"""
 def fi(indices, shape):
     """
     Returns the single index of the entry indicated by the given index-tuple, after a tensor (of the given shape) is
@@ -69,31 +48,61 @@ def fi(indices, shape):
 
     return res
 
+def prod(tuple):
+    result = 1
+
+    for v in tuple:
+        result *= v
+
+    return result
+
 def flatten_indices(indices, in_shape, out_shape):
     """
     Turns a n NxK matrix of N index-tuples for a tensor T of rank K into an Nx2 matrix M of index-tuples for a _matrix_
     that is created by flattening the first 'in_shape' dimensions into the vertical dimension of M and the remaining
     dimensions in the the horizontal dimension of M.
 
-    :param indices:
+    :param indices: Variable containing long tensor  tensor
     :param in_rank:
     :return: A matrix of size N by 2. The resultant matrix is a LongTensor, but _not_ an autograd Variable.
     """
     n, k = indices.size()
-    inrank = len(in_shape.size())
+    inrank = len(in_shape)
 
-    result = torch.LongTensor((n, 2))
+    result = LongTensor(n, 2)
 
     for row in range(n):
-        result[row, 0] = fi(indices[row, 0:inrank], in_shape)
-        result[row, 1] = fi(indices[row, inrank:k], out_shape)
+        result[row, 0] = fi(indices[row, 0:inrank].data, in_shape)
+        result[row, 1] = fi(indices[row, inrank:k].data, out_shape)
 
-    return result, (torch.prod(in_shape), torch.prod(out_shape))
+    return result, (prod(in_shape), prod(out_shape))
+
+def cache(indices, vals):
+    """
+    Store the parameters of the sparse matrix in a dictionay for easy computation of W*x
+    """
+
+    n, _ = indices.size()
+
+    result = {}
+
+    for row in range(n):
+        i, j = indices[row, :]
+
+        if i not in result:
+            result[i] = []
+
+        result[i].append( (j, vals[row]) )
+
+    return result
 
 def discretize(ind, val):
     """
     Takes the output of a hypernetwork (rel-valued indices and corresponding values) and turns it into a list of
     integer indices, by "distributing" the values to the nearest neighboring integer indices.
+
+    NB: the returned ints is not a Variable (just a plain LongTensor). autograd of the real valued indices passes
+    through the values alone, not the integer indices used to instantiate the sparse matrix.
 
     :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
     :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
@@ -110,7 +119,7 @@ def discretize(ind, val):
 
     # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^k
     # integerized index-tuples we can make from that one real-valued index-tuple
-    ints = Variable(torch.zeros(n, 2 ** k, k))
+    ints = Variable(torch.FloatTensor(n, 2 ** k, k))
 
     # produce all possible integerized index-tuples
     for row in range(ind.size()[0]):
@@ -134,7 +143,7 @@ def discretize(ind, val):
     props = props.view(-1)
     val = val.view(-1)
 
-    return ints, props, val
+    return ints.long(), props, val
 
 class HyperLayer(nn.Module):
     """
@@ -162,6 +171,9 @@ class HyperLayer(nn.Module):
 
         real_indices, real_values = self.hyper(input)
 
+        # print(real_indices)
+        # print(real_values)
+
         # turn the real values into integers in a differentiable way
         indices, props, values = discretize(real_indices, real_values)
 
@@ -172,9 +184,29 @@ class HyperLayer(nn.Module):
         # through the new values, which are a function of both the real_indices and the real_values.
 
         # Create the sparse weight tensor
-        weights = Variable(FloatTensor(mindices.transpose(), props * values, torch.Size(mshape)))
+        # weights = Variable(FloatTensor(mindices.transpose(0, 1), props * values, torch.Size(mshape)))
+        # Turns out we don't have autograd over sparse tensors yet (let alone over the arguments). For now, we'll do a
+        # slow, naive multiplication.
 
-        return weights.mm(input)
+        # Cache for reasonable computation
+        w = cache(mindices, props * values)
+
+        # print('w', w)
+
+        x_flat = input.view(-1)
+
+        ly = prod(self.out_shape)
+        y_flat = Variable(FloatTensor(ly))
+
+        for i in range(ly):
+            row = sum([val * x_flat[j] for (j, val) in w[i]])
+            y_flat[i] = torch.sum(row)
+
+        # print(y_flat)
+
+        y = y_flat.view(self.out_shape)
+
+        return y
 
 class SimpleHyperLayer(HyperLayer):
     """
@@ -201,7 +233,7 @@ class SimpleHyperLayer(HyperLayer):
         ind = res[0:4]
         val = res[4:6]
 
-        return torch.unsqueeze(ind).view(2, 2), val
+        return torch.unsqueeze(ind, 1).view(2, 2), val
 
 class Net(nn.Module):
     """
@@ -216,25 +248,38 @@ class Net(nn.Module):
 
         return self.hyper(x)
 
+torch.manual_seed(1)
+
 model = Net()
 
-x = torch.Tensor([1,1])
+# x = Variable(torch.rand((2,)))
+#
+# xd = x.data
+# yd = model(x).data
+# print('in  {0:.2f} {1:.2f} '.format( xd[0], xd[1]))
+# print('out {0:.2f} {1:.2f} '.format( yd[0], yd[1]))
+# print()
 
-print(x)
-print(model(x))
 
-# N = 10000
-# EPOCHS = 5
-# data = torch.rand((N, 2))
-#
-# trainer = ModuleTrainer(model)
-#
-# trainer.compile(
-#     loss=nn.MSELoss(),
-#     optimizer='adam',
-#     metrics=[CategoricalAccuracy()])
-#
-# trainer.fit(data, data,
-#     nb_epoch=EPOCHS,
-#     batch_size=128,
-#     verbose=1)
+N = 50000
+
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters())
+
+for i in trange(N):
+    x = Variable( torch.rand((2,)) )
+
+    optimizer.zero_grad()
+
+    y = model(x)
+    loss = criterion(y, x) # compute the loss
+    loss.backward()        # compute the gradients
+    optimizer.step()
+
+for i in range(20):
+    x = Variable( torch.rand((2,)) )
+    xd = x.data
+    yd = model(x).data
+    print('in  {0:.2f} {1:.2f} '.format( xd[0], xd[1]))
+    print('out {0:.2f} {1:.2f} '.format( yd[0], yd[1]))
+    print()

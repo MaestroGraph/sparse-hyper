@@ -1,15 +1,22 @@
-import unittest
 import hyper
 import torch
 
-class SimpleTests(unittest.TestCase):
-
-    def test_fi(self):
+def test_fi():
         input = torch.LongTensor([[0, 0], [0, 1], [1, 0], [1, 1]])
         expected = torch.LongTensor([0, 1, 2, 3])
 
         actual = hyper.fi(input, (2,2))
 
-        # TODO figure out how unit tests are supposed to work
+def test_sort():
+    indices = torch.LongTensor([[[6, 3], [1, 2]], [[5, 8], [1, 3]]])
+    vals = torch.FloatTensor([[0.1, 0.2], [0.3, 0.4]])
+
+    hyper.sort(indices, vals)
+
+    print(indices)
+    print(vals)
+
 if __name__ == '__main__':
-    unittest.main()
+    # unittest.main()
+
+    test_sort()

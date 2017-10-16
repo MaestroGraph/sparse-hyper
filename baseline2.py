@@ -46,8 +46,7 @@ class Net(nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        # 1 input image channel, 6 output channels, 5x5 square convolution
-        # kernel
+        # 1 input image channel, 6 output channels, 5x5 square convolution kernel
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=5, stride=1, padding=2) # out res 32x32
         self.pool1 = nn.MaxPool2d(stride=2, kernel_size=2)
         self.conv2 = nn.Conv2d(in_channels=16, out_channels=20, kernel_size=5, stride=1, padding=2) # out res 16x16
@@ -97,7 +96,7 @@ trainer.compile(
     metrics=[CategoricalAccuracy()])
 
 trainer.fit_loader(trainloader, testloader,
-            nb_epoch=EPOCHS,
+            num_epoch=EPOCHS,
             verbose=1,
             cuda_device= 0 if GPU else -1)
 

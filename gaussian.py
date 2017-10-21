@@ -235,6 +235,7 @@ class HyperLayer(nn.Module):
         return
 
     def cuda(self, device_id=None):
+        print('CUDA!')
         self.use_cuda = True
         super().cuda(self, device_id=None)
 

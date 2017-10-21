@@ -87,7 +87,7 @@ def prod(tuple):
 
     return result
 
-def flatten_indices(indices, in_shape, out_shape):
+def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
     """
     Turns a n NxK matrix of N index-tuples for a tensor T of rank K into an Nx2 matrix M of index-tuples for a _matrix_
     that is created by flattening the first 'in_shape' dimensions into the vertical dimension of M and the remaining
@@ -104,6 +104,8 @@ def flatten_indices(indices, in_shape, out_shape):
     outrank = len(out_shape)
 
     result = LongTensor(batchsize, n, 2)
+    if use_cuda:
+        result.cuda()
 
     for row in range(n):
         result[:, row, 0] = fi(indices[:, row, 0:outrank].data, out_shape)   # i index of the weight matrix
@@ -111,7 +113,7 @@ def flatten_indices(indices, in_shape, out_shape):
 
     return result, (prod(out_shape), prod(in_shape))
 
-def sort(indices, vals):
+def sort(indices, vals, use_cuda=False):
     """
 
     :param indices:
@@ -121,6 +123,10 @@ def sort(indices, vals):
 
     inew = LongTensor(indices.size())
     vnew = Variable(torch.zeros(vals.size()))
+
+    if use_cuda:
+        inew.cuda()
+        vnew.cuda()
 
     for b in range(batchsize):
 
@@ -194,7 +200,7 @@ def densities(points, means, sigmas):
 #     return rows, values
 
 
-def discretize(means, sigmas, values):
+def discretize(means, sigmas, values, use_cuda = False):
     """
     Takes the output of a hypernetwork (real-valued indices and corresponding values) and turns it into a list of
     integer indices, by "distributing" the values to the nearest neighboring integer indices.
@@ -216,6 +222,9 @@ def discretize(means, sigmas, values):
     # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^rank
     # integerized index-tuples we can make from that one real-valued index-tuple
     ints = Variable(torch.FloatTensor(batchsize, n, 2 ** rank, rank))
+
+    if use_cuda:
+        ints.cuda()
 
     # produce all integerized index-tuples that neighbor the means
     for row in range(n):
@@ -257,10 +266,15 @@ class HyperLayer(nn.Module):
         """
         return
 
+    def cuda(self, device_id=None):
+        self.use_cuda = True
+        super().cuda(self, device_id=None)
+
     def __init__(self, in_rank, out_shape, bias_type=Bias.DENSE):
 
         super(HyperLayer, self).__init__()
 
+        self.use_cuda = False
         self.in_rank = in_rank
         self.out_shape = out_shape # without batch dimension
 
@@ -285,11 +299,11 @@ class HyperLayer(nn.Module):
         #     real_values has shape batchsize x K
 
         # turn the real values into integers in a differentiable way
-        indices, props, values = discretize(means, sigmas, values)
+        indices, props, values = discretize(means, sigmas, values, self.use_cuda)
         values = values * props
 
         # translate tensor indices to matrix indices
-        mindices, _ = flatten_indices(indices, input.size()[1:], self.out_shape)
+        mindices, _ = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
 
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
         #     through 'values', which are a function of both the real_indices and the real_values.
@@ -303,6 +317,9 @@ class HyperLayer(nn.Module):
 
         ly = prod(self.out_shape)
         y_flat = Variable(torch.zeros((batchsize, ly)))
+
+        if self.use_cuda():
+            y_flat.cuda()
 
         mindices, values = sort(mindices, values)
 
@@ -334,13 +351,7 @@ class HyperLayer(nn.Module):
         if self.bias_type == Bias.DENSE:
             y = y + bias
         if self.bias_type == Bias.SPARSE: # untested!
-            bindices, bprops, bvalues = discretize(bias_indices, bias_values)
-            vals = bprops * bvalues
-
-            for b in range(batchsize):
-                for row in range(bindices.size()[1]):
-                    index = bindices[b, row, :]
-                    y[index] += vals[b, row]
+            pass
 
         return y
 
@@ -462,7 +473,12 @@ class ImageCASHLayer(HyperLayer):
         ## expand the indices to the range [0, max]
 
         # Limits for each of the w_rank indices
-        s = Variable(FloatTensor(list(self.out_shape) + list(insize)[1:]).contiguous())
+
+        sizes = list(self.out_shape) + list(insize)[1:]
+        if self.use_cuda:
+            s = Variable(torch.cuda.FloatTensor(sizes).contiguous())
+        else:
+            s = Variable(FloatTensor(sizes).contiguous())
         s = s - 1
         s = s.unsqueeze(0).unsqueeze(0)
 

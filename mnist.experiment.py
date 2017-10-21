@@ -50,6 +50,8 @@ model = nn.Sequential(
 
 ## SIMPLE
 
+model.cuda()
+
 criterion = nn.CrossEntropyLoss()
 acc = CategoricalAccuracy()
 optimizer = optim.Adam(model.parameters(), lr=0.001)

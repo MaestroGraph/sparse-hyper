@@ -24,6 +24,8 @@ BATCH = 4
 SHAPE = (1, 28, 28)
 EPOCHS = 350
 
+CUDA = True
+
 normalize = transforms.Compose(
     [transforms.ToTensor(),
      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -45,13 +47,13 @@ model = nn.Sequential(
     nn.ReLU(),
     gaussian.ImageCASHLayer((4,28,28), (8,28,28), k=128),
     nn.ReLU(),
-    gaussian.ImageCASHLayer((8, 28, 28), (10,), k=128 ),
+    gaussian.ImageCASHLayer((8, 28, 28), (10,), k=128),
     nn.Softmax())
 
+if CUDA:
+    model.cuda()
+
 ## SIMPLE
-
-model.cuda()
-
 criterion = nn.CrossEntropyLoss()
 acc = CategoricalAccuracy()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -63,6 +65,8 @@ for epoch in range(EPOCHS):
 
         # get the inputs
         inputs, labels = data
+        if CUDA:
+            inputs, labels = inputs.cuda(), labels.cuda()
 
         # wrap them in Variables
         inputs, labels = Variable(inputs), Variable(labels)
@@ -84,6 +88,8 @@ for epoch in range(EPOCHS):
     for i, data in enumerate(testloader, 0):
         # get the inputs
         inputs, labels = data
+        if CUDA:
+            inputs, labels = inputs.cuda(), labels.cuda()
 
         # wrap them in Variables
         inputs, labels = Variable(inputs), Variable(labels)

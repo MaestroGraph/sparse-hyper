@@ -414,6 +414,8 @@ class ImageCASHLayer(HyperLayer):
         """
         Evaluates hypernetwork.
         """
+
+        print('cuda', self.use_cuda)
         insize = input.size()
 
         hidden = self.tohidden(input)

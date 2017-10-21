@@ -109,8 +109,8 @@ def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
     result = torch.cuda.LongTensor(batchsize, n, 2) if use_cuda else LongTensor(batchsize, n, 2)
 
     for row in range(n):
-        result[:, row, 0] = fi(indices[:, row, 0:outrank], out_shape)   # i index of the weight matrix
-        result[:, row, 1] = fi(indices[:, row, outrank:rank], in_shape) # j index
+        result[:, row, 0] = fi(indices[:, row, 0:outrank], out_shape, use_cuda)   # i index of the weight matrix
+        result[:, row, 1] = fi(indices[:, row, outrank:rank], in_shape, use_cuda) # j index
 
     return result, (prod(out_shape), prod(in_shape))
 

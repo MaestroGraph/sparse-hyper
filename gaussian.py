@@ -285,7 +285,7 @@ class HyperLayer(nn.Module):
 
         ly = prod(self.out_shape)
 
-        y_flat = torch.cuda.FloatTensor((batchsize, ly)) if self.use_cuda else FloatTensor((batchsize, ly))
+        y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
         y_flat = Variable(y_flat)
 
         mindices, values = sort(mindices, values, self.use_cuda)

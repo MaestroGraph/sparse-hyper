@@ -237,7 +237,7 @@ class HyperLayer(nn.Module):
     def cuda(self, device_id=None):
         print('CUDA!')
         self.use_cuda = True
-        super().cuda(self, device_id=None)
+        super(nn.Module).cuda(self, device_id=None)
 
     def __init__(self, in_rank, out_shape, bias_type=Bias.DENSE):
 

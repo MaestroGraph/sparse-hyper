@@ -458,7 +458,6 @@ class ConvASHLayer(HyperLayer):
 
         self.w_rank = len(in_shape) + len(out_shape)
 
-
         self.lin = nn.Linear(prod(in_shape), int(k/2))
         self.conv = nn.ConvTranspose2d(in_channels=1, out_channels=1, kernel_size=(2, self.w_rank+1), stride=2)
 

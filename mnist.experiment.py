@@ -1,62 +1,101 @@
-import sampling, hyper
+import sampling, hyper, gaussian
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
-from tqdm import trange
+from tqdm import trange, tqdm
 from tensorboardX import SummaryWriter
+
+from torchsample.metrics import CategoricalAccuracy
+
+import torch.optim as optim
+
+import torchvision
+import torchvision.transforms as transforms
 
 torch.manual_seed(1)
 
 """
-Simple experiment: learn the identity function from one tensor to another
+MNIST experiment
+
 """
 w = SummaryWriter()
 
 BATCH = 4
 SHAPE = (1, 28, 28)
+EPOCHS = 350
+
+normalize = transforms.Compose(
+    [transforms.ToTensor(),
+     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+train = torchvision.datasets.MNIST(root='./data', train=True,
+                                        download=True, transform=normalize)
+
+trainloader = torch.utils.data.DataLoader(train, batch_size=BATCH,
+                                          shuffle=True, num_workers=2)
+
+test = torchvision.datasets.MNIST(root='./data', train=False,
+                                       download=True, transform=normalize)
+
+testloader = torch.utils.data.DataLoader(test, batch_size=BATCH,
+                                         shuffle=False, num_workers=2)
 
 model = nn.Sequential(
-    hyper.ConvASHLayer(SHAPE, (4, 8, 8), k=100000),
+    gaussian.ImageCASHLayer(SHAPE, (4,28,28), k=128),
     nn.ReLU(),
-    hyper.ConvASHLayer((4, 8, 8), (8, 4, 4), k = 100000),
+    gaussian.ImageCASHLayer((4,28,28), (8,28,28), k=128),
     nn.ReLU(),
-    hyper.ConvASHLayer((8, 4, 4), (16, 2, 2), k = 100000),
-    nn.ReLU(),
-    hyper.Flatten(),
-    nn.Linear(64, 10),
+    gaussian.ImageCASHLayer((8, 28, 28), (10,), k=128 ),
     nn.Softmax())
 
 ## SIMPLE
 
-N = 50000
-
-criterion = nn.MSELoss()
+criterion = nn.CrossEntropyLoss()
+acc = CategoricalAccuracy()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-for i in trange(N):
-    x = Variable(torch.rand((BATCH,) + SHAPE))
+step = 0
 
-    optimizer.zero_grad()
+for epoch in range(EPOCHS):
+    for i, data in tqdm(enumerate(trainloader, 0)):
 
-    y = model(x)
-    loss = criterion(y, target) # compute the loss
-    loss.backward()        # compute the gradients
-    optimizer.step()
+        # get the inputs
+        inputs, labels = data
 
-    w.add_scalar('sampling-loss/rmse', torch.sqrt(loss).data[0], i)
+        # wrap them in Variables
+        inputs, labels = Variable(inputs), Variable(labels)
 
-    if(i != 0 and i % (N/25) == 0):
-        means, sigmas, values = model.hyper(x)
-        print(means)
-        print(sigmas)
-        print(values)
-        # print(list(model.parameters()))
-        print('LOSS', torch.sqrt(loss))
+        # forward + backward + optimize
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
 
-for i in range(20):
-    x = Variable(torch.rand((1,) + SHAPE))
-    y = model(x)
+        loss.backward()
+        optimizer.step()
 
-    print('diff', torch.abs(x - y).unsqueeze(0))
+        w.add_scalar('mnist/train-loss', loss.data[0], step)
 
-    print('********')
+        step += 1
+
+    total = 0.0
+    num = 0
+    for i, data in enumerate(testloader, 0):
+        # get the inputs
+        inputs, labels = data
+
+        # wrap them in Variables
+        inputs, labels = Variable(inputs), Variable(labels)
+
+        # forward + backward + optimize
+        optimizer.zero_grad()
+        outputs = model(inputs)
+
+        total += acc(outputs, labels)
+        num += 1
+    accuracy = total/num
+
+    w.add_scalar('mnist/per-epoch-test-acc', accuracy, epoch)
+    print('EPOCH {}: {} accuracy '.format(epoch, accuracy))
+
+print('Finished Training. Took {} seconds'.format(toc()))
+

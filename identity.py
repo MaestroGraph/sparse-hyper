@@ -13,9 +13,9 @@ Simple experiment: learn the identity function from one tensor to another
 w = SummaryWriter()
 
 BATCH = 1
-SHAPE = (2, )
+SHAPE = (8, )
 
-model = gaussian.DenseASHLayer(SHAPE, SHAPE, k=hyper.prod(SHAPE), hidden=1) #
+model = gaussian.DenseASHLayer(SHAPE, SHAPE, k=hyper.prod(SHAPE)*2, hidden=1) #
 
 x = Variable(torch.rand((BATCH, ) + SHAPE))
 print('--- x', x)

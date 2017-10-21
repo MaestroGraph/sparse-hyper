@@ -27,6 +27,11 @@ from enum import Enum
 
 from tqdm import trange
 
+import hyper
+
+# added to the sigmas to prevent NaN
+EPSILON = 10e-10
+
 """
 
 """
@@ -156,7 +161,7 @@ def densities(points, means, sigmas):
     sigmas = sigmas.unsqueeze(2).expand_as(products)
     sigmas = torch.pow(sigmas, 2)
 
-    num = torch.exp(- products * (1.0/(2.0*sigmas)))
+    num = torch.exp(- products * (1.0/(2.0*(sigmas + EPSILON))))
 
     return num
 
@@ -389,3 +394,87 @@ class DenseASHLayer(HyperLayer):
 
         return means, sigmas, values
 
+class ImageCASHLayer(HyperLayer):
+    """
+    """
+
+    def __init__(self, in_shape, out_shape, k, poolsize=4):
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, bias_type=Bias.DENSE)
+
+        self.k = k
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+
+        rep = 4*4*4*2
+
+        self.w_rank = len(in_shape) + len(out_shape)
+
+        c, x, y = in_shape
+        flat_size = int(x/poolsize) * int(y/poolsize) * c
+
+        # hypernetwork
+        self.tohidden = nn.Sequential(
+            nn.MaxPool2d(kernel_size=poolsize, stride=poolsize),
+            Flatten(),
+            nn.Linear(flat_size, int(k/rep)),
+            nn.ReLU()
+        )
+
+        self.conv1da = nn.ConvTranspose1d(in_channels=1, out_channels=1, kernel_size=4, stride=4)
+        self.conv1db = nn.ConvTranspose1d(in_channels=1, out_channels=1, kernel_size=4, stride=4)
+        self.conv1dc = nn.ConvTranspose1d(in_channels=1, out_channels=1, kernel_size=4, stride=4)
+
+        self.conv2d = nn.ConvTranspose2d(in_channels=1, out_channels=1, kernel_size=(2, self.w_rank+2), stride=2)
+
+        self.bias = nn.Sequential(
+            nn.Linear(int(k/rep), hyper.prod(out_shape)),
+        )
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+        insize = input.size()
+
+        hidden = self.tohidden(input)
+
+        res = hidden
+
+        res = res.unsqueeze(1)
+        res = nn.functional.relu(self.conv1da(res))
+        res = res.squeeze(1)
+
+        res = res.unsqueeze(1)
+        res = nn.functional.relu(self.conv1db(res))
+        res = res.squeeze(1)
+
+        res = res.unsqueeze(1)
+        res = nn.functional.relu(self.conv1dc(res))
+        res = res.squeeze(1)
+
+        res = res.unsqueeze(1).unsqueeze(3)
+        res = nn.functional.relu(self.conv2d(res))
+        res = res.squeeze(1)
+
+        # res has shape batch_size x k x rank+1
+        means = nn.functional.sigmoid(res[:, :, 0:self.w_rank])
+
+        ## expand the indices to the range [0, max]
+
+        # Limits for each of the w_rank indices
+        s = Variable(FloatTensor(list(self.out_shape) + list(insize)[1:]).contiguous())
+        s = s - 1
+        s = s.unsqueeze(0).unsqueeze(0)
+
+        s = s.expand_as(means)
+
+        # scale the indices
+        means = means * s
+
+        sigmas = nn.functional.softplus(res[:, :, self.w_rank:self.w_rank+1].squeeze(2))
+        values = res[:, :, self.w_rank+1:].squeeze(2)
+
+        bias = self.bias(hidden)
+        bias = bias.view((-1, ) + self.out_shape)
+
+        return means, sigmas, values, bias

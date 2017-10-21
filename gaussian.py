@@ -351,6 +351,8 @@ class DenseASHLayer(HyperLayer):
         Evaluates hypernetwork.
         """
 
+        print('cuda', self.use_cuda)
+
         res = self.hyp.forward(input)
         # res has shape batch_size x 6
 
@@ -443,7 +445,7 @@ class ImageCASHLayer(HyperLayer):
 
         sizes = list(self.out_shape) + list(insize)[1:]
 
-        s = torch.cuda.FloatTensor(sizes) if self.use_cuda else Variable(FloatTensor(sizes))
+        s = torch.cuda.FloatTensor(sizes) if self.use_cuda else FloatTensor(sizes)
         s = Variable(s.contiguous()) # TODO: check if contiguous is really necessary
 
         s = s - 1

@@ -96,9 +96,9 @@ def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
     that is created by flattening the first 'in_shape' dimensions into the vertical dimension of M and the remaining
     dimensions in the the horizontal dimension of M.
 
-    :param indices: Variable containing long tensor  tensor
+    :param indices: Long tensor
     :param in_rank:
-    :return: A matrix of size N by 2. The resultant matrix is a LongTensor, but _not_ an autograd Variable.
+    :return: A matrix of size N by 2. .
     """
 
     batchsize, n, rank = indices.size()
@@ -109,8 +109,8 @@ def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
     result = torch.cuda.LongTensor(batchsize, n, 2) if use_cuda else LongTensor(batchsize, n, 2)
 
     for row in range(n):
-        result[:, row, 0] = fi(indices[:, row, 0:outrank].data, out_shape)   # i index of the weight matrix
-        result[:, row, 1] = fi(indices[:, row, outrank:rank].data, in_shape) # j index
+        result[:, row, 0] = fi(indices[:, row, 0:outrank], out_shape)   # i index of the weight matrix
+        result[:, row, 1] = fi(indices[:, row, outrank:rank], in_shape) # j index
 
     return result, (prod(out_shape), prod(in_shape))
 
@@ -235,7 +235,6 @@ class HyperLayer(nn.Module):
         return
 
     def cuda(self, device_id=None):
-        print('CUDA!')
         self.use_cuda = True
         super().cuda(device_id)
 
@@ -416,7 +415,6 @@ class ImageCASHLayer(HyperLayer):
         Evaluates hypernetwork.
         """
 
-        print('cuda', self.use_cuda)
         insize = input.size()
 
         hidden = self.tohidden(input)

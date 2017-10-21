@@ -224,7 +224,7 @@ def discretize(means, sigmas, values, use_cuda = False):
 
 class HyperLayer(nn.Module):
     """
-        Abstract class for the hyperlayer. Implement by defining a hypernetwork, and returning it from the hyper method.
+        Abstract class for the hyperlayer. Implement by defining a hypernetwork, and returning it from the hyper() method.
     """
     @abc.abstractmethod
     def hyper(self, input):
@@ -237,11 +237,11 @@ class HyperLayer(nn.Module):
     def cuda(self, device_id=None):
         print('CUDA!')
         self.use_cuda = True
-        super(nn.Module).cuda(self, device_id)
+        super().cuda(device_id)
 
     def __init__(self, in_rank, out_shape, bias_type=Bias.DENSE):
 
-        super(HyperLayer, self).__init__()
+        super().__init__()
 
         self.use_cuda = False
         self.in_rank = in_rank

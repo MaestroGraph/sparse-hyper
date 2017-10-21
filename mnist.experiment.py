@@ -51,7 +51,7 @@ model = nn.Sequential(
     nn.Softmax())
 
 if CUDA:
-    model.cuda()
+    model.apply(lambda t : t.cuda())
 
 ## SIMPLE
 criterion = nn.CrossEntropyLoss()

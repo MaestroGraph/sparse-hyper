@@ -39,6 +39,7 @@ criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.01)
 
 plt.figure(figsize=(5,5))
+util.makedirs('./spread/')
 
 for i in trange(N):
 

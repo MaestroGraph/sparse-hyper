@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Wedge, Polygon
 from matplotlib.collections import PatchCollection
 from matplotlib.axes import Axes
+import os, errno
 
 import torch
 from torch import nn
@@ -64,3 +65,10 @@ def norm(x):
     n.expand_as(x)
 
     return x/n
+
+def makedirs(directory):
+    try:
+        os.makedirs(directory)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise

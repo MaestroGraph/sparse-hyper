@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Wedge, Polygon
 from matplotlib.collections import PatchCollection
 from matplotlib.axes import Axes
-import os, errno
+import os, errno, random
 
 import torch
 from torch import nn
@@ -72,3 +72,50 @@ def makedirs(directory):
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
+
+def sample(collection, k, required):
+    """
+    Sample, without replacement, k elements from 'collection', ensuring that 'required' are always contained in the
+    sample (but never twice).
+
+    currently only works if collection and required contain only unique elements
+    :param k:
+    :param collection:
+    :param required:
+    :return:
+    """
+
+    if(k + len(required) > len(collection)):
+        # use rejection sampling
+        sample = list(collection)
+        while len(sample) > k:
+            ri = random.choice(range(len(sample)))
+
+            if sample[ri] not in required:
+                del(sample[ri])
+
+        return sample
+    else:
+        required = set(required)
+        sample0 = set(random.sample(collection, k + len(required)))
+        sample = list(sample0 - required)
+
+        while len(sample) > k - len(required):
+            ri = random.choice(range(len(sample)))
+            del(sample[ri])
+
+        sample.extend(required)
+
+        return sample
+
+if __name__ == '__main__':
+
+    print('.')
+    print(sample(range(6), 5, [0, 1, 2]))
+    print('.')
+    print(sample(range(100), 6, [0, 1, 2]))
+    print(sample(range(100), 6, [0, 1, 2]))
+    print(sample(range(100), 6, [0, 1, 2]))
+    print('.')
+
+

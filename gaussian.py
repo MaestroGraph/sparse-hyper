@@ -84,6 +84,28 @@ def fi(indices, shape, use_cuda=False):
 
     return res
 
+def tup(index, shape, use_cuda=False):
+    """
+    Returns the tuple indicated by a given single integer (reverse of fi(...)).
+    :param indices:
+    :param shape:
+    :param use_cuda:
+    :return:
+    """
+
+    num,  = index.size()
+
+    result = torch.cuda.LongTensor(num, len(shape)) if use_cuda else LongTensor(num, len(shape))
+
+    for dim in range(len(shape) - 1):
+        per_inc = hyper.prod(shape[dim+1:])
+        result[:, dim] = index / per_inc
+        index = index % per_inc
+    result[:, -1] = index
+
+    return result
+
+
 def prod(tuple):
     result = 1
 
@@ -173,7 +195,7 @@ def densities(points, means, sigmas):
 
     return num
 
-def discretize(means, sigmas, values, use_cuda = False):
+def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False):
     """
     Takes the output of a hypernetwork (real-valued indices and corresponding values) and turns it into a list of
     integer indices, by "distributing" the values to the nearest neighboring integer indices.
@@ -194,25 +216,49 @@ def discretize(means, sigmas, values, use_cuda = False):
 
     # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^rank
     # integerized index-tuples we can make from that one real-valued index-tuple
-    ints = torch.cuda.FloatTensor(batchsize, n, 2 ** rank, rank) if use_cuda else FloatTensor(batchsize, n, 2 ** rank, rank)
-    ints = Variable(ints)
+    # ints = torch.cuda.FloatTensor(batchsize, n, 2 ** rank + additional, rank) if use_cuda else FloatTensor(batchsize, n, 2 ** rank, rank)
 
-    # produce all integerized index-tuples that neighbor the means
+    ints_flat = LongTensor(batchsize, n, 2 ** rank + additional)
+    neighbor_ints = LongTensor(batchsize, n, 2 ** rank, rank)
+
+    # produce all integer index-tuples that neighbor the means
     for row in range(n):
         for t, bools in enumerate(itertools.product([True, False], repeat=rank)):
 
             for col, bool in enumerate(bools):
-                r = means[:, row, col]
-                ints[:, row, t, col] = torch.floor(r) if bool else torch.ceil(r)
+                r = means[:, row, col].data
+                neighbor_ints[:, row, t, col] = torch.floor(r) if bool else torch.ceil(r)
+
+    # flatten
+    neighbor_ints = fi(neighbor_ints.view(-1, rank), rng, use_cuda=False)
+    neighbor_ints = neighbor_ints.unsqueeze(0).view(batchsize, n, 2 ** rank)
+
+    # Sample additional points
+    if rng is not None:
+        total = hyper.prod(rng)
+
+        for b in range(batchsize):
+            for m in range(n):
+                sample = util.sample(range(total), additional + 2**rank, list(neighbor_ints[b, m, :]))
+                ints_flat[b, m, :] = LongTensor(sample)
+
+    ints = tup(ints_flat.view(-1), rng, use_cuda=False)
+    ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)
+
+    # print('means', means)
+    # print('ints', ints)
+
+    ints_fl = Variable(ints.float()) # leaf node in the comp graph, gradients go through values
 
     # compute the proportion of the value each integer index tuple receives
-    props = densities(ints, means, sigmas)
-    # props is batchsize x K x 2^rank, giving a weight to each neighboring integer index-tuple
-    # -- normalize
-    sums = torch.sum(props, dim=2, keepdim=True).expand_as(props)
-    props = props/sums
+    props = densities(ints_fl, means, sigmas)
+    # props is batchsize x K x 2^rank+a, giving a weight to each neighboring or sampled integer-index-tuple
 
-    # repeat each value 2^k times, so it matches the new indices
+    # -- normalize the proportions of the neigh points and the
+    sums = torch.sum(props, dim=2, keepdim=True).expand_as(props)
+    props = props / sums
+
+    # repeat each value 2^rank+A times, so it matches the new indices
     val = torch.unsqueeze(values, 2).expand_as(props).contiguous()
 
     # 'Unroll' the ints tensor into a long list of integer index tuples (ie. a matrix of n*2^rank by rank for each
@@ -223,7 +269,36 @@ def discretize(means, sigmas, values, use_cuda = False):
     props = props.view(batchsize, -1)
     val = val.view(batchsize, -1)
 
-    return ints.data.long(), props, val
+    return ints, props, val
+
+def sample_indices(batchsize, k, num, rng, use_cuda=False):
+    """
+    Sample 'num' integer indices within the dimensions indicated by the tuple, resulting in a LongTensor of size
+        batchsize x k x num x len(rng).
+    Ensures that for fixed values of the first and second dimension, no tuple is sample twice.
+
+    :return:
+    """
+
+    total = hyper.prod(rng)
+    num_means = batchsize * k
+
+    # First, we'll sample some flat indices, and then compute their corresponding index-tuples
+    flat_indices = LongTensor(num_means, num)
+    for row in range(num_means):
+        lst = random.sample(range(total), num)
+        flat_indices[row, :] = LongTensor(lst)
+
+    flat_indices = flat_indices.view(-1)
+    full_indices = tup(flat_indices,rng, use_cuda)
+
+    # Reshape
+    full_indices = full_indices.unsqueeze(0).unsqueeze(0).view(batchsize, k, num, len(rng))
+
+    if use_cuda:
+        full_indices = full_indices.cuda()
+
+    return full_indices
 
 class HyperLayer(nn.Module):
     """
@@ -241,13 +316,13 @@ class HyperLayer(nn.Module):
         self.use_cuda = True
         super().cuda(device_id)
 
-    def __init__(self, in_rank, out_shape, bias_type=Bias.DENSE):
-
+    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE):
         super().__init__()
 
         self.use_cuda = False
         self.in_rank = in_rank
         self.out_shape = out_shape # without batch dimension
+        self.additional = additional
 
         self.weights_rank = in_rank + len(out_shape) # implied rank of W
 
@@ -285,13 +360,14 @@ class HyperLayer(nn.Module):
         means = means * s
 
         sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2)
-        values = res[:, :, w_rank + 1:].squeeze(2)
+        values = nn.functional.softplus(res[:, :, w_rank + 1:].squeeze(2))
 
         return means, sigmas, values
 
     def forward(self, input):
 
         batchsize = input.size()[0]
+        rng = tuple(self.out_shape) + tuple(input.size()[1:])
 
         ### Compute and unpack output of hypernetwork
 
@@ -306,7 +382,7 @@ class HyperLayer(nn.Module):
         #     real_values has shape batchsize x K
 
         # turn the real values into integers in a differentiable way
-        indices, props, values = discretize(means, sigmas, values, self.use_cuda)
+        indices, props, values = discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
         values = values * props
 
         # translate tensor indices to matrix indices
@@ -472,8 +548,8 @@ class DenseASHLayer(HyperLayer):
     Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
     """
 
-    def __init__(self, in_shape, out_shape, k, hidden=256):
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, bias_type=Bias.NONE)
+    def __init__(self, in_shape, out_shape, k, additional=0, hidden=256):
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.NONE)
 
         self.k = k
         self.in_shape = in_shape
@@ -497,6 +573,8 @@ class DenseASHLayer(HyperLayer):
         """
         res = self.hyp.forward(input)
 
+        res = res.unsqueeze(1).view(-1, self.k, self.w_rank + 2)
+
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
 
         return means, sigmas, values
@@ -507,18 +585,19 @@ class ParamASHLayer(HyperLayer):
     Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
     """
 
-    def __init__(self, in_shape, out_shape, k, hidden=256):
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, bias_type=Bias.NONE)
+    def __init__(self, in_shape, out_shape, k, additional=0, gain=5.0):
+        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.NONE)
 
         self.k = k
         self.in_shape = in_shape
         self.out_shape = out_shape
+        self.gain = gain
 
         self.w_rank = len(in_shape) + len(out_shape)
 
-        self.params = Parameter(torch.randn(k, self.w_rank + 2))
-
-        # self.bias = Parameter(torch.zeros(out_shape))
+        p = torch.randn(k, self.w_rank + 2)
+        p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1] * 0.0 + 0.6
+        self.params = Parameter(p)
 
     def hyper(self, input):
         """
@@ -530,7 +609,7 @@ class ParamASHLayer(HyperLayer):
         # Replicate the parameters along the batch dimension
         res = self.params.unsqueeze(0).expand(batch_size, self.k, self.w_rank+2)
 
-        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape, self.gain)
 
         return means, sigmas, values
 
@@ -538,8 +617,8 @@ class ImageCASHLayer(HyperLayer):
     """
     """
 
-    def __init__(self, in_shape, out_shape, k, poolsize=4):
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, bias_type=Bias.DENSE)
+    def __init__(self, in_shape, out_shape, k, additional=0, poolsize=4):
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE)
 
         self.k = k
         self.in_shape = in_shape
@@ -608,7 +687,7 @@ class CASHLayer(HyperLayer):
     """
 
     """
-    def __init__(self, in_shape, out_shape, k, poolsize=4, deconvs=2, gain=7.0):
+    def __init__(self, in_shape, out_shape, k,additional=0, poolsize=4, deconvs=2, gain=7.0):
         """
         :param in_shape:
         :param out_shape:
@@ -617,7 +696,7 @@ class CASHLayer(HyperLayer):
         :param poolsize:
         :param deconvs: How many deconv layers to use to generate the tuples from the hidden layer
         """
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, bias_type=Bias.DENSE)
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE)
 
         class NoActivation(nn.Module):
             def __init__(self):
@@ -705,9 +784,18 @@ class CASHLayer(HyperLayer):
 
 if __name__ == '__main__':
 
-    x = torch.randn(2, 3, 3)
-    print(x)
-    x = norm(x)
-    print(x)
+    SHAPE = (2, 3, 4)
 
-    print(torch.norm(x.view(2, -1), p=2, dim=1))
+    print(sample_indices(1, 3, 24, SHAPE))
+
+    # ints = LongTensor(range(hyper.prod(SHAPE)))
+    # print(ints)
+    # ints = ints.unsqueeze(0).unsqueeze(0)
+    # ints = ints.view(SHAPE)
+    # print(ints)
+    #
+    # i = LongTensor(range(hyper.prod(SHAPE)))
+    # t = tup(i, SHAPE)
+    # for row in range(t.size()[0]):
+    #     tup = tuple(t[row, :].squeeze(0))
+    #     print(ints[tup])

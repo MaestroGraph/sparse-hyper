@@ -15,13 +15,13 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-BATCH = 32
-SHAPE = (8, )
-CUDA = True
+BATCH = 1
+SHAPE = (3, )
+CUDA = False
 
-nzs = 8 # hyper.prod(SHAPE)*6
+nzs = hyper.prod(SHAPE)
 
-model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=nzs) #
+model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=3, k=nzs, gain=1.0) #
 # model.initialize(SHAPE, batch_size=64,iterations=100, lr=0.05)
 
 if CUDA:
@@ -33,10 +33,10 @@ if CUDA:
 #y = model(x)
 #print('--- y', y)
 
-N = 5000
+N = 50000 // BATCH
 
 criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
@@ -58,20 +58,25 @@ for i in trange(N):
     w.add_scalar('identity/plain', torch.sqrt(loss).data[0], i)
 
     # if(i != 0 and i % (N/25) == 0):
-    means, sigmas, values = model.hyper(x)
     #     print(sigmas, sigmas.grad)
     #     print(values, values.grad)
     #     # print(list(model.parameters()))
     #
     # print('LOSS', torch.sqrt(loss))
 
-    if i % 50 == 0:
+    if i % (N/50) == 0:
+        means, sigmas, values = model.hyper(x)
+
         plt.clf()
         util.plot(means, sigmas, values)
-        plt.xlim((-1, 8))
-        plt.ylim((-1, 8))
-        plt.axis('square')
+        plt.xlim((-1, SHAPE[0]))
+        plt.ylim((-1, SHAPE[0]))
         plt.savefig('./spread/means{:04}.png'.format(i))
+
+        print(means)
+        print(sigmas)
+        print(values)
+        print('LOSS', torch.sqrt(loss))
 
 for i in range(20):
     x = torch.rand((1,) + SHAPE)

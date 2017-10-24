@@ -24,7 +24,7 @@ BATCH = 4
 SHAPE = (1, 28, 28)
 EPOCHS = 350
 
-CUDA = True
+CUDA = False
 
 normalize = transforms.Compose(
     [transforms.ToTensor(),
@@ -43,11 +43,11 @@ testloader = torch.utils.data.DataLoader(test, batch_size=BATCH,
                                          shuffle=False, num_workers=2)
 
 model = nn.Sequential(
-    gaussian.ImageCASHLayer(SHAPE, (4,28,28), k=128),
+    gaussian.ImageCASHLayer(SHAPE, (64,), k=128),
     nn.ReLU(),
-    gaussian.ImageCASHLayer((4,28,28), (8,28,28), k=128),
+    gaussian.CASHLayer((64,), (32,), k=128, deconvs=1),
     nn.ReLU(),
-    gaussian.ImageCASHLayer((8, 28, 28), (10,), k=128),
+    gaussian.CASHLayer((32,), (10,), k=128, deconvs=1),
     nn.Softmax())
 
 if CUDA:

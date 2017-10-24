@@ -4,7 +4,7 @@ from torch.autograd import Variable
 from torch.nn import Parameter
 from torch import FloatTensor, LongTensor
 
-import abc, itertools, math
+import abc, itertools, math, types
 from numpy import prod
 
 import torch.nn as nn
@@ -20,7 +20,9 @@ from torchsample.modules import ModuleTrainer
 
 from torchsample.metrics import *
 from util import *
+import util
 
+import sys
 import time, random
 
 from enum import Enum
@@ -68,7 +70,7 @@ def fi(indices, shape, use_cuda=False):
     """
     batchsize, rank = indices.size()
 
-    res = torch.cuda.LongTensor(batchsize).fill_(0)  if use_cuda else torch.cuda.LongTensor(batchsize).fill_(0)
+    res = torch.cuda.LongTensor(batchsize).fill_(0) if use_cuda else LongTensor(batchsize).fill_(0)
 
     for i in range(rank):
         prod = torch.cuda.LongTensor(batchsize).fill_(1) if use_cuda else LongTensor(batchsize).fill_(1)
@@ -286,6 +288,7 @@ class HyperLayer(nn.Module):
         ly = prod(self.out_shape)
 
         y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
+        y_flat.fill_(0.0)
         y_flat = Variable(y_flat)
 
         mindices, values = sort(mindices, values, self.use_cuda)
@@ -308,7 +311,6 @@ class HyperLayer(nn.Module):
 
                 r_start = r_end
 
-
         y_shape = [batchsize]
         y_shape.extend(self.out_shape)
 
@@ -322,13 +324,142 @@ class HyperLayer(nn.Module):
 
         return y
 
+    def initialize(self, in_shape, batch_size=64, iterations=250, lr=0.001, verbose=True):
+        """
+        We aim to initialize to a generally orthonormal weight-tensor. To be precise, the subtensors of any two output
+        nodes y_i and y_j should be orthogonal, when flattened to vectors, and each such subtensor should have unit
+        length when flattened to a vector. This intialization ensures that each output nodeis initialized to represent
+        independent aspects of the input, and that the outputs and gradients do not blow up or fade away over successive
+        layers.
+
+        For a simple, generic training objective, we use the property that orthonormal matrices preserve the dot-product. We
+        sample two vectors x1 and x2, with independently drawn standard-normally distributed elements, and compute their
+        respective outputs y1 and y2. We then use (dot(x1, x2) - dot(y1, y2))^2 as our loss function and optimize with
+        Adam.
+
+        NB: For small batch sizes, the loss tends to go to inf/NaN
+
+        :param: in_shape Either a tuple representing the input shape, or (if the input has variable shape) a generator
+        that generates random input shapes according to the data distribution.
+        :return:
+        """
+
+        from tensorboardX import SummaryWriter
+        w = SummaryWriter()
+
+        y_size = (batch_size, ) + self.out_shape
+
+        optimizer = torch.optim.Adam(self.parameters(),lr=lr)
+
+        print('Initializing')
+
+        restart = True
+        while restart:
+            restart = False
+            for i in (trange(iterations) if verbose else range(iterations)):
+                optimizer.zero_grad()
+
+                # sample an input shape (if we have a generator
+                ins = in_shape.next() if isinstance(in_shape, types.GeneratorType) else in_shape
+                x_size = (batch_size,) + ins
+
+                x1, x2 = torch.randn(x_size), torch.randn(x_size)
+
+                # normalize to unit tensors
+                x1, x2 = util.norm(x1), util.norm(x2)
+
+                if self.use_cuda:
+                    x1, x2 = x1.cuda(), x2.cuda()
+                x1, x2 = Variable(x1), Variable(x2)
+
+                y1 = self.forward(x1)
+                y2 = self.forward(x2)
+
+                x1 = x1.view(batch_size, 1, -1)
+                x2 = x2.view(batch_size, 1, -1)
+                y1 = y1.view(batch_size, 1, -1)
+                y2 = y2.view(batch_size, 1, -1)
+
+                xnorm = torch.bmm(x1, x2.transpose(1, 2))
+                ynorm = torch.bmm(y1, y2.transpose(1, 2))
+
+                # print('xy',x1, x2, y1, y2)
+                # print(xnorm)
+
+                loss = torch.sum(torch.pow((xnorm - ynorm), 2)) / batch_size
+                # print('LOSS', loss)
+
+                if math.isnan(loss.data[0]) or math.isinf(loss.data[0]):
+                    if verbose:
+                        print('Infinite or NaN loss encountered, restarting with new parameters.')
+
+                        # print('x1', x1)
+                        # print('x2', x2)
+                        # print(xnorm)
+                        #
+                        # print('y1', y1)
+                        # print('y2', y2)
+                        # print(ynorm)
+                        #
+                        # print('loss (per batch)', torch.pow((xnorm - ynorm), 2))
+
+                        sys.exit(1)
+                    def reset(t):
+                        if hasattr(t, 'reset_parameters'):
+                            t.reset_parameters()
+                    self.apply(reset)
+
+                    restart = True
+                    break
+
+                w.add_scalar('init/loss', loss.data[0], i)
+
+                loss.backward()
+                optimizer.step()
+
+                # if i % 50 == 0:
+                #     means, sigmas, values = self.hyper(Variable(torch.randn(x_size)))
+                #     plt.clf()
+                #     util.plot(means, sigmas, values)
+                #
+                #     plt.xlim((-1, 8))
+                #     plt.ylim((-1, 8))
+                #     plt.axis('equal')
+                #
+                #     plt.savefig('./init/means.{:06}.png'.format(i))
+
+
+
+def split_out(res, input_size, output_size, gain=5.0):
+
+    b, k, width = res.size()
+    w_rank = width - 2
+
+    means = nn.functional.sigmoid(res[:, :, 0:w_rank] * gain)
+    means = means.unsqueeze(2).contiguous().view(-1, k, w_rank)
+
+    ## expand the indices to the range [0, max]
+
+    # Limits for each of the w_rank indices
+    s = Variable(FloatTensor(list(output_size) + list(input_size)).contiguous())
+    s = s - 1
+    s = s.unsqueeze(0).unsqueeze(0)
+    s = s.expand_as(means)
+
+    means = means * s
+
+    sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank+1]).squeeze(2)
+    values = res[:, :, w_rank+1:].squeeze(2)
+
+    return means, sigmas, values
+
 class DenseASHLayer(HyperLayer):
     """
     Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
     """
 
     def __init__(self, in_shape, out_shape, k, hidden=256):
-        super().__init__(in_rank=1, out_shape=out_shape, bias_type=Bias.NONE)
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, bias_type=Bias.NONE)
 
         self.k = k
         self.in_shape = in_shape
@@ -350,27 +481,41 @@ class DenseASHLayer(HyperLayer):
         """
         Evaluates hypernetwork.
         """
-
-        print('cuda', self.use_cuda)
-
         res = self.hyp.forward(input)
-        # res has shape batch_size x 6
 
-        means = nn.functional.sigmoid(res[:, 0:self.k * self.w_rank])
-        means = means.unsqueeze(2).contiguous().view(-1, self.k, self.w_rank)
+        means, sigmas, values = split_out(res, input.size()[1:], self.out_shape)
 
-        ## expand the indices to the range [0, max]
+        return means, sigmas, values
 
-        # Limits for each of the w_rank indices
-        s = Variable(FloatTensor(list(self.out_shape) + list(input.size())[1:]).contiguous())
-        s = s - 1
-        s = s.unsqueeze(0).unsqueeze(0)
-        s = s.expand_as(means)
 
-        means = means * s
+class ParamASHLayer(HyperLayer):
+    """
+    Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
+    """
 
-        sigmas = nn.functional.softplus(res[:, self.k * self.w_rank : self.k * self.w_rank + self.k])
-        values = res[:, self.k * self.w_rank + self.k : ]
+    def __init__(self, in_shape, out_shape, k, hidden=256):
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, bias_type=Bias.NONE)
+
+        self.k = k
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+
+        self.w_rank = len(in_shape) + len(out_shape)
+
+        self.params = Parameter(torch.randn(k, self.w_rank + 2))
+
+        # self.bias = Parameter(torch.zeros(out_shape))
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+        batch_size = input.size()[0]
+
+        # Replicate the parameters along the batch dimension
+        res = self.params.unsqueeze(0).expand(batch_size, self.k, self.w_rank+2)
+
+        means, sigmas, values = split_out(res, input.size()[1:], self.out_shape)
 
         return means, sigmas, values
 
@@ -437,30 +582,117 @@ class ImageCASHLayer(HyperLayer):
         res = nn.functional.relu(self.conv2d(res))
         res = res.squeeze(1)
 
-        # res has shape batch_size x k x rank+1
-        means = nn.functional.sigmoid(res[:, :, 0:self.w_rank])
-
-        ## expand the indices to the range [0, max]
-
-        # Limits for each of the w_rank indices
-
-        sizes = list(self.out_shape) + list(insize)[1:]
-
-        s = torch.cuda.FloatTensor(sizes) if self.use_cuda else FloatTensor(sizes)
-        s = Variable(s.contiguous()) # TODO: check if contiguous is really necessary
-
-        s = s - 1
-        s = s.unsqueeze(0).unsqueeze(0)
-
-        s = s.expand_as(means)
-
-        # scale the indices
-        means = means * s
-
-        sigmas = nn.functional.softplus(res[:, :, self.w_rank:self.w_rank+1].squeeze(2))
-        values = res[:, :, self.w_rank+1:].squeeze(2)
+        means, sigmas, values = split_out(res, input.size()[1:], self.out_shape)
 
         bias = self.bias(hidden)
         bias = bias.view((-1, ) + self.out_shape)
 
         return means, sigmas, values, bias
+
+class CASHLayer(HyperLayer):
+    """
+
+    """
+    def __init__(self, in_shape, out_shape, k, poolsize=4, deconvs=2, gain=7.0):
+        """
+        :param in_shape:
+        :param out_shape:
+        :param k: How many index tuples to generate. If this is not divisible by 2^deconvs, you'll get the next biggest
+        number that is.
+        :param poolsize:
+        :param deconvs: How many deconv layers to use to generate the tuples from the hidden layer
+        """
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, bias_type=Bias.DENSE)
+
+        class NoActivation(nn.Module):
+            def __init__(self):
+                super().__init__()
+            def forward(self, input):
+                return input
+
+        self.activation = NoActivation()
+
+        self.k = k
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.gain = gain
+
+        self.w_rank = len(in_shape) + len(out_shape)
+
+        hidden = int(math.ceil(k/2**deconvs))
+
+        if len(in_shape) == 1:
+            x = in_shape[0]
+            flat_size = int(x / poolsize)
+            self.pool = nn.AvgPool1d(kernel_size=poolsize, stride=poolsize)
+        elif len(in_shape) == 2:
+            x, y = in_shape
+            flat_size = int(x / poolsize) * int(y / poolsize)
+            self.pool = nn.AvgPool2d(kernel_size=poolsize, stride=poolsize)
+        elif len(in_shape) == 3:
+            x, y, z = in_shape
+            flat_size = int(x / poolsize) * int(y / poolsize) * int(z / poolsize)
+            self.pool = nn.AvgPool3d(kernel_size=poolsize, stride=poolsize)
+        else:
+            raise Exception('Input dimensions higher than 3 not supported (yet)')
+
+        # hypernetwork
+        self.tohidden = nn.Sequential(
+            Flatten(),
+            nn.Linear(flat_size, hidden),
+            self.activation
+        )
+
+        self.conv1= nn.ConvTranspose1d(in_channels=1, out_channels=self.w_rank+2, kernel_size=2, stride=2)
+
+        self.convs = nn.ModuleList()
+        for i in range(deconvs - 1):
+            self.convs.append(
+                nn.ConvTranspose1d(in_channels=self.w_rank+2, out_channels=self.w_rank+2, kernel_size=2, stride=2))
+
+        self.bias = nn.Sequential(
+            nn.Linear(hidden, hyper.prod(out_shape)),
+            self.activation
+        )
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+
+        insize = input.size()
+
+        downsampled = self.pool(input.unsqueeze(1)).unsqueeze(1)
+
+        hidden = self.tohidden(downsampled)
+
+        res = hidden.unsqueeze(1)
+
+        res = self.conv1(res)
+
+        for i, conv in enumerate(self.convs):
+            if i != 0:
+                res = self.activation(res)
+            res = conv(res)
+
+        res = res.transpose(1,2)
+        # res has shape batch_size x k x rank+2
+
+        means, sigmas, values = split_out(res, input.size()[1:], self.out_shape)
+
+        bias = self.bias(hidden)
+        # bias = bias.view((-1, ) + self.out_shape)
+        # print('down', downsampled)
+        # print('params', list(self.tohidden[1].parameters()))
+        # print('hidden', hidden)
+
+        return means, sigmas, values, bias
+
+if __name__ == '__main__':
+
+    x = torch.randn(2, 3, 3)
+    print(x)
+    x = norm(x)
+    print(x)
+
+    print(torch.norm(x.view(2, -1), p=2, dim=1))

@@ -17,11 +17,15 @@ w = SummaryWriter()
 
 BATCH = 32
 SHAPE = (8, )
+CUDA = True
 
 nzs = 8 # hyper.prod(SHAPE)*6
 
 model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=nzs) #
 # model.initialize(SHAPE, batch_size=64,iterations=100, lr=0.05)
+
+if CUDA:
+    model.cuda()
 
 #x = Variable(torch.rand((BATCH, ) + SHAPE))
 #print('--- x', x)
@@ -38,6 +42,9 @@ plt.figure(figsize=(5,5))
 
 for i in trange(N):
     x = Variable(torch.rand((BATCH,) + SHAPE))
+
+    if CUDA:
+        x.cuda()
 
     optimizer.zero_grad()
 

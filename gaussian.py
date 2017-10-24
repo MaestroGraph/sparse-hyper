@@ -133,10 +133,6 @@ def sort(indices, vals, use_cuda=False):
 
         _, ixs = torch.sort(indices[b, :, 0])
 
-        print('ixs', ixs)
-        print('indices', indices)
-        print('vals', vals)
-
         inew[b, :, :] = indices[b, :, :][ixs]
         vnew[b, :] = vals[b, :][ixs]
 
@@ -334,9 +330,6 @@ class HyperLayer(nn.Module):
 
         mindices, values = sort(mindices, values, self.use_cuda)
 
-        if self.use_cuda: # index tensors must be on the cpu
-            mindices = mindices.cpu()
-
         # print('<>', real_indices, real_values)
         # print('||', mindices, values)
 
@@ -351,6 +344,11 @@ class HyperLayer(nn.Module):
 
                 i = mindices[b, r_start, 0]
                 ixs = mindices[b, r_start:r_end, 1]
+
+                print('ixs', ixs)
+                print('x_flat', x_flat)
+                print('values',values)
+
                 y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
 
                 r_start = r_end

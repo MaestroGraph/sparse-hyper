@@ -252,6 +252,42 @@ class HyperLayer(nn.Module):
 
         self.bias_type = bias_type
 
+    def split_out(self, res, input_size, output_size, gain=5.0):
+        """
+        Utility function. If res is a B x K x Wrank+2 tensor with range from
+        -inf to inf, this function splits out the means, sigmas and values, and
+        applies the required activations.
+
+        :param res:
+        :param input_size:
+        :param output_size:
+        :param gain:
+        :return:
+        """
+
+        b, k, width = res.size()
+        w_rank = width - 2
+
+        means = nn.functional.sigmoid(res[:, :, 0:w_rank] * gain)
+        means = means.unsqueeze(2).contiguous().view(-1, k, w_rank)
+
+        ## expand the indices to the range [0, max]
+
+        # Limits for each of the w_rank indices
+        ws = list(output_size) + list(input_size)
+        s = torch.cuda.FloatTensor(ws) if self.cuda else FloatTensor(ws)
+        s = Variable(s.contiguous())
+        s = s - 1
+        s = s.unsqueeze(0).unsqueeze(0)
+        s = s.expand_as(means)
+
+        means = means * s
+
+        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2)
+        values = res[:, :, w_rank + 1:].squeeze(2)
+
+        return means, sigmas, values
+
     def forward(self, input):
 
         batchsize = input.size()[0]
@@ -429,30 +465,6 @@ class HyperLayer(nn.Module):
                 #     plt.savefig('./init/means.{:06}.png'.format(i))
 
 
-
-def split_out(res, input_size, output_size, gain=5.0):
-
-    b, k, width = res.size()
-    w_rank = width - 2
-
-    means = nn.functional.sigmoid(res[:, :, 0:w_rank] * gain)
-    means = means.unsqueeze(2).contiguous().view(-1, k, w_rank)
-
-    ## expand the indices to the range [0, max]
-
-    # Limits for each of the w_rank indices
-    s = Variable(FloatTensor(list(output_size) + list(input_size)).contiguous())
-    s = s - 1
-    s = s.unsqueeze(0).unsqueeze(0)
-    s = s.expand_as(means)
-
-    means = means * s
-
-    sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank+1]).squeeze(2)
-    values = res[:, :, w_rank+1:].squeeze(2)
-
-    return means, sigmas, values
-
 class DenseASHLayer(HyperLayer):
     """
     Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
@@ -483,7 +495,7 @@ class DenseASHLayer(HyperLayer):
         """
         res = self.hyp.forward(input)
 
-        means, sigmas, values = split_out(res, input.size()[1:], self.out_shape)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
 
         return means, sigmas, values
 
@@ -515,7 +527,7 @@ class ParamASHLayer(HyperLayer):
         # Replicate the parameters along the batch dimension
         res = self.params.unsqueeze(0).expand(batch_size, self.k, self.w_rank+2)
 
-        means, sigmas, values = split_out(res, input.size()[1:], self.out_shape)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
 
         return means, sigmas, values
 
@@ -582,7 +594,7 @@ class ImageCASHLayer(HyperLayer):
         res = nn.functional.relu(self.conv2d(res))
         res = res.squeeze(1)
 
-        means, sigmas, values = split_out(res, input.size()[1:], self.out_shape)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
 
         bias = self.bias(hidden)
         bias = bias.view((-1, ) + self.out_shape)
@@ -678,7 +690,7 @@ class CASHLayer(HyperLayer):
         res = res.transpose(1,2)
         # res has shape batch_size x k x rank+2
 
-        means, sigmas, values = split_out(res, input.size()[1:], self.out_shape)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
 
         bias = self.bias(hidden)
         # bias = bias.view((-1, ) + self.out_shape)

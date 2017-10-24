@@ -275,7 +275,7 @@ class HyperLayer(nn.Module):
 
         # Limits for each of the w_rank indices
         ws = list(output_size) + list(input_size)
-        s = torch.cuda.FloatTensor(ws) if self.cuda else FloatTensor(ws)
+        s = torch.cuda.FloatTensor(ws) if self.use_cuda else FloatTensor(ws)
         s = Variable(s.contiguous())
         s = s - 1
         s = s.unsqueeze(0).unsqueeze(0)
@@ -329,8 +329,8 @@ class HyperLayer(nn.Module):
 
         mindices, values = sort(mindices, values, self.use_cuda)
 
-        if self.cuda(): # index tensors must be on the cpu
-            mindices = mindices.cpu()
+        # if self.use_cuda: # index tensors must be on the cpu
+        #     mindices = mindices.cpu()
 
         # print('<>', real_indices, real_values)
         # print('||', mindices, values)

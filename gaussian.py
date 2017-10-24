@@ -132,6 +132,11 @@ def sort(indices, vals, use_cuda=False):
     for b in range(batchsize):
 
         _, ixs = torch.sort(indices[b, :, 0])
+
+        print('ixs', ixs)
+        print('indices', indices)
+        print('vals', vals)
+
         inew[b, :, :] = indices[b, :, :][ixs]
         vnew[b, :] = vals[b, :][ixs]
 

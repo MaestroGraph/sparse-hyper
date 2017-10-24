@@ -28,9 +28,9 @@ def plot(means, sigmas, values, axes=None):
 
     b, n, d = means.size()
 
-    means = means.data[0, :,:].numpy()
-    sigmas = sigmas.data[0, :].numpy()
-    values = nn.functional.tanh(values).data[0, :].numpy()
+    means = means.data[0, :,:].cpu().numpy()
+    sigmas = sigmas.data[0, :]..cpu().numpy()
+    values = nn.functional.tanh(values).data[0, :].cpu().numpy()
 
     norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0)
     cmap = mpl.cm.RdYlBu

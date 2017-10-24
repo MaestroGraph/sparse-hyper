@@ -74,7 +74,11 @@ for i in trange(N):
         plt.savefig('./spread/means{:04}.png'.format(i))
 
 for i in range(20):
-    x = Variable(torch.rand((1,) + SHAPE))
+    x = torch.rand((1,) + SHAPE)
+    if CUDA:
+        x = x.cuda()
+    x = Variable(x)
+
     y = model(x)
 
     print('diff', torch.abs(x - y).unsqueeze(0))

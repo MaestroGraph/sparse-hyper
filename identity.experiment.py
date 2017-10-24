@@ -41,10 +41,10 @@ optimizer = optim.Adam(model.parameters(), lr=0.01)
 plt.figure(figsize=(5,5))
 
 for i in trange(N):
-    x = Variable(torch.rand((BATCH,) + SHAPE))
-
+    x = torch.rand((BATCH,) + SHAPE)
     if CUDA:
         x.cuda()
+    x = Variable(x)
 
     optimizer.zero_grad()
 

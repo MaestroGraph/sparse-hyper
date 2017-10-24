@@ -526,8 +526,6 @@ class ParamASHLayer(HyperLayer):
         Evaluates hypernetwork.
         """
 
-        print(self.params)
-
         batch_size = input.size()[0]
 
         # Replicate the parameters along the batch dimension

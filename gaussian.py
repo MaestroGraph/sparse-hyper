@@ -345,10 +345,6 @@ class HyperLayer(nn.Module):
                 i = mindices[b, r_start, 0]
                 ixs = mindices[b, r_start:r_end, 1]
 
-                print('ixs', ixs)
-                print('x_flat', x_flat)
-                print('values',values)
-
                 y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
 
                 r_start = r_end

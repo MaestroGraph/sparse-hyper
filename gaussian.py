@@ -329,8 +329,8 @@ class HyperLayer(nn.Module):
 
         mindices, values = sort(mindices, values, self.use_cuda)
 
-        # if self.use_cuda: # index tensors must be on the cpu
-        #     mindices = mindices.cpu()
+        if self.use_cuda: # index tensors must be on the cpu
+            mindices = mindices.cpu()
 
         # print('<>', real_indices, real_values)
         # print('||', mindices, values)

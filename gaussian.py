@@ -74,8 +74,8 @@ def fi(indices, shape, use_cuda=False):
 
     for i in range(rank):
         prod = LongTensor(batchsize).fill_(1) if use_cuda else LongTensor(batchsize).fill_(1)
-        if use_cuda:
-            prod = prod.cuda()
+        # if use_cuda:
+        #     prod = prod.cuda()
 
         for j in range(i + 1, len(shape)):
             prod *= shape[j]

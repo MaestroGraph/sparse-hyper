@@ -243,7 +243,7 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
                 ints_flat[b, m, :] = LongTensor(sample)
 
     ints = tup(ints_flat.view(-1), rng, use_cuda=False)
-    ints = ints.unsqueeze(0).unsqueee(0).view(batchsize, n, 2 ** rank + additional, rank)
+    ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)
 
     # print('means', means)
     # print('ints', ints)

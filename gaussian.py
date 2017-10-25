@@ -249,7 +249,7 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
     # print('ints', ints)
 
     ints_fl = ints.float().cuda() if use_cuda else ints.float()
-    ints_fl = Variable() # leaf node in the comp graph, gradients go through values
+    ints_fl = Variable(ints_fl) # leaf node in the comp graph, gradients go through values
 
     # compute the proportion of the value each integer index tuple receives
     props = densities(ints_fl, means, sigmas)

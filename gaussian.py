@@ -359,7 +359,7 @@ class HyperLayer(nn.Module):
 
         means = means * s
 
-        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2)
+        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2) + 0.3
         values = nn.functional.softplus(res[:, :, w_rank + 1:].squeeze(2))
 
         return means, sigmas, values
@@ -596,7 +596,7 @@ class ParamASHLayer(HyperLayer):
         self.w_rank = len(in_shape) + len(out_shape)
 
         p = torch.randn(k, self.w_rank + 2)
-        p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1] * 0.0 + 0.6
+        p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1] * 0.0 + 6.0
         self.params = Parameter(p)
 
     def hyper(self, input):

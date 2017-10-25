@@ -8,20 +8,20 @@ from tensorboardX import SummaryWriter
 import matplotlib.pyplot as plt
 import util
 
-torch.manual_seed(1)
+torch.manual_seed(2)
 
 """
 Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-BATCH = 1
-SHAPE = (3, )
+BATCH = 4
+SHAPE = (16, )
 CUDA = False
 
 nzs = hyper.prod(SHAPE)
 
-model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=3, k=nzs, gain=1.0) #
+model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=10, k=nzs, gain=1.0) #
 # model.initialize(SHAPE, batch_size=64,iterations=100, lr=0.05)
 
 if CUDA:

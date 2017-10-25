@@ -15,13 +15,13 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-BATCH = 4
-SHAPE = (16, )
-CUDA = False
+BATCH = 256
+SHAPE = (32, )
+CUDA = True
 
 nzs = hyper.prod(SHAPE)
 
-model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=10, k=nzs, gain=1.0) #
+model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=256, k=nzs, gain=1.0) #
 # model.initialize(SHAPE, batch_size=64,iterations=100, lr=0.05)
 
 if CUDA:
@@ -33,7 +33,7 @@ if CUDA:
 #y = model(x)
 #print('--- y', y)
 
-N = 50000 // BATCH
+N = 300000 // BATCH
 
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)

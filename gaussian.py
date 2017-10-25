@@ -70,10 +70,10 @@ def fi(indices, shape, use_cuda=False):
     """
     batchsize, rank = indices.size()
 
-    res = torch.cuda.LongTensor(batchsize).fill_(0) if use_cuda else LongTensor(batchsize).fill_(0)
+    res = LongTensor(batchsize).fill_(0) if use_cuda else LongTensor(batchsize).fill_(0)
 
     for i in range(rank):
-        prod = torch.cuda.LongTensor(batchsize).fill_(1) if use_cuda else LongTensor(batchsize).fill_(1)
+        prod = LongTensor(batchsize).fill_(1) if use_cuda else LongTensor(batchsize).fill_(1)
         if use_cuda:
             prod = prod.cuda()
 
@@ -130,7 +130,7 @@ def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
     inrank = len(in_shape)
     outrank = len(out_shape)
 
-    result = torch.cuda.LongTensor(batchsize, n, 2) if use_cuda else LongTensor(batchsize, n, 2)
+    result = LongTensor(batchsize, n, 2) if use_cuda else LongTensor(batchsize, n, 2)
 
     for row in range(n):
         result[:, row, 0] = fi(indices[:, row, 0:outrank], out_shape, use_cuda)   # i index of the weight matrix
@@ -243,7 +243,7 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
                 ints_flat[b, m, :] = LongTensor(sample)
 
     ints = tup(ints_flat.view(-1), rng, use_cuda=False)
-    ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)
+    ints = ints.unsqueeze(0).unsqueee(0).view(batchsize, n, 2 ** rank + additional, rank)
 
     # print('means', means)
     # print('ints', ints)

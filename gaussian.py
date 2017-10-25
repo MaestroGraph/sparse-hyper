@@ -389,6 +389,9 @@ class HyperLayer(nn.Module):
         # translate tensor indices to matrix indices
         mindices, _ = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
 
+        if self.use_cuda:
+            mindices = mindices.cuda()
+
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
         #     through 'values', which are a function of both the real_indices and the real_values.
 

@@ -427,17 +427,24 @@ class HyperLayer(nn.Module):
 
         t0 = time.time()
         ttotaldot = 0
+        ttotalrange = 0
+        ttotalind= 0
+
         for b in range(batchsize):
             r_start = 0
             r_end = 0
 
             while r_end < mindices.size()[1]:
 
+                t0range = time.time()
                 while r_end < mindices.size()[1] and mindices[b, r_start, 0] == mindices[b, r_end, 0]:
                     r_end += 1
+                ttotalrange += time.time() - t0range
 
+                t0ind = time.time()
                 i = mindices[b, r_start, 0]
                 ixs = mindices[b, r_start:r_end, 1]
+                ttotalind += time.time() - t0ind
 
                 t0dot = time.time()
                 y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
@@ -446,6 +453,10 @@ class HyperLayer(nn.Module):
                 r_start = r_end
         logging.info('multiply: {} seconds'.format(time.time() - t0))
         logging.info('     dot: {} seconds'.format(ttotaldot))
+        logging.info('   range: {} seconds'.format(ttotalrange))
+        logging.info('     ind: {} seconds'.format(ttotalind))
+
+
 
 
         y_shape = [batchsize]

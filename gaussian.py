@@ -235,12 +235,15 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
 
     # Sample additional points
     if rng is not None:
+        t0 = time.time()
         total = hyper.prod(rng)
 
         for b in range(batchsize):
             for m in range(n):
                 sample = util.sample(range(total), additional + 2**rank, list(neighbor_ints[b, m, :]))
                 ints_flat[b, m, :] = LongTensor(sample)
+
+        print(time.time() - t0, 'seconds')
 
     ints = tup(ints_flat.view(-1), rng, use_cuda=False)
     ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)

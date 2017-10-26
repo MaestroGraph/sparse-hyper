@@ -17,7 +17,7 @@ w = SummaryWriter()
 
 BATCH = 256
 SHAPE = (32, )
-CUDA = True
+CUDA = False
 
 nzs = hyper.prod(SHAPE)
 

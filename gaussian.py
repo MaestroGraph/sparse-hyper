@@ -70,12 +70,10 @@ def fi(indices, shape, use_cuda=False):
     """
     batchsize, rank = indices.size()
 
-    res = LongTensor(batchsize).fill_(0) if use_cuda else LongTensor(batchsize).fill_(0)
+    res = torch.cuda.LongTensor(batchsize).fill_(0) if use_cuda else LongTensor(batchsize).fill_(0)
 
     for i in range(rank):
-        prod = LongTensor(batchsize).fill_(1) if use_cuda else LongTensor(batchsize).fill_(1)
-        # if use_cuda:
-        #     prod = prod.cuda()
+        prod = torch.cuda.LongTensor(batchsize).fill_(1) if use_cuda else LongTensor(batchsize).fill_(1)
 
         for j in range(i + 1, len(shape)):
             prod *= shape[j]
@@ -130,7 +128,7 @@ def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
     inrank = len(in_shape)
     outrank = len(out_shape)
 
-    result = LongTensor(batchsize, n, 2) if use_cuda else LongTensor(batchsize, n, 2)
+    result = torch.cuda.LongTensor(batchsize, n, 2) if use_cuda else LongTensor(batchsize, n, 2)
 
     for row in range(n):
         result[:, row, 0] = fi(indices[:, row, 0:outrank], out_shape, use_cuda)   # i index of the weight matrix
@@ -389,11 +387,11 @@ class HyperLayer(nn.Module):
         indices, props, values = discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
         values = values * props
 
+        if self.use_cuda:
+            indices = indices.cuda()
+
         # translate tensor indices to matrix indices
         mindices, _ = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
-
-        if self.use_cuda:
-            mindices = mindices.cuda()
 
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
         #     through 'values', which are a function of both the real_indices and the real_values.

@@ -6,7 +6,7 @@ from tqdm import trange
 from tensorboardX import SummaryWriter
 
 import matplotlib.pyplot as plt
-import util, logging
+import util, logging, time
 
 logging.basicConfig(filename='run.log',level=logging.INFO)
 
@@ -52,10 +52,19 @@ for i in trange(N):
 
     optimizer.zero_grad()
 
+    t0 = time.time()
     y = model(x)
     loss = criterion(y, x) # compute the loss
+    logging.info(' forward: {} seconds'.format(time.time() - t0))
+
+    t0 = time.time()
     loss.backward()        # compute the gradients
+    logging.info('backward: {} seconds'.format(time.time() - t0))
+
+    t0 = time.time()
     optimizer.step()
+    logging.info('    step: {} seconds'.format(time.time() - t0))
+
 
     w.add_scalar('identity/plain', torch.sqrt(loss).data[0], i)
 

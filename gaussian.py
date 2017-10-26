@@ -367,31 +367,40 @@ class HyperLayer(nn.Module):
         return means, sigmas, values
 
     def forward(self, input):
+        t0total = time.time()
 
         batchsize = input.size()[0]
         rng = tuple(self.out_shape) + tuple(input.size()[1:])
 
         ### Compute and unpack output of hypernetwork
 
+        t0 = time.time()
         if self.bias_type == Bias.NONE:
             means, sigmas, values = self.hyper(input)
         if self.bias_type == Bias.DENSE:
             means, sigmas, values, bias = self.hyper(input)
         if self.bias_type == Bias.SPARSE:
             means, sigmas, values, bias_means, bias_sigmas, bias_values = self.hyper(input)
+        logging.info('compute hyper: {} seconds'.format(time.time() - t0))
 
         # NB: due to batching, real_indices has shape batchsize x K x rank(W)
         #     real_values has shape batchsize x K
 
         # turn the real values into integers in a differentiable way
+        t0 = time.time()
         indices, props, values = discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
         values = values * props
+        logging.info('discretize: {} seconds'.format(time.time() - t0))
 
+        t0 = time.time()
         if self.use_cuda:
             indices = indices.cuda()
+        logging.info('transfer indices: {} seconds'.format(time.time() - t0))
 
+        t0 = time.time()
         # translate tensor indices to matrix indices
         mindices, _ = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
+        logging.info('flatten indices: {} seconds'.format(time.time() - t0))
 
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
         #     through 'values', which are a function of both the real_indices and the real_values.
@@ -409,11 +418,14 @@ class HyperLayer(nn.Module):
         y_flat.fill_(0.0)
         y_flat = Variable(y_flat)
 
+        t0 = time.time()
         mindices, values = sort(mindices, values, self.use_cuda)
+        logging.info('sort: {} seconds'.format(time.time() - t0))
 
         # print('<>', real_indices, real_values)
         # print('||', mindices, values)
 
+        t0 = time.time()
         for b in range(batchsize):
             r_start = 0
             r_end = 0
@@ -429,6 +441,7 @@ class HyperLayer(nn.Module):
                 y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
 
                 r_start = r_end
+        logging.info('multiply: {} seconds'.format(time.time() - t0))
 
         y_shape = [batchsize]
         y_shape.extend(self.out_shape)
@@ -440,6 +453,8 @@ class HyperLayer(nn.Module):
             y = y + bias
         if self.bias_type == Bias.SPARSE: # untested!
             pass
+
+        logging.info('total: {} seconds'.format(time.time() - t0total))
 
         return y
 

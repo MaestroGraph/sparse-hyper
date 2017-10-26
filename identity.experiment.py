@@ -19,7 +19,7 @@ w = SummaryWriter()
 
 BATCH = 256
 SHAPE = (32, )
-CUDA = False
+CUDA = True
 
 nzs = hyper.prod(SHAPE)
 
@@ -52,18 +52,12 @@ for i in trange(N):
 
     optimizer.zero_grad()
 
-    t0 = time.time()
     y = model(x)
     loss = criterion(y, x) # compute the loss
-    logging.info(' forward: {} seconds'.format(time.time() - t0))
 
-    t0 = time.time()
     loss.backward()        # compute the gradients
-    logging.info('backward: {} seconds'.format(time.time() - t0))
 
-    t0 = time.time()
     optimizer.step()
-    logging.info('    step: {} seconds'.format(time.time() - t0))
 
 
     w.add_scalar('identity/plain', torch.sqrt(loss).data[0], i)

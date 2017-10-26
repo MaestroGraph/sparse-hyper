@@ -428,7 +428,10 @@ class HyperLayer(nn.Module):
         t0 = time.time()
         ttotaldot = 0
         ttotalrange = 0
+        ttotalrange_cpu = 0
         ttotalind= 0
+
+        mindices_cpu = mindices.cpu()
 
         for b in range(batchsize):
             r_start = 0
@@ -436,10 +439,18 @@ class HyperLayer(nn.Module):
 
             while r_end < mindices.size()[1]:
 
+                r_start_cpu = r_start
+                r_end_cpu = r_end
+
                 t0range = time.time()
                 while r_end < mindices.size()[1] and mindices[b, r_start, 0] == mindices[b, r_end, 0]:
                     r_end += 1
                 ttotalrange += time.time() - t0range
+
+                t0range_cpu = time.time()
+                while r_end_cpu < mindices_cpu.size()[1] and mindices_cpu[b, r_start_cpu, 0] == mindices_cpu[b, r_end_cpu, 0]:
+                    r_end_cpu += 1
+                ttotalrange_cpu += time.time() - t0range_cpu
 
                 t0ind = time.time()
                 i = mindices[b, r_start, 0]
@@ -451,10 +462,11 @@ class HyperLayer(nn.Module):
                 ttotaldot += time.time() - t0dot
 
                 r_start = r_end
-        logging.info('multiply: {} seconds'.format(time.time() - t0))
-        logging.info('     dot: {} seconds'.format(ttotaldot))
-        logging.info('   range: {} seconds'.format(ttotalrange))
-        logging.info('     ind: {} seconds'.format(ttotalind))
+        logging.info('----multiply: {} seconds'.format(time.time() - t0))
+        logging.info('         dot: {} seconds'.format(ttotaldot))
+        logging.info('       range: {} seconds'.format(ttotalrange))
+        logging.info('  range(cpu): {} seconds'.format(ttotalrange))
+        logging.info('         ind: {} seconds'.format(ttotalind))
 
 
 

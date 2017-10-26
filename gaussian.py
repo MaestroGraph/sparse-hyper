@@ -426,6 +426,7 @@ class HyperLayer(nn.Module):
         # print('||', mindices, values)
 
         t0 = time.time()
+        ttotaldot = 0
         for b in range(batchsize):
             r_start = 0
             r_end = 0
@@ -440,10 +441,12 @@ class HyperLayer(nn.Module):
 
                 t0dot = time.time()
                 y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
-                logging.info('   dot: {} seconds'.format(time.time() - t0dot))
+                ttotaldot += time.time() - t0dot
 
                 r_start = r_end
         logging.info('multiply: {} seconds'.format(time.time() - t0))
+        logging.info('     dot: {} seconds'.format(ttotaldot))
+
 
         y_shape = [batchsize]
         y_shape.extend(self.out_shape)

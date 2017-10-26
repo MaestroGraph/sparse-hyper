@@ -438,7 +438,9 @@ class HyperLayer(nn.Module):
                 i = mindices[b, r_start, 0]
                 ixs = mindices[b, r_start:r_end, 1]
 
+                t0dot = time.time()
                 y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
+                logging.info('   dot: {} seconds'.format(time.time() - t0dot))
 
                 r_start = r_end
         logging.info('multiply: {} seconds'.format(time.time() - t0))

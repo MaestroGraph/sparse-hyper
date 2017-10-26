@@ -6,7 +6,9 @@ from tqdm import trange
 from tensorboardX import SummaryWriter
 
 import matplotlib.pyplot as plt
-import util
+import util, logging
+
+logging.basicConfig(filename='run.log',level=logging.INFO)
 
 torch.manual_seed(2)
 

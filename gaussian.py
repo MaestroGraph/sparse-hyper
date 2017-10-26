@@ -465,7 +465,7 @@ class HyperLayer(nn.Module):
         logging.info('----multiply: {} seconds'.format(time.time() - t0))
         logging.info('         dot: {} seconds'.format(ttotaldot))
         logging.info('       range: {} seconds'.format(ttotalrange))
-        logging.info('  range(cpu): {} seconds'.format(ttotalrange))
+        logging.info('  range(cpu): {} seconds'.format(ttotalrange_cpu))
         logging.info('         ind: {} seconds'.format(ttotalind))
 
 

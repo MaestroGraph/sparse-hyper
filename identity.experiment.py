@@ -17,7 +17,7 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-BATCH = 256
+BATCH = 128
 SHAPE = (32, )
 CUDA = True
 
@@ -69,7 +69,7 @@ for i in trange(N):
     #
     # print('LOSS', torch.sqrt(loss))
 
-    if i % (N/50) == 0:
+    if i % (N//50) == 0:
         means, sigmas, values = model.hyper(x)
 
         plt.clf()

@@ -6,7 +6,7 @@ from tqdm import trange
 from tensorboardX import SummaryWriter
 
 import matplotlib.pyplot as plt
-import util, logging, time
+import util, logging, time, gc
 
 logging.basicConfig(filename='run.log',level=logging.INFO)
 
@@ -44,6 +44,8 @@ plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
 
 for i in trange(N):
+
+    gc.collect() # trying to fix the memory leak
 
     x = torch.rand((BATCH,) + SHAPE)
     if CUDA:

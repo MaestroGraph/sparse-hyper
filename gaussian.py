@@ -120,7 +120,7 @@ def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
 
     :param indices: Long tensor
     :param in_rank:
-    :return: A matrix of size N by 2. .
+    :return: A matrix of size N by 2. The size of the matrix as a LongTensor
     """
 
     batchsize, n, rank = indices.size()
@@ -134,7 +134,7 @@ def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
         result[:, row, 0] = fi(indices[:, row, 0:outrank], out_shape, use_cuda)   # i index of the weight matrix
         result[:, row, 1] = fi(indices[:, row, outrank:rank], in_shape, use_cuda) # j index
 
-    return result, (prod(out_shape), prod(in_shape))
+    return result, LongTensor((prod(out_shape), prod(in_shape)))
 
 def sort(indices, vals, use_cuda=False):
     """
@@ -332,7 +332,7 @@ class HyperLayer(nn.Module):
 
     def split_out(self, res, input_size, output_size, gain=5.0):
         """
-        Utility function. If res is a B x K x Wrank+2 tensor with range from
+        Utility function. res is a B x K x Wrank+2 tensor with range from
         -inf to inf, this function splits out the means, sigmas and values, and
         applies the required activations.
 
@@ -361,7 +361,7 @@ class HyperLayer(nn.Module):
 
         means = means * s
 
-        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2) + 0.3
+        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2) + 0.0
         values = nn.functional.softplus(res[:, :, w_rank + 1:].squeeze(2))
 
         return means, sigmas, values
@@ -399,7 +399,7 @@ class HyperLayer(nn.Module):
 
         t0 = time.time()
         # translate tensor indices to matrix indices
-        mindices, _ = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
+        mindices, flat_size = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
         logging.info('flatten indices: {} seconds'.format(time.time() - t0))
 
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
@@ -415,57 +415,65 @@ class HyperLayer(nn.Module):
         ly = prod(self.out_shape)
 
         y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
-        y_flat.fill_(0.0)
+        # y_flat.fill_(0.0)
         y_flat = Variable(y_flat)
 
-        t0 = time.time()
-        mindices, values = sort(mindices, values, self.use_cuda)
-        logging.info('sort: {} seconds'.format(time.time() - t0))
-
-        # print('<>', real_indices, real_values)
-        # print('||', mindices, values)
-
-        t0 = time.time()
-        ttotaldot = 0
-        ttotalrange = 0
-        ttotalrange_cpu = 0
-        ttotalind= 0
-
-        mindices_cpu = mindices.cpu()
+        sparsemult = util.SparseMult(use_cuda=self.use_cuda)
 
         for b in range(batchsize):
-            r_start = 0
-            r_end = 0
+            bindices = Variable(mindices[b, :, :].squeeze(0).t())
+            bvalues = values[b, :]
+            bsize = Variable(flat_size)
+            bx = x_flat[b,:]
 
-            while r_end < mindices.size()[1]:
+            y_flat[b,:] = sparsemult(bindices, bvalues, bsize, bx)
 
-                r_start_cpu = r_start
-                r_end_cpu = r_end
-
-                t0range = time.time()
-                while r_end < mindices.size()[1] and mindices[b, r_start, 0] == mindices[b, r_end, 0]:
-                    r_end += 1
-                ttotalrange += time.time() - t0range
-
-
-                t0ind = time.time()
-                i = mindices[b, r_start, 0]
-                ixs = mindices[b, r_start:r_end, 1]
-                ttotalind += time.time() - t0ind
-
-                t0dot = time.time()
-                y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
-                ttotaldot += time.time() - t0dot
-
-                r_start = r_end
-        logging.info('----multiply: {} seconds'.format(time.time() - t0))
-        logging.info('         dot: {} seconds'.format(ttotaldot))
-        logging.info('       range: {} seconds'.format(ttotalrange))
-        logging.info('  range(cpu): {} seconds'.format(ttotalrange_cpu))
-        logging.info('         ind: {} seconds'.format(ttotalind))
-
-
-
+        # t0 = time.time()
+        # mindices, values = sort(mindices, values, self.use_cuda)
+        # logging.info('sort: {} seconds'.format(time.time() - t0))
+        #
+        # # print('<>', real_indices, real_values)
+        # # print('||', mindices, values)
+        #
+        # t0 = time.time()
+        # ttotaldot = 0
+        # ttotalrange = 0
+        # ttotalrange_cpu = 0
+        # ttotalind= 0
+        #
+        # mindices_cpu = mindices.cpu()
+        #
+        # for b in range(batchsize):
+        #     r_start = 0
+        #     r_end = 0
+        #
+        #     while r_end < mindices.size()[1]:
+        #
+        #         r_start_cpu = r_start
+        #         r_end_cpu = r_end
+        #
+        #         t0range = time.time()
+        #         while r_end < mindices.size()[1] and mindices[b, r_start, 0] == mindices[b, r_end, 0]:
+        #             r_end += 1
+        #         ttotalrange += time.time() - t0range
+        #
+        #
+        #         t0ind = time.time()
+        #         i = mindices[b, r_start, 0]
+        #         ixs = mindices[b, r_start:r_end, 1]
+        #         ttotalind += time.time() - t0ind
+        #
+        #         t0dot = time.time()
+        #         y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
+        #         ttotaldot += time.time() - t0dot
+        #
+        #         r_start = r_end
+        #
+        # logging.info('----multiply: {} seconds'.format(time.time() - t0))
+        # logging.info('         dot: {} seconds'.format(ttotaldot))
+        # logging.info('       range: {} seconds'.format(ttotalrange))
+        # logging.info('  range(cpu): {} seconds'.format(ttotalrange_cpu))
+        # logging.info('         ind: {} seconds'.format(ttotalind))
 
         y_shape = [batchsize]
         y_shape.extend(self.out_shape)
@@ -640,7 +648,7 @@ class ParamASHLayer(HyperLayer):
         self.w_rank = len(in_shape) + len(out_shape)
 
         p = torch.randn(k, self.w_rank + 2)
-        p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1] * 0.0 + 6.0
+        p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1] * 0.0 + 0.6
         self.params = Parameter(p)
 
     def hyper(self, input):

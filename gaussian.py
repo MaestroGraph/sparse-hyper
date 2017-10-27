@@ -447,10 +447,6 @@ class HyperLayer(nn.Module):
                     r_end += 1
                 ttotalrange += time.time() - t0range
 
-                t0range_cpu = time.time()
-                while r_end_cpu < mindices_cpu.size()[1] and mindices_cpu[b, r_start_cpu, 0] == mindices_cpu[b, r_end_cpu, 0]:
-                    r_end_cpu += 1
-                ttotalrange_cpu += time.time() - t0range_cpu
 
                 t0ind = time.time()
                 i = mindices[b, r_start, 0]

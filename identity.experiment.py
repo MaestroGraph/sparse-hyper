@@ -8,6 +8,8 @@ from tensorboardX import SummaryWriter
 import matplotlib.pyplot as plt
 import util, logging, time, gc
 
+import psutil, os
+
 logging.basicConfig(filename='run.log',level=logging.INFO)
 
 torch.manual_seed(2)
@@ -17,7 +19,7 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-BATCH = 128
+BATCH = 256
 SHAPE = (32, )
 CUDA = True
 
@@ -43,9 +45,13 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
 
-for i in trange(N):
+for i in range(20):
 
-    gc.collect() # trying to fix the memory leak
+    model = model.clone()
+    gc.collect()
+
+    process = psutil.Process(os.getpid())
+    logging.info(i, 'memory usage (GB)', process.memory_info().rss / 10e9)
 
     x = torch.rand((BATCH,) + SHAPE)
     if CUDA:
@@ -62,7 +68,7 @@ for i in trange(N):
     optimizer.step()
 
 
-    w.add_scalar('identity/plain', torch.sqrt(loss).data[0], i)
+    # w.add_scalar('identity/plain', torch.sqrt(loss).data[0], i)
 
     # if(i != 0 and i % (N/25) == 0):
     #     print(sigmas, sigmas.grad)
@@ -84,6 +90,7 @@ for i in trange(N):
         print(sigmas)
         print(values)
         print('LOSS', torch.sqrt(loss))
+
 
 for i in range(20):
     x = torch.rand((1,) + SHAPE)

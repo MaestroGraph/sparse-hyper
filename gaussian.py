@@ -112,6 +112,8 @@ def prod(tuple):
 
     return result
 
+# from memory_profiler import profile
+# @profile
 def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
     """
     Turns a n NxK matrix of N index-tuples for a tensor T of rank K into an Nx2 matrix M of index-tuples for a _matrix_
@@ -367,6 +369,8 @@ class HyperLayer(nn.Module):
         return means, sigmas, values
 
     def forward(self, input):
+        self.STORED = None
+
         t0total = time.time()
 
         batchsize = input.size()[0]
@@ -392,15 +396,11 @@ class HyperLayer(nn.Module):
         values = values * props
         logging.info('discretize: {} seconds'.format(time.time() - t0))
 
-        t0 = time.time()
         if self.use_cuda:
             indices = indices.cuda()
-        logging.info('transfer indices: {} seconds'.format(time.time() - t0))
 
-        t0 = time.time()
         # translate tensor indices to matrix indices
         mindices, flat_size = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
-        logging.info('flatten indices: {} seconds'.format(time.time() - t0))
 
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
         #     through 'values', which are a function of both the real_indices and the real_values.
@@ -664,6 +664,13 @@ class ParamASHLayer(HyperLayer):
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape, self.gain)
 
         return means, sigmas, values
+
+    def clone(self):
+        result = ParamASHLayer(self.in_shape, self.out_shape, self.k, self.additional, self.gain)
+
+        result.params = Parameter(self.params.data.clone())
+
+        return result
 
 class ImageCASHLayer(HyperLayer):
     """

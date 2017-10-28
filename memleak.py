@@ -19,9 +19,13 @@ class SparseLayer(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.indices = Variable((torch.rand(2, K) * S).long())
-        self.values = Parameter(torch.rand(K))
-        self.size = Variable(torch.LongTensor([S, S]))
+        self.indices = (torch.rand(2, K) * S).long()
+        self.values = torch.rand(K)
+        self.size = torch.LongTensor([S, S])
+
+        if CUDA:
+            self.indices, self.values, self.size = self.indices.cuda(), self.values.cuda(), self.size.cuda()
+        self.indices, self.values, self.size = Variable(self.indices), Parameter(self.values), Variable(self.size)
 
     def forward(self, x):
 
@@ -35,7 +39,10 @@ optimizer = optim.SGD(model.parameters(), lr=0.1)
 
 for i in trange(int(10e7)):
 
-    x = Variable(torch.randn((S,)))
+    x = torch.randn((S,))
+    if CUDA:
+        x = x.cuda()
+    x = Variable(x)
 
     optimizer.zero_grad()
 

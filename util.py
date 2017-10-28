@@ -11,6 +11,7 @@ import os, errno, random
 import torch
 from torch import nn
 
+import subprocess
 
 import numpy as np
 
@@ -156,3 +157,7 @@ class SparseMult(torch.autograd.Function):
             if self.needs_input_grad[1] else None
 
         return None, grad_values, None, grad_vector
+
+def nvidia_smi():
+    command = 'nvidia-smi'
+    return subprocess.check_output(command, shell=True)

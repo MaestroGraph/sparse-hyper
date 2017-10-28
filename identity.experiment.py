@@ -52,6 +52,8 @@ def iteration(mdl):
     process = psutil.Process(os.getpid())
     logging.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))
 
+    print(util.nvidia_smi())
+
     x = torch.rand((BATCH,) + SHAPE)
     if CUDA:
         x = x.cuda()

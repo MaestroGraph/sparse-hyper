@@ -57,5 +57,3 @@ for i in trange(int(10e7)):
     loss = criterion(out, y)
     loss.backward()
     optimizer.step()
-
-    print(model.values)

@@ -45,8 +45,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
 
-for i in range(N):
-
+def iteration(mdl):
     # model = model.clone()
     gc.collect()
 
@@ -60,7 +59,7 @@ for i in range(N):
 
     optimizer.zero_grad()
 
-    y = model(x)
+    y = mdl(x)
     loss = criterion(y, x) # compute the loss
 
     loss.backward()        # compute the gradients
@@ -78,7 +77,7 @@ for i in range(N):
     # print('LOSS', torch.sqrt(loss))
 
     if i % (N//50) == 0:
-        means, sigmas, values = model.hyper(x)
+        means, sigmas, values = mdl.hyper(x)
 
         plt.clf()
         util.plot(means, sigmas, values)
@@ -91,6 +90,10 @@ for i in range(N):
         print(values)
         print('LOSS', torch.sqrt(loss))
 
+
+
+for i in trange(N):
+    iteration(model)
 
 for i in range(20):
     x = torch.rand((1,) + SHAPE)

@@ -40,23 +40,22 @@ optimizer = optim.SGD(model.parameters(), lr=0.1)
 for i in trange(int(10e7)):
 
     x = torch.randn((S,))
+    y = torch.randn((S,))
     if CUDA:
-        x = x.cuda()
-    x = Variable(x)
+        x, y = x.cuda(), y.cuda()
+    x, y = Variable(x), Variable(y)
 
     optimizer.zero_grad()
 
     out = model(x)
 
-    if i % 1000:
+    if i % 1000 == 0:
         process = psutil.Process(os.getpid())
         logging.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))
         logging.info(util.nvidia_smi())
 
-    # loss = criterion(out, goal) # compute the loss
-    #
-    # loss.backward()             # compute the gradients
-    #
-    # optimizer.step()
-    #
-    # print(model.values)
+    loss = criterion(out, y)
+    loss.backward()
+    optimizer.step()
+
+    print(model.values)

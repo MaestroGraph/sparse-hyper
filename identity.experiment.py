@@ -47,7 +47,7 @@ util.makedirs('./spread/')
 
 for i in range(20):
 
-    model = model.clone()
+    # model = model.clone()
     gc.collect()
 
     process = psutil.Process(os.getpid())

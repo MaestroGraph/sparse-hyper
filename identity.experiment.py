@@ -45,13 +45,13 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
 
-for i in range(20):
+for i in range(N):
 
     # model = model.clone()
     gc.collect()
 
     process = psutil.Process(os.getpid())
-    logging.info(i, 'memory usage (GB)', process.memory_info().rss / 10e9)
+    logging.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))
 
     x = torch.rand((BATCH,) + SHAPE)
     if CUDA:

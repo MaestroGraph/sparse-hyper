@@ -15,7 +15,7 @@ FT = torch.cuda.sparse.FloatTensor if CUDA else torch.sparse.FloatTensor
 
 B = 4
 M = 32
-W, H = 2048, 2048
+W, H = 512, 512
 
 criterion = nn.MSELoss()
 

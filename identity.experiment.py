@@ -66,7 +66,7 @@ def iteration(i, params):
         print('LOSS', torch.sqrt(loss))
 
 
-    return model.params.data.clone()
+    # return model.params.data.clone()
 
 torch.manual_seed(2)
 
@@ -80,7 +80,7 @@ util.makedirs('./spread/')
 params = None
 
 for i in trange(N):
-    params = iteration(i, params)
+    iteration(i, None)
 
     process = psutil.Process(os.getpid())
     LOG.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))

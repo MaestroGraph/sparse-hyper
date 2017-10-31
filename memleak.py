@@ -30,14 +30,14 @@ class SparseMult(torch.autograd.Function):
         # res = torch.mm(matrix, vector.unsqueeze(1))
 
         # self.save_for_backward(indices, values, size, vector)
-        self.save_for_backward(indices)
+        self.save_for_backward(values)
 
         return vector * 2.0
 
     def backward(self, grad_output):
 
         # indices, values, size, vector = self.saved_tensors
-        indices = self.saved_tensors
+        x = self.saved_tensors
 
         return None, None, None, None
 
@@ -75,10 +75,7 @@ def iteration():
 
         bx = x_flat[b, :]
 
-        # matrix = FT(bindices.data, bvalues.data, torch.Size(bsize.data))
-
         y_flat[b, :] = sparsemult(bindices, bvalues, bsize, bx)
-
 
     loss = criterion(y_flat, target)
     loss.backward()

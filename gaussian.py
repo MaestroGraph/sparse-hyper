@@ -415,7 +415,7 @@ class HyperLayer(nn.Module):
 
         y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
         y_flat.fill_(0.0)
-        y_flat = Variable(y_flat)
+        y_flat = Variable(y_flat, require_grad=True)
 
         # sparsemult = util.SparseMult(use_cuda=self.use_cuda)
         #

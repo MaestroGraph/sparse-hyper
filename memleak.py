@@ -1,17 +1,12 @@
 import torch
-from torch import FloatTensor, LongTensor
+from torch import LongTensor
 from torch.autograd import Variable
-from torch import nn, optim
-from torch.nn import Parameter
+from torch import nn
 from tqdm import trange
 
-import util, logging, os, psutil
-
-import hyper, gaussian
+import util, logging
 
 torch.backends.cudnn.benchmark = True
-
-logging.basicConfig(filename='memleak.log',level=logging.INFO)
 
 torch.manual_seed(2)
 
@@ -38,7 +33,7 @@ class SparseMult(torch.autograd.Function):
 
 def iteration():
 
-    sparsemult = util.SparseMult(use_cuda=CUDA)
+    sparsemult = SparseMult()
 
     mindices = (torch.rand(B, H, W) * M-1).long()
     values = torch.rand(B, H)

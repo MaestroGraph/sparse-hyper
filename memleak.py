@@ -15,7 +15,8 @@ logging.basicConfig(filename='memleak.log',level=logging.INFO)
 
 torch.manual_seed(2)
 
-CUDA = True
+CUDA = False
+FT = torch.cuda.sparse.FloatTensor if CUDA else torch.sparse.FloatTensor
 
 B = 256
 M = 32
@@ -25,24 +26,15 @@ criterion = nn.MSELoss()
 
 class SparseMult(torch.autograd.Function):
 
-    def __init__(self, use_cuda=False):
+    def __init__(self):
         super().__init__()
-        self.use_cuda = use_cuda
 
-        self.FT =  torch.cuda.sparse.FloatTensor if self.use_cuda else torch.sparse.FloatTensor
-
-    def forward(self, indices, values, size, vector):
-
-        matrix = self.FT(indices, values, torch.Size(size))
-
-        # self.save_for_backward(indices, values, size, vector)
+    def forward(self, matrix, vector):
         res = torch.mm(matrix, vector.unsqueeze(1))
-
         return res
 
     def backward(self, grad_output):
-
-        return None, None, None, None
+        return None, None
 
 def iteration():
 
@@ -78,11 +70,13 @@ def iteration():
 
         bx = x_flat[b, :]
 
+        matrix = FT(bindices.data, bvalues.data, torch.Size(bsize.data))
+
         y_flat[b, :] = sparsemult(bindices, bvalues, bsize, bx)
 
 
     loss = criterion(y_flat, target)
-    loss.backward(retain_graph=True)
+    loss.backward(retain_graph=False)
 
     del sparsemult
 

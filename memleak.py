@@ -19,10 +19,11 @@ B = 256
 M = 32
 W, H = 2, 2048
 
-sparsemult = util.SparseMult(use_cuda=CUDA)
 criterion = nn.MSELoss()
 
 def iteration():
+
+    sparsemult = util.SparseMult(use_cuda=CUDA)
 
     mindices = (torch.rand(B, H, W) * M-1).long()
     values = torch.rand(B, H)
@@ -56,8 +57,11 @@ def iteration():
 
         y_flat[b, :] = sparsemult(bindices, bvalues, bsize, bx)
 
+
     loss = criterion(y_flat, target)
     loss.backward(retain_graph=True)
+
+    del sparsemult
 
 for i in trange(int(10e7)):
     iteration()

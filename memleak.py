@@ -27,3 +27,7 @@ for i in trange(int(10e7)):
 
     x, _ = hyper.flatten_indices(x, IN, OUT)
 
+    if i % 25 == 0:
+        logging.info(util.nvidia_smi())
+
+

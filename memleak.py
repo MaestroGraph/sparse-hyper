@@ -15,7 +15,7 @@ logging.basicConfig(filename='memleak.log',level=logging.INFO)
 
 torch.manual_seed(2)
 
-CUDA = False
+CUDA = True
 FT = torch.cuda.sparse.FloatTensor if CUDA else torch.sparse.FloatTensor
 
 B = 256

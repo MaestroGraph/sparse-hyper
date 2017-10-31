@@ -17,19 +17,41 @@ CUDA = True
 
 B = 256
 M = 32
-IN = OUT = tuple([M] * 8)
-W, H = len(IN) + len(OUT), 2048
+W, H = 2, 2048
 
-for i in trange(int(10e7)):
+sparsemult = util.SparseMult(use_cuda=CUDA)
 
-    x = (torch.randn((B, H, W)) * M).long()
+def iteration():
+
+    mindices = (torch.rand(B, H, W) * M).long()
+    values = torch.rand(B, H)
+    bsize = LongTensor([M, M])
+    y_flat = torch.zeros(B, M)
+
+    x_flat = torch.rand(B, M)
 
     if CUDA:
-        x = x.cuda()
+        mindices = mindices.cuda()
+        bsize = bsize.cuda()
+        values = values.cuda()
+        x_flat = x_flat.cuda()
+        y_flat = y_flat.cuda()
 
-    x, _ = gaussian.flatten_indices(x, IN, OUT, use_cuda=CUDA)
+    bsize = Variable(bsize)
+    values = Variable(values)
+    x_flat = Variable(x_flat)
+    y_flat = Variable(y_flat)
 
-    if i % 25 == 0:
+    if CUDA:
         logging.info(util.nvidia_smi())
 
+    for b in range(B):
+        bindices = Variable(mindices[b, :, :].squeeze(0).t())
+        bvalues = values[b, :]
 
+        bx = x_flat[b, :]
+
+        y_flat[b, :] = sparsemult(bindices, bvalues, bsize, bx)
+
+for i in trange(int(10e7)):
+    iteration()

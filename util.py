@@ -139,6 +139,7 @@ class SparseMult(torch.autograd.Function):
 
         self.save_for_backward(indices, values, size, vector)
         res = torch.mm(matrix, vector.unsqueeze(1))
+
         return res
 
     def backward(self, grad_output):

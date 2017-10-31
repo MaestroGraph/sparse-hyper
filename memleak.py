@@ -9,17 +9,51 @@ import util, logging, os, psutil
 
 import hyper, gaussian
 
+torch.backends.cudnn.benchmark = True
+
 logging.basicConfig(filename='memleak.log',level=logging.INFO)
 
 torch.manual_seed(2)
 
-CUDA = True
+CUDA = False
 
 B = 256
 M = 32
 W, H = 2, 2048
 
 criterion = nn.MSELoss()
+
+class SparseMult(torch.autograd.Function):
+
+    def __init__(self, use_cuda=False):
+        super().__init__()
+        self.use_cuda = use_cuda
+
+        self.FT =  torch.cuda.sparse.FloatTensor if self.use_cuda else torch.sparse.FloatTensor
+
+    def forward(self, indices, values, size, vector):
+
+        matrix = self.FT(indices, values, torch.Size(size))
+
+        self.save_for_backward(indices, values, size, vector)
+        res = torch.mm(matrix, vector.unsqueeze(1))
+
+        return res
+
+    def backward(self, grad_output):
+
+        indices, values, size, vector = self.saved_tensors
+        matrix = self.FT(indices, values, torch.Size(size))
+
+        i_ixs = indices[0,:]
+        j_ixs = indices[1,:]
+        output_select = grad_output.view(-1)[i_ixs]
+        vector_select = vector.view(-1)[j_ixs]
+
+        grad_values = output_select *  vector_select
+
+        grad_vector = torch.mm(grad_output.t(), matrix)
+        return None, grad_values, None, grad_vector
 
 def iteration():
 

@@ -15,7 +15,7 @@ logging.basicConfig(filename='memleak.log',level=logging.INFO)
 
 torch.manual_seed(2)
 
-CUDA = False
+CUDA = True
 
 B = 256
 M = 32

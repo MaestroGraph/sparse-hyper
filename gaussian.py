@@ -332,8 +332,6 @@ class HyperLayer(nn.Module):
 
         self.bias_type = bias_type
 
-        self.STORED = None
-
     def split_out(self, res, input_size, output_size, gain=5.0):
         """
         Utility function. res is a B x K x Wrank+2 tensor with range from
@@ -415,24 +413,19 @@ class HyperLayer(nn.Module):
 
         ly = prod(self.out_shape)
 
-        if self.STORED == None:
-            y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
-            # y_flat.fill_(0.0)
-            y_flat = Variable(y_flat)
+        y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
+        y_flat.fill_(0.0)
+        y_flat = Variable(y_flat)
 
-            sparsemult = util.SparseMult(use_cuda=self.use_cuda)
-
-            for b in range(batchsize):
-                bindices = Variable(mindices[b, :, :].squeeze(0).t())
-                bvalues = values[b, :]
-                bsize = Variable(flat_size)
-                bx = x_flat[b,:]
-
-                y_flat[b,:] = sparsemult(bindices, bvalues, bsize, bx)
-
-            self.STORED = y_flat.data.clone()
-        else:
-            y_flat = Variable(self.STORED.clone())
+        # sparsemult = util.SparseMult(use_cuda=self.use_cuda)
+        #
+        # for b in range(batchsize):
+        #     bindices = Variable(mindices[b, :, :].squeeze(0).t())
+        #     bvalues = values[b, :]
+        #     bsize = Variable(flat_size)
+        #     bx = x_flat[b,:]
+        #
+        #     y_flat[b,:] = sparsemult(bindices, bvalues, bsize, bx)
 
         # t0 = time.time()
         # mindices, values = sort(mindices, values, self.use_cuda)

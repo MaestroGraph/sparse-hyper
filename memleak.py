@@ -34,6 +34,8 @@ class SparseMult(torch.autograd.Function):
         return res
 
     def backward(self, grad_output):
+
+        indices, values, size, vector = self.saved_tensors
         return None, None, None, None
 
 def iteration():

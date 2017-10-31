@@ -26,7 +26,7 @@ class SparseMult(torch.autograd.Function):
 
     def forward(self, indices, values, size, vector):
 
-        matrix = FT(indices, values, torch.Size(size))
+        # matrix = FT(indices, values, torch.Size(size))
         # res = torch.mm(matrix, vector.unsqueeze(1))
 
         self.save_for_backward(indices, values, size, vector)

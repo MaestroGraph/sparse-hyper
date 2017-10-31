@@ -213,449 +213,449 @@ def discretize(ind, val):
 
     return ints.long(), props, val
 
-class HyperLayer(nn.Module):
-    """
-        Abstract class for the hyperlayer. Implement by defining a hypernetwork, and returning it from the hyper method.
-    """
-
-    @abc.abstractmethod
-    def hyper(self, input):
-        """
-            Returns the hypernetwork. This network should take the same input as the hyperlayer itself
-            and output a pair (L, V), with L a matrix of k by R (with R the rank of W) and a vector V of length k.
-        """
-        return
-
-    def __init__(self, in_rank, out_shape, bias_type=Bias.DENSE):
-
-        super(HyperLayer, self).__init__()
-
-        self.in_rank = in_rank
-        self.out_shape = out_shape # without batch dimension
-
-        self.weights_rank = in_rank + len(out_shape) # implied rank of W
-
-        self.bias_type = bias_type
-
-    def forward(self, input):
-
-        batchsize = input.size()[0]
-
-        ### Compute and unpack ouput of hypernetwork
-
-        if self.bias_type == Bias.NONE:
-            real_indices, real_values = self.hyper(input)
-        if self.bias_type == Bias.DENSE:
-            real_indices, real_values, bias = self.hyper(input)
-        if self.bias_type == Bias.SPARSE:
-            real_indices, real_values, bias_indices, bias_values = self.hyper(input)
-
-        # NB: due to batching, real_indices has shape batchsize x K x rank(W)
-        #     real_values has shape batchsize x K
-
-        # turn the real values into integers in a differentiable way
-        indices, props, values = discretize(real_indices, real_values)
-        values = values * props
-
-        # translate tensor indices to matrix indices
-        mindices, _ = flatten_indices(indices, input.size()[1:], self.out_shape)
-
-        # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
-        #     through 'values', which are a function of both the real_indices and the real_values.
-
-        ### Create the sparse weight tensor
-
-        # -- Turns out we don't have autograd over sparse tensors yet (let alone over the constructor arguments). For
-        #    now, we'll do a slow, naive multiplication.
-
-        x_flat = input.view(batchsize, -1)
-
-        ly = prod(self.out_shape)
-        y_flat = Variable(torch.zeros((batchsize, ly)))
-
-        mindices, values = sort(mindices, values)
-
-        # print('<>', real_indices, real_values)
-        # print('||', mindices, values)
-
-        for b in range(batchsize):
-            r_start = 0
-            r_end = 0
-
-            while r_end < mindices.size()[1]:
-
-                while r_end < mindices.size()[1] and mindices[b, r_start, 0] == mindices[b, r_end, 0]:
-                    r_end += 1
-
-                i = mindices[b, r_start, 0]
-                ixs = mindices[b, r_start:r_end, 1]
-                y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
-
-                r_start = r_end
-
-
-        y_shape = [batchsize]
-        y_shape.extend(self.out_shape)
-
-        y = y_flat.view(y_shape) # reshape y into a tensor
-
-        ### Handle the bias
-        if self.bias_type == Bias.DENSE:
-            y = y + bias
-        if self.bias_type == Bias.SPARSE: # untested!
-            bindices, bprops, bvalues = discretize(bias_indices, bias_values)
-            vals = bprops * bvalues
-
-            for b in range(batchsize):
-                for row in range(bindices.size()[1]):
-                    index = bindices[b, row, :]
-                    y[index] += vals[b, row]
-
-        return y
-
-class SimpleHyperLayer(HyperLayer):
-    """
-    Simple function from 2-vector to a 2-vector, no bias.
-    """
-
-
-    def __init__(self):
-        super().__init__(in_rank=1, out_shape=(2,), bias_type=Bias.DENSE)
-
-        # hypernetwork
-        self.hyp = nn.Sequential(
-            nn.Linear(2,8),
-            nn.Sigmoid(),
-        )
-
-    def hyper(self, input):
-        """
-        Evaluates hypernetwork.
-        """
-
-        res = self.hyp.forward(input)
-        # res has shape batch_size x 6
-
-        ind  = res[:, 0:4]
-        val  = res[:, 4:6]
-        bias = res[:, 6:8]
-
-        return torch.unsqueeze(ind, 2).contiguous().view(-1, 2, 2), val, bias
-
-class DenseASHLayer(HyperLayer):
-    """
-    Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
-    """
-
-
-    def __init__(self, in_shape, out_shape, k, hidden=256):
-        super().__init__(in_rank=1, out_shape=out_shape, bias_type=Bias.NONE)
-
-        self.k = k
-        self.in_shape = in_shape
-        self.out_shape = out_shape
-
-        self.w_rank = len(in_shape) + len(out_shape)
-
-        # hypernetwork
-        self.hyp = nn.Sequential(
-            Flatten(),
-            nn.Linear(prod(in_shape), hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, (self.w_rank + 1) * k),
-        )
-
-        # self.bias = Parameter(torch.zeros(out_shape))
-
-    def hyper(self, input):
-        """
-        Evaluates hypernetwork.
-        """
-
-        res = self.hyp.forward(input)
-        # res has shape batch_size x 6
-
-        ind = nn.functional.sigmoid(res[:, 0:self.k * self.w_rank])
-        ind = ind.unsqueeze(2).contiguous().view(-1, self.k, self.w_rank)
-
-        ## expand the indices to the range [0, max]
-
-        # Limits for each of the w_rank indices
-        s = Variable(FloatTensor(list(self.out_shape) + list(input.size())[1:]).contiguous())
-        s = s - 1
-        s = s.unsqueeze(0).unsqueeze(0)
-        s = s.expand_as(ind)
-
-        ind = ind * s
-
-        val = res[:, self.k * self.w_rank:]
-
-        return ind, val
-
-class RNNASHLayer(HyperLayer):
-    """
-    Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
-    """
-
-    def __init__(self, in_shape, out_shape, k):
-        super().__init__(in_rank=1, out_shape=out_shape, bias_type=Bias.NONE)
-
-        self.k = k
-        self.in_shape = in_shape
-        self.out_shape = out_shape
-
-        self.w_rank = len(in_shape) + len(out_shape)
-
-        self.lstm = nn.LSTM(prod(in_shape), (self.w_rank + 1))
-
-        # self.bias = Parameter(torch.zeros(out_shape))
-
-    def hyper(self, input):
-        """
-        Evaluates hypernetwork.
-        """
-        insize = input.size()
-
-        # expand input along the time-dimension
-        input = flatten(input)
-        b, r = input.size()
-        input = input.unsqueeze(0).expand((self.k, b, r))
-
-        res, _ = self.lstm(input) #k x batch x rank+1
-        res = res.transpose(0, 1)
-
-        # res has shape batch_size x k x rank+1
-
-        ind = nn.functional.sigmoid(res[:, :, 0:self.w_rank])
-
-        ## expand the indices to the range [0, max]
-
-        # Limits for each of the w_rank indices
-        s = Variable(FloatTensor(list(self.out_shape) + list(insize)[1:]).contiguous())
-        s = s - 1
-        s = s.unsqueeze(0).unsqueeze(0)
-
-        s = s.expand_as(ind)
-
-        # scale the indices
-        ind = ind * s
-
-        val = res[:, :, self.w_rank:].squeeze(2)
-
-        return ind, val
-
-class ConvASHLayer(HyperLayer):
-    """
-    Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
-    """
-
-    def __init__(self, in_shape, out_shape, k):
-        super().__init__(in_rank=1, out_shape=out_shape, bias_type=Bias.NONE)
-
-        self.k = k
-        self.in_shape = in_shape
-        self.out_shape = out_shape
-
-        self.w_rank = len(in_shape) + len(out_shape)
-
-        self.lin = nn.Linear(prod(in_shape), int(k/2))
-        self.conv = nn.ConvTranspose2d(in_channels=1, out_channels=1, kernel_size=(2, self.w_rank+1), stride=2)
-
-    def hyper(self, input):
-        """
-        Evaluates hypernetwork.
-        """
-        insize = input.size()
-
-        res = flatten(input)
-        res = self.lin(res)
-        # res = nn.functional.relu(res0)
-
-        res = res.unsqueeze(1).unsqueeze(3)
-        res = self.conv(res)
-        res = res.squeeze(1)
-
-        # res has shape batch_size x k x rank+1
-
-        ind = nn.functional.sigmoid(res[:, :, 0:self.w_rank])
-
-        ## expand the indices to the range [0, max]
-
-        # Limits for each of the w_rank indices
-        s = Variable(FloatTensor(list(self.out_shape) + list(insize)[1:]).contiguous())
-        s = s - 1
-        s = s.unsqueeze(0).unsqueeze(0)
-
-        s = s.expand_as(ind)
-
-        # scale the indices
-        ind = ind * s
-
-        val = res[:, :, self.w_rank:].squeeze(2)
-
-        return ind, val
-
-
-class ImageHyperLayer(HyperLayer):
-    """
-    Function from one 3-tensor to another, with dense bias not learned from a hypernetwork
-    """
-
-    def __init__(self, in_shape, out_shape, k, poolsize=4, hidden=256):
-        super().__init__(in_rank=3, out_shape=out_shape, bias_type=Bias.DENSE)
-
-        self.k = k
-
-        c, x, y = in_shape
-        flat_size = int(x/poolsize) * int(y/poolsize) * c
-
-        # hypernetwork
-        self.hyp = nn.Sequential(
-            nn.MaxPool2d(kernel_size=poolsize, stride=poolsize),
-            Flatten(),
-            nn.Linear(flat_size, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, k * 6 + k)
-        )
-
-        self.bias = Parameter(torch.zeros(out_shape))
-
-    def hyper(self, input):
-        """
-        Evaluates hypernetwork.
-        """
-
-        res = self.hyp.forward(input)
-        # res has shape batch_size x 6
-
-        ind = nn.functional.sigmoid(res[:, 0:self.k*6])
-        ind = ind.unsqueeze(2).contiguous().view(-1, self.k, 6)
-
-        ## expand the indices to the range [0, max]
-
-        # Limits for each of the 6 indices
-        s = Variable(FloatTensor(list(self.out_shape) + list(input.size())[1:] ).contiguous())
-        s = s - 1
-        s = s.unsqueeze(0).unsqueeze(0)
-        s = s.expand_as(ind)
-
-        ind = ind * s
-
-        val = res[:, self.k*6:self.k*6 + self.k]
-
-        return ind, val, self.bias
-
-class SimpleNet(nn.Module):
-    """
-    The network containing the hyperlayers
-    """
-
-    def __init__(self):
-        super(SimpleNet, self).__init__()
-        self.hyper = SimpleHyperLayer()
-
-    def forward(self, x):
-
-        return self.hyper(x)
-
-if __name__ == '__main__':
-
-    torch.manual_seed(1)
-
-    ### CIFAR Experiment
-    EPOCHS = 10
-    BATCH_SIZE = 1
-
-    # Set up the dataset
-    normalize = transforms.Compose(
-        [transforms.ToTensor(),
-         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-
-    train = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                         download=True, transform=normalize)
-
-    trainloader = torch.utils.data.DataLoader(train, batch_size=BATCH_SIZE,
-                                              shuffle=True, num_workers=2)
-
-    test = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                        download=True, transform=normalize)
-
-    testloader = torch.utils.data.DataLoader(test, batch_size=BATCH_SIZE,
-                                             shuffle=False, num_workers=2)
-
-    classes = ('plane', 'car', 'bird', 'cat',
-               'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
-    model = nn.Sequential(
-        ImageHyperLayer((3, 32, 32),  (3, 32, 32), 3000),
-      # ImageHyperLayer((16, 16, 16), (32, 8, 8),   10),
-      # ImageHyperLayer((32, 8, 8),   (64, 4, 4),   10),
-      #   Flatten(),
-      #   nn.Linear(16, 10),
-      #   nn.Softmax()
-    )
-
-    criterion = nn.MSELoss() # nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
-
-    tic()
-
-    running_loss = 0.0
-
-    for epoch in range(EPOCHS):
-        for i, data in enumerate(trainloader, 0):
-
-            # get the inputs
-            inputs, labels = data
-
-            # wrap them in Variable
-            inputs, labels = Variable(inputs), Variable(labels)
-
-            # forward + backward + optimize
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, inputs)
-
-            loss.backward()
-            optimizer.step()
-
-            # print statistics
-            running_loss += loss.data[0]
-            if i != 0 and i % 50== 0:  # print every 2000 mini-batches
-                print('[%d, %5d] loss: %.3f' %
-                      (epoch+1, i + 1, running_loss / BATCH_SIZE))
-                running_loss = 0.0
-
-    print('Finished Training. Took {} seconds'.format(toc()))
-
-    ### SIMPLE
-    # x = Variable(torch.rand((3, 2,)))
-    # print(x)
-    #
-    # y = model(x)
-    # print(y)
-
-
-    # N = 50000
-    # B = 1
-    #
-    # criterion = nn.MSELoss()
-    # optimizer = optim.Adam(model.parameters())
-    #
-    # for i in trange(N):
-    #     x = Variable( torch.rand((B, 2)) )
-    #
-    #     optimizer.zero_grad()
-    #
-    #     y = model(x)
-    #     loss = criterion(y, x) # compute the loss
-    #     loss.backward()        # compute the gradients
-    #     optimizer.step()
-    #
-    # for i in range(20):
-    #     x = Variable( torch.rand((3, 2,)) )
-    #     y = model(x)
-    #
-    #     print('diff', torch.abs(x - y))
-    #
-    #     print('********')
+# class HyperLayer(nn.Module):
+#     """
+#         Abstract class for the hyperlayer. Implement by defining a hypernetwork, and returning it from the hyper method.
+#     """
+#
+#     @abc.abstractmethod
+#     def hyper(self, input):
+#         """
+#             Returns the hypernetwork. This network should take the same input as the hyperlayer itself
+#             and output a pair (L, V), with L a matrix of k by R (with R the rank of W) and a vector V of length k.
+#         """
+#         return
+#
+#     def __init__(self, in_rank, out_shape, bias_type=Bias.DENSE):
+#
+#         super(HyperLayer, self).__init__()
+#
+#         self.in_rank = in_rank
+#         self.out_shape = out_shape # without batch dimension
+#
+#         self.weights_rank = in_rank + len(out_shape) # implied rank of W
+#
+#         self.bias_type = bias_type
+#
+#     def forward(self, input):
+#
+#         batchsize = input.size()[0]
+#
+#         ### Compute and unpack ouput of hypernetwork
+#
+#         if self.bias_type == Bias.NONE:
+#             real_indices, real_values = self.hyper(input)
+#         if self.bias_type == Bias.DENSE:
+#             real_indices, real_values, bias = self.hyper(input)
+#         if self.bias_type == Bias.SPARSE:
+#             real_indices, real_values, bias_indices, bias_values = self.hyper(input)
+#
+#         # NB: due to batching, real_indices has shape batchsize x K x rank(W)
+#         #     real_values has shape batchsize x K
+#
+#         # turn the real values into integers in a differentiable way
+#         indices, props, values = discretize(real_indices, real_values)
+#         values = values * props
+#
+#         # translate tensor indices to matrix indices
+#         mindices, _ = flatten_indices(indices, input.size()[1:], self.out_shape)
+#
+#         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
+#         #     through 'values', which are a function of both the real_indices and the real_values.
+#
+#         ### Create the sparse weight tensor
+#
+#         # -- Turns out we don't have autograd over sparse tensors yet (let alone over the constructor arguments). For
+#         #    now, we'll do a slow, naive multiplication.
+#
+#         x_flat = input.view(batchsize, -1)
+#
+#         ly = prod(self.out_shape)
+#         y_flat = Variable(torch.zeros((batchsize, ly)))
+#
+#         mindices, values = sort(mindices, values)
+#
+#         # print('<>', real_indices, real_values)
+#         # print('||', mindices, values)
+#
+#         for b in range(batchsize):
+#             r_start = 0
+#             r_end = 0
+#
+#             while r_end < mindices.size()[1]:
+#
+#                 while r_end < mindices.size()[1] and mindices[b, r_start, 0] == mindices[b, r_end, 0]:
+#                     r_end += 1
+#
+#                 i = mindices[b, r_start, 0]
+#                 ixs = mindices[b, r_start:r_end, 1]
+#                 y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
+#
+#                 r_start = r_end
+#
+#
+#         y_shape = [batchsize]
+#         y_shape.extend(self.out_shape)
+#
+#         y = y_flat.view(y_shape) # reshape y into a tensor
+#
+#         ### Handle the bias
+#         if self.bias_type == Bias.DENSE:
+#             y = y + bias
+#         if self.bias_type == Bias.SPARSE: # untested!
+#             bindices, bprops, bvalues = discretize(bias_indices, bias_values)
+#             vals = bprops * bvalues
+#
+#             for b in range(batchsize):
+#                 for row in range(bindices.size()[1]):
+#                     index = bindices[b, row, :]
+#                     y[index] += vals[b, row]
+#
+#         return y
+#
+# class SimpleHyperLayer(HyperLayer):
+#     """
+#     Simple function from 2-vector to a 2-vector, no bias.
+#     """
+#
+#
+#     def __init__(self):
+#         super().__init__(in_rank=1, out_shape=(2,), bias_type=Bias.DENSE)
+#
+#         # hypernetwork
+#         self.hyp = nn.Sequential(
+#             nn.Linear(2,8),
+#             nn.Sigmoid(),
+#         )
+#
+#     def hyper(self, input):
+#         """
+#         Evaluates hypernetwork.
+#         """
+#
+#         res = self.hyp.forward(input)
+#         # res has shape batch_size x 6
+#
+#         ind  = res[:, 0:4]
+#         val  = res[:, 4:6]
+#         bias = res[:, 6:8]
+#
+#         return torch.unsqueeze(ind, 2).contiguous().view(-1, 2, 2), val, bias
+#
+# class DenseASHLayer(HyperLayer):
+#     """
+#     Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
+#     """
+#
+#
+#     def __init__(self, in_shape, out_shape, k, hidden=256):
+#         super().__init__(in_rank=1, out_shape=out_shape, bias_type=Bias.NONE)
+#
+#         self.k = k
+#         self.in_shape = in_shape
+#         self.out_shape = out_shape
+#
+#         self.w_rank = len(in_shape) + len(out_shape)
+#
+#         # hypernetwork
+#         self.hyp = nn.Sequential(
+#             Flatten(),
+#             nn.Linear(prod(in_shape), hidden),
+#             nn.ReLU(),
+#             nn.Linear(hidden, (self.w_rank + 1) * k),
+#         )
+#
+#         # self.bias = Parameter(torch.zeros(out_shape))
+#
+#     def hyper(self, input):
+#         """
+#         Evaluates hypernetwork.
+#         """
+#
+#         res = self.hyp.forward(input)
+#         # res has shape batch_size x 6
+#
+#         ind = nn.functional.sigmoid(res[:, 0:self.k * self.w_rank])
+#         ind = ind.unsqueeze(2).contiguous().view(-1, self.k, self.w_rank)
+#
+#         ## expand the indices to the range [0, max]
+#
+#         # Limits for each of the w_rank indices
+#         s = Variable(FloatTensor(list(self.out_shape) + list(input.size())[1:]).contiguous())
+#         s = s - 1
+#         s = s.unsqueeze(0).unsqueeze(0)
+#         s = s.expand_as(ind)
+#
+#         ind = ind * s
+#
+#         val = res[:, self.k * self.w_rank:]
+#
+#         return ind, val
+#
+# class RNNASHLayer(HyperLayer):
+#     """
+#     Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
+#     """
+#
+#     def __init__(self, in_shape, out_shape, k):
+#         super().__init__(in_rank=1, out_shape=out_shape, bias_type=Bias.NONE)
+#
+#         self.k = k
+#         self.in_shape = in_shape
+#         self.out_shape = out_shape
+#
+#         self.w_rank = len(in_shape) + len(out_shape)
+#
+#         self.lstm = nn.LSTM(prod(in_shape), (self.w_rank + 1))
+#
+#         # self.bias = Parameter(torch.zeros(out_shape))
+#
+#     def hyper(self, input):
+#         """
+#         Evaluates hypernetwork.
+#         """
+#         insize = input.size()
+#
+#         # expand input along the time-dimension
+#         input = flatten(input)
+#         b, r = input.size()
+#         input = input.unsqueeze(0).expand((self.k, b, r))
+#
+#         res, _ = self.lstm(input) #k x batch x rank+1
+#         res = res.transpose(0, 1)
+#
+#         # res has shape batch_size x k x rank+1
+#
+#         ind = nn.functional.sigmoid(res[:, :, 0:self.w_rank])
+#
+#         ## expand the indices to the range [0, max]
+#
+#         # Limits for each of the w_rank indices
+#         s = Variable(FloatTensor(list(self.out_shape) + list(insize)[1:]).contiguous())
+#         s = s - 1
+#         s = s.unsqueeze(0).unsqueeze(0)
+#
+#         s = s.expand_as(ind)
+#
+#         # scale the indices
+#         ind = ind * s
+#
+#         val = res[:, :, self.w_rank:].squeeze(2)
+#
+#         return ind, val
+#
+# class ConvASHLayer(HyperLayer):
+#     """
+#     Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
+#     """
+#
+#     def __init__(self, in_shape, out_shape, k):
+#         super().__init__(in_rank=1, out_shape=out_shape, bias_type=Bias.NONE)
+#
+#         self.k = k
+#         self.in_shape = in_shape
+#         self.out_shape = out_shape
+#
+#         self.w_rank = len(in_shape) + len(out_shape)
+#
+#         self.lin = nn.Linear(prod(in_shape), int(k/2))
+#         self.conv = nn.ConvTranspose2d(in_channels=1, out_channels=1, kernel_size=(2, self.w_rank+1), stride=2)
+#
+#     def hyper(self, input):
+#         """
+#         Evaluates hypernetwork.
+#         """
+#         insize = input.size()
+#
+#         res = flatten(input)
+#         res = self.lin(res)
+#         # res = nn.functional.relu(res0)
+#
+#         res = res.unsqueeze(1).unsqueeze(3)
+#         res = self.conv(res)
+#         res = res.squeeze(1)
+#
+#         # res has shape batch_size x k x rank+1
+#
+#         ind = nn.functional.sigmoid(res[:, :, 0:self.w_rank])
+#
+#         ## expand the indices to the range [0, max]
+#
+#         # Limits for each of the w_rank indices
+#         s = Variable(FloatTensor(list(self.out_shape) + list(insize)[1:]).contiguous())
+#         s = s - 1
+#         s = s.unsqueeze(0).unsqueeze(0)
+#
+#         s = s.expand_as(ind)
+#
+#         # scale the indices
+#         ind = ind * s
+#
+#         val = res[:, :, self.w_rank:].squeeze(2)
+#
+#         return ind, val
+#
+#
+# class ImageHyperLayer(HyperLayer):
+#     """
+#     Function from one 3-tensor to another, with dense bias not learned from a hypernetwork
+#     """
+#
+#     def __init__(self, in_shape, out_shape, k, poolsize=4, hidden=256):
+#         super().__init__(in_rank=3, out_shape=out_shape, bias_type=Bias.DENSE)
+#
+#         self.k = k
+#
+#         c, x, y = in_shape
+#         flat_size = int(x/poolsize) * int(y/poolsize) * c
+#
+#         # hypernetwork
+#         self.hyp = nn.Sequential(
+#             nn.MaxPool2d(kernel_size=poolsize, stride=poolsize),
+#             Flatten(),
+#             nn.Linear(flat_size, hidden),
+#             nn.ReLU(),
+#             nn.Linear(hidden, k * 6 + k)
+#         )
+#
+#         self.bias = Parameter(torch.zeros(out_shape))
+#
+#     def hyper(self, input):
+#         """
+#         Evaluates hypernetwork.
+#         """
+#
+#         res = self.hyp.forward(input)
+#         # res has shape batch_size x 6
+#
+#         ind = nn.functional.sigmoid(res[:, 0:self.k*6])
+#         ind = ind.unsqueeze(2).contiguous().view(-1, self.k, 6)
+#
+#         ## expand the indices to the range [0, max]
+#
+#         # Limits for each of the 6 indices
+#         s = Variable(FloatTensor(list(self.out_shape) + list(input.size())[1:] ).contiguous())
+#         s = s - 1
+#         s = s.unsqueeze(0).unsqueeze(0)
+#         s = s.expand_as(ind)
+#
+#         ind = ind * s
+#
+#         val = res[:, self.k*6:self.k*6 + self.k]
+#
+#         return ind, val, self.bias
+#
+# class SimpleNet(nn.Module):
+#     """
+#     The network containing the hyperlayers
+#     """
+#
+#     def __init__(self):
+#         super(SimpleNet, self).__init__()
+#         self.hyper = SimpleHyperLayer()
+#
+#     def forward(self, x):
+#
+#         return self.hyper(x)
+#
+# if __name__ == '__main__':
+#
+#     torch.manual_seed(1)
+#
+#     ### CIFAR Experiment
+#     EPOCHS = 10
+#     BATCH_SIZE = 1
+#
+#     # Set up the dataset
+#     normalize = transforms.Compose(
+#         [transforms.ToTensor(),
+#          transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+#
+#     train = torchvision.datasets.CIFAR10(root='./data', train=True,
+#                                          download=True, transform=normalize)
+#
+#     trainloader = torch.utils.data.DataLoader(train, batch_size=BATCH_SIZE,
+#                                               shuffle=True, num_workers=2)
+#
+#     test = torchvision.datasets.CIFAR10(root='./data', train=False,
+#                                         download=True, transform=normalize)
+#
+#     testloader = torch.utils.data.DataLoader(test, batch_size=BATCH_SIZE,
+#                                              shuffle=False, num_workers=2)
+#
+#     classes = ('plane', 'car', 'bird', 'cat',
+#                'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+#
+#     model = nn.Sequential(
+#         ImageHyperLayer((3, 32, 32),  (3, 32, 32), 3000),
+#       # ImageHyperLayer((16, 16, 16), (32, 8, 8),   10),
+#       # ImageHyperLayer((32, 8, 8),   (64, 4, 4),   10),
+#       #   Flatten(),
+#       #   nn.Linear(16, 10),
+#       #   nn.Softmax()
+#     )
+#
+#     criterion = nn.MSELoss() # nn.CrossEntropyLoss()
+#     optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
+#
+#     tic()
+#
+#     running_loss = 0.0
+#
+#     for epoch in range(EPOCHS):
+#         for i, data in enumerate(trainloader, 0):
+#
+#             # get the inputs
+#             inputs, labels = data
+#
+#             # wrap them in Variable
+#             inputs, labels = Variable(inputs), Variable(labels)
+#
+#             # forward + backward + optimize
+#             optimizer.zero_grad()
+#             outputs = model(inputs)
+#             loss = criterion(outputs, inputs)
+#
+#             loss.backward()
+#             optimizer.step()
+#
+#             # print statistics
+#             running_loss += loss.data[0]
+#             if i != 0 and i % 50== 0:  # print every 2000 mini-batches
+#                 print('[%d, %5d] loss: %.3f' %
+#                       (epoch+1, i + 1, running_loss / BATCH_SIZE))
+#                 running_loss = 0.0
+#
+#     print('Finished Training. Took {} seconds'.format(toc()))
+#
+#     ### SIMPLE
+#     # x = Variable(torch.rand((3, 2,)))
+#     # print(x)
+#     #
+#     # y = model(x)
+#     # print(y)
+#
+#
+#     # N = 50000
+#     # B = 1
+#     #
+#     # criterion = nn.MSELoss()
+#     # optimizer = optim.Adam(model.parameters())
+#     #
+#     # for i in trange(N):
+#     #     x = Variable( torch.rand((B, 2)) )
+#     #
+#     #     optimizer.zero_grad()
+#     #
+#     #     y = model(x)
+#     #     loss = criterion(y, x) # compute the loss
+#     #     loss.backward()        # compute the gradients
+#     #     optimizer.step()
+#     #
+#     # for i in range(20):
+#     #     x = Variable( torch.rand((3, 2,)) )
+#     #     y = model(x)
+#     #
+#     #     print('diff', torch.abs(x - y))
+#     #
+#     #     print('********')

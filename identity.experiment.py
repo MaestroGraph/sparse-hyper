@@ -11,6 +11,9 @@ import util, logging, time, gc
 
 import psutil, os
 
+logging.basicConfig(filename='run.log',level=logging.INFO)
+LOG = logging.getLogger()
+
 """
 Simple experiment: learn the identity function from one tensor to another
 """
@@ -18,7 +21,7 @@ w = SummaryWriter()
 
 BATCH = 256
 SHAPE = (32, )
-CUDA = True
+CUDA = False
 
 def iteration(i, params):
 
@@ -33,11 +36,6 @@ def iteration(i, params):
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-    process = psutil.Process(os.getpid())
-    logging.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))
-
-    logging.info(util.nvidia_smi())
 
     x = torch.rand((BATCH,) + SHAPE)
     if CUDA:
@@ -70,8 +68,6 @@ def iteration(i, params):
 
     return model.params.data.clone()
 
-logging.basicConfig(filename='run.log',level=logging.INFO)
-
 torch.manual_seed(2)
 
 nzs = hyper.prod(SHAPE)
@@ -86,14 +82,8 @@ params = None
 for i in trange(N):
     params = iteration(i, params)
 
-# for i in range(20):
-#     x = torch.rand((1,) + SHAPE)
-#     if CUDA:
-#         x = x.cuda()
-#     x = Variable(x)
-#
-#     y = model(x)
-#
-#     print('diff', torch.abs(x - y).unsqueeze(0))
-#
-#     print('********')
+    process = psutil.Process(os.getpid())
+    LOG.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))
+
+    if CUDA:
+        LOG.info(util.nvidia_smi())

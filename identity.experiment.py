@@ -1,6 +1,7 @@
-import sampling, hyper, gaussian
+import hyper, gaussian
 import torch, random, sys
 from torch.autograd import Variable
+from torch.nn import Parameter
 from torch import nn, optim
 from tqdm import trange
 from tensorboardX import SummaryWriter
@@ -10,10 +11,6 @@ import util, logging, time, gc
 
 import psutil, os
 
-logging.basicConfig(filename='run.log',level=logging.INFO)
-
-torch.manual_seed(2)
-
 """
 Simple experiment: learn the identity function from one tensor to another
 """
@@ -21,38 +18,26 @@ w = SummaryWriter()
 
 BATCH = 256
 SHAPE = (32, )
-CUDA = True
+CUDA = False
 
-nzs = hyper.prod(SHAPE)
+def iteration(i, params):
 
-model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=256, k=nzs, gain=1.0) #
-# model.initialize(SHAPE, batch_size=64,iterations=100, lr=0.05)
+    model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=256, k=nzs, gain=1.0)
+    # model.initialize(SHAPE, batch_size=64,iterations=100, lr=0.05)
 
-if CUDA:
-    model.cuda()
+    if params is not None:
+        model.params = Parameter(params)
 
-#x = Variable(torch.rand((BATCH, ) + SHAPE))
-#print('--- x', x)
+    if CUDA:
+        model.cuda()
 
-#y = model(x)
-#print('--- y', y)
-
-N = 300000 // BATCH
-
-criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-plt.figure(figsize=(5,5))
-util.makedirs('./spread/')
-
-def iteration(mdl):
-    # model = model.clone()
-    gc.collect()
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     process = psutil.Process(os.getpid())
     logging.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))
 
-    logging.info(util.nvidia_smi())
+    # logging.info(util.nvidia_smi())
 
     x = torch.rand((BATCH,) + SHAPE)
     if CUDA:
@@ -61,25 +46,15 @@ def iteration(mdl):
 
     optimizer.zero_grad()
 
-    y = mdl(x)
+    y = model(x)
     loss = criterion(y, x) # compute the loss
 
     loss.backward()        # compute the gradients
 
     optimizer.step()
 
-
-    # w.add_scalar('identity/plain', torch.sqrt(loss).data[0], i)
-
-    # if(i != 0 and i % (N/25) == 0):
-    #     print(sigmas, sigmas.grad)
-    #     print(values, values.grad)
-    #     # print(list(model.parameters()))
-    #
-    # print('LOSS', torch.sqrt(loss))
-
     if i % (N//50) == 0:
-        means, sigmas, values = mdl.hyper(x)
+        means, sigmas, values = model.hyper(x)
 
         plt.clf()
         util.plot(means, sigmas, values)
@@ -93,18 +68,32 @@ def iteration(mdl):
         print('LOSS', torch.sqrt(loss))
 
 
+    return model.params.data.clone()
+
+logging.basicConfig(filename='run.log',level=logging.INFO)
+
+torch.manual_seed(2)
+
+nzs = hyper.prod(SHAPE)
+
+N = 300000 // BATCH
+
+plt.figure(figsize=(5,5))
+util.makedirs('./spread/')
+
+params = None
 
 for i in trange(N):
-    iteration(model)
+    params = iteration(i, params)
 
-for i in range(20):
-    x = torch.rand((1,) + SHAPE)
-    if CUDA:
-        x = x.cuda()
-    x = Variable(x)
-
-    y = model(x)
-
-    print('diff', torch.abs(x - y).unsqueeze(0))
-
-    print('********')
+# for i in range(20):
+#     x = torch.rand((1,) + SHAPE)
+#     if CUDA:
+#         x = x.cuda()
+#     x = Variable(x)
+#
+#     y = model(x)
+#
+#     print('diff', torch.abs(x - y).unsqueeze(0))
+#
+#     print('********')

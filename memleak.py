@@ -81,7 +81,7 @@ def iteration():
 
 
     loss = criterion(y_flat, target)
-    loss.backward(retain_graph=False)
+    loss.backward()
 
     del sparsemult
 

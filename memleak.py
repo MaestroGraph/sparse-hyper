@@ -13,20 +13,20 @@ torch.manual_seed(2)
 CUDA = True
 FT = torch.cuda.sparse.FloatTensor if CUDA else torch.sparse.FloatTensor
 
-B = 256
+B = 2048
 M = 32
-W, H = 2, 2048
+W, H = 2048, 2048
 
 criterion = nn.MSELoss()
 
-class SparseMult(torch.autograd.Function):
+class Mult(torch.autograd.Function):
 
     def __init__(self):
         super().__init__()
 
-    def forward(self, indices, values, size, vector):
+    def forward(self, big, vector):
 
-        self.save_for_backward(vector)
+        self.save_for_backward(big)
 
         return vector * 2.0
 
@@ -39,44 +39,29 @@ class SparseMult(torch.autograd.Function):
 
 def iteration():
 
-    sparsemult = SparseMult()
+    mult = Mult()
 
-    mindices = (torch.rand(B, H, W) * M-1).long()
-    values = torch.rand(B, H)
-    bsize = LongTensor([M, M])
-    y_flat = torch.zeros(B, M)
-    x_flat = torch.rand(B, M)
-    target = x_flat.clone()
+    big = torch.zeros(B, W, H)
+    x = torch.rand(B, M)
+    y = torch.zeros(B, M)
+    target = x.clone()
 
     if CUDA:
-        mindices = mindices.cuda()
-        bsize = bsize.cuda()
-        values = values.cuda()
-        x_flat = x_flat.cuda()
-        y_flat = y_flat.cuda()
+        big = big.cuda()
+        x = x.cuda()
+        y = y.cuda()
         target = target.cuda()
 
-    bsize = Variable(bsize)
-    values = Variable(values, requires_grad=True)
-    x_flat = Variable(x_flat)
-    y_flat = Variable(y_flat)
+    big = Variable(big)
+    x = Variable(x, requires_grad=True)
+    y = Variable(y)
     target = Variable(target)
 
-    if CUDA:
-        logging.info(util.nvidia_smi())
-
     for b in range(B):
-        bindices = Variable(mindices[b, :, :].squeeze(0).t())
-        bvalues = values[b, :]
+        y[b, :] = mult(big[b, :, :], x[b, :])
 
-        bx = x_flat[b, :]
-
-        y_flat[b, :] = sparsemult(bindices, bvalues, bsize, bx)
-
-    loss = criterion(y_flat, target)
+    loss = criterion(y, target)
     loss.backward()
-
-    del sparsemult
 
 for i in trange(int(10e7)):
     iteration()

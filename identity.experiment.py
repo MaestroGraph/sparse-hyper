@@ -81,6 +81,7 @@ params = None
 
 for i in trange(N):
     iteration(i, None)
+    gc.collect()
 
     process = psutil.Process(os.getpid())
     LOG.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))

@@ -13,7 +13,7 @@ torch.manual_seed(2)
 CUDA = True
 FT = torch.cuda.sparse.FloatTensor if CUDA else torch.sparse.FloatTensor
 
-B = 256
+B = 4
 M = 32
 W, H = 2048, 2048
 

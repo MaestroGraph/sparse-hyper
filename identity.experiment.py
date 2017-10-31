@@ -18,7 +18,7 @@ w = SummaryWriter()
 
 BATCH = 256
 SHAPE = (32, )
-CUDA = False
+CUDA = True
 
 def iteration(i, params):
 
@@ -37,7 +37,7 @@ def iteration(i, params):
     process = psutil.Process(os.getpid())
     logging.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))
 
-    # logging.info(util.nvidia_smi())
+    logging.info(util.nvidia_smi())
 
     x = torch.rand((BATCH,) + SHAPE)
     if CUDA:

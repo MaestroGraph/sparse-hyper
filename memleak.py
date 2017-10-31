@@ -13,7 +13,7 @@ logging.basicConfig(filename='memleak.log',level=logging.INFO)
 
 torch.manual_seed(2)
 
-CUDA = False
+CUDA = True
 
 B = 256
 M = 32
@@ -26,8 +26,6 @@ for i in trange(int(10e7)):
 
     if CUDA:
         x = x.cuda()
-
-    x = Variable(x)
 
     x, _ = gaussian.flatten_indices(x, IN, OUT, use_cuda=CUDA)
 

@@ -7,53 +7,23 @@ from tqdm import trange
 
 import util, logging, os, psutil
 
+import hyper
+
 logging.basicConfig(filename='memleak.log',level=logging.INFO)
 
 torch.manual_seed(2)
 
-K = 256
-S = 64
-CUDA = True
-
-class SparseLayer(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.indices = (torch.rand(2, K) * S).long()
-        self.values = torch.rand(K)
-        self.size = torch.LongTensor([S, S])
-
-        if CUDA:
-            self.indices, self.values, self.size = self.indices.cuda(), self.values.cuda(), self.size.cuda()
-        self.indices, self.values, self.size = Variable(self.indices), Parameter(self.values), Variable(self.size)
-
-    def forward(self, x):
-
-        return util.SparseMult(use_cuda=CUDA)(self.indices, self.values,  self.size, x)
-
-
-model = SparseLayer()
-
-criterion = nn.MSELoss()
-optimizer = optim.SGD(model.parameters(), lr=0.1)
+B = 256
+M = 32
+IN = OUT = tuple([M] * 8)
+W, H = len(IN) + len(OUT), 2048
 
 for i in trange(int(10e7)):
 
-    x = torch.randn((S,))
-    y = torch.randn((S,))
-    if CUDA:
-        x, y = x.cuda(), y.cuda()
-    x, y = Variable(x), Variable(y)
+    x = torch.randn((B, H, W)) * M
+    x = x.long().cuda()
 
-    optimizer.zero_grad()
+    x = Variable(x)
 
-    out = model(x)
+    x, _ = hyper.flatten_indices(x, IN, OUT)
 
-    if i % 1000 == 0:
-        process = psutil.Process(os.getpid())
-        logging.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))
-        logging.info(util.nvidia_smi())
-
-    loss = criterion(out, y)
-    loss.backward()
-    optimizer.step()

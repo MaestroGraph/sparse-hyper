@@ -1,67 +1,51 @@
 import torch
-from torch import LongTensor
 from torch.autograd import Variable
 from torch import nn
 from tqdm import trange
 
-import util, logging
+CUDA = False
 
-torch.backends.cudnn.benchmark = True
-
-torch.manual_seed(2)
-
-CUDA = True
-FT = torch.cuda.sparse.FloatTensor if CUDA else torch.sparse.FloatTensor
-
-B = 4
-M = 32
-W, H = 512, 512
+B = 2
+BIG = 512
 
 criterion = nn.MSELoss()
 
 class Mult(torch.autograd.Function):
 
-    def __init__(self):
-        super().__init__()
+    @staticmethod
+    def forward(ctx, big, vector):
 
-    def forward(self, big, vector):
-
-        self.save_for_backward(big)
+        # Comment this and problems go away
+        ctx.save_for_backward(big)
 
         return vector * 2.0
 
-    def backward(self, grad_output):
+    @staticmethod
+    def backward(ctx, grad_output):
 
-        # indices, values, size, vector = self.saved_tensors
-        x = self.saved_tensors
-
-        return None, None, None, None
+        return None, None
 
 def iteration():
+    mult = Mult.apply
 
-    mult = Mult()
-
-    big = torch.zeros(B, W, H)
-    x = torch.rand(B, M)
-    y = torch.zeros(B, M)
+    big = torch.zeros(B, BIG, BIG)
+    x = torch.rand(B, 32)
+    y = torch.zeros(B, 32)
     target = x.clone()
 
     if CUDA:
-        big = big.cuda()
-        x = x.cuda()
-        y = y.cuda()
-        target = target.cuda()
-
-    big = Variable(big)
-    x = Variable(x, requires_grad=True)
-    y = Variable(y)
-    target = Variable(target)
+        big, x, y, target = big.cuda(), x.cuda(), y.cuda(), target.cuda()
+    big, x, y, target = Variable(big), Variable(x, requires_grad=True), Variable(y), Variable(target)
 
     for b in range(B):
-        y[b, :] = mult(big[b, :, :], x[b, :])
+      y[b, :] = mult(big[b, :, :], x[b, :])
+
+    # Use this instead of the above, and problems go away
+    # y = mult(big, x)
 
     loss = criterion(y, target)
-    loss.backward()
+
+    del mult
 
 for i in trange(int(10e7)):
     iteration()

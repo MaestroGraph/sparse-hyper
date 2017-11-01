@@ -10,6 +10,8 @@ import os, errno, random
 
 import torch
 from torch import nn
+from torch import FloatTensor
+from torch.autograd import Variable
 
 import subprocess
 
@@ -119,13 +121,10 @@ if __name__ == '__main__':
     print(sample(range(100), 6, [0, 1, 2]))
     print('.')
 
-class SparseMult(torch.autograd.Function):
+def sparsemult(use_cuda):
+    return SparseMultGPU.apply if use_cuda else SparseMultCPU.apply
 
-    def __init__(self, use_cuda=False):
-        super().__init__()
-        self.use_cuda = use_cuda
-
-        self.FT =  torch.cuda.sparse.FloatTensor if self.use_cuda else torch.sparse.FloatTensor
+class SparseMultCPU(torch.autograd.Function):
 
     """
     Sparse matrix multiplication with gradients over the value-vector
@@ -133,31 +132,63 @@ class SparseMult(torch.autograd.Function):
     Does not work with batch dim.
     """
 
-    def forward(self, indices, values, size, vector):
+    @staticmethod
+    def forward(ctx, indices, values, size, vector):
 
-        matrix = self.FT(indices, values, torch.Size(size))
+        matrix = torch.sparse.FloatTensor(indices, values, torch.Size(size))
 
-        self.save_for_backward(indices, values, size, vector)
-        res = torch.mm(matrix, vector.unsqueeze(1))
+        ctx.indices, ctx.matrix, ctx.vector = indices, matrix, vector
 
-        return res
+        return torch.mm(matrix, vector.unsqueeze(1))
 
-    def backward(self, grad_output):
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_output = grad_output.data
 
-        indices, values, size, vector = self.saved_tensors
-        matrix = self.FT(indices, values, torch.Size(size))
+        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
 
-        i_ixs = indices[0,:]
-        j_ixs = indices[1,:]
+        i_ixs = ctx.indices[0,:]
+        j_ixs = ctx.indices[1,:]
         output_select = grad_output.view(-1)[i_ixs]
-        vector_select = vector.view(-1)[j_ixs]
+        vector_select = ctx.vector.view(-1)[j_ixs]
 
         grad_values = output_select *  vector_select
 
-        grad_vector = torch.mm(matrix.t(), grad_output).t() \
-            if self.needs_input_grad[1] else None
+        grad_vector = torch.mm(ctx.matrix.t(), grad_output).t()
+        return None, Variable(grad_values), None, Variable(grad_vector)
 
-        return None, grad_values, None, grad_vector
+class SparseMultGPU(torch.autograd.Function):
+
+    """
+    Sparse matrix multiplication with gradients over the value-vector
+
+    Does not work with batch dim.
+    """
+
+    @staticmethod
+    def forward(ctx, indices, values, size, vector):
+
+        matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(size))
+
+        ctx, indices, ctx.matrix, ctx.vector = indices, matrix, vector
+
+        return torch.mm(matrix, vector.unsqueeze(1))
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_output = grad_output.data
+
+        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
+
+        i_ixs = ctx.indices[0,:]
+        j_ixs = ctx.indices[1,:]
+        output_select = grad_output.view(-1)[i_ixs]
+        vector_select = ctx.vector.view(-1)[j_ixs]
+
+        grad_values = output_select *  vector_select
+
+        grad_vector = torch.mm(ctx.matrix.t(), grad_output).t()
+        return None, Variable(grad_values), None, Variable(grad_vector)
 
 def nvidia_smi():
     command = 'nvidia-smi'

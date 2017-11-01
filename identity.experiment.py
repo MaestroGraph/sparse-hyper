@@ -55,7 +55,10 @@ for i in trange(N):
     y = model(x)
     loss = criterion(y, x) # compute the loss
 
+    t0 = time.time()
     loss.backward()        # compute the gradients
+    logging.info('backward: {} seconds'.format(time.time() - t0))
+
     optimizer.step()
 
     w.add_scalar('identity32/loss', loss.data[0], i*BATCH)

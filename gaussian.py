@@ -243,7 +243,7 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
                 sample = util.sample(range(total), additional + 2**rank, list(neighbor_ints[b, m, :]))
                 ints_flat[b, m, :] = LongTensor(sample)
 
-        logging.info('{} seconds'.format(time.time() - t0))
+        logging.info('sampling: {} seconds'.format(time.time() - t0))
 
     ints = tup(ints_flat.view(-1), rng, use_cuda=False)
     ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)
@@ -419,6 +419,8 @@ class HyperLayer(nn.Module):
 
         sparsemult = util.sparsemult(self.use_cuda)
 
+        t0 = time.time()
+
         for b in range(batchsize):
             bindices = Variable(mindices[b, :, :].squeeze(0).t())
             bvalues = values[b, :]
@@ -426,6 +428,9 @@ class HyperLayer(nn.Module):
             bx = x_flat[b,:]
 
             y_flat[b,:] = sparsemult(bindices, bvalues, bsize, bx)
+
+        logging.info('sparse mult: {} seconds'.format(time.time() - t0))
+
 
         # t0 = time.time()
         # mindices, values = sort(mindices, values, self.use_cuda)

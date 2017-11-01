@@ -23,19 +23,27 @@ BATCH = 256
 SHAPE = (32, )
 CUDA = True
 
-def iteration(i, params):
+torch.manual_seed(2)
 
-    model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=256, k=nzs, gain=1.0)
-    # model.initialize(SHAPE, batch_size=64,iterations=100, lr=0.05)
+nzs = hyper.prod(SHAPE)
 
-    if params is not None:
-        model.params = Parameter(params)
+N = 300000 // BATCH
 
-    if CUDA:
-        model.cuda()
+plt.figure(figsize=(5,5))
+util.makedirs('./spread/')
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+params = None
+
+model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=256, k=nzs, gain=1.0)
+# model.initialize(SHAPE, batch_size=64, iterations=100, lr=0.05)
+
+if CUDA:
+    model.cuda()
+
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.0001)
+
+for i in trange(N):
 
     x = torch.rand((BATCH,) + SHAPE)
     if CUDA:
@@ -48,8 +56,9 @@ def iteration(i, params):
     loss = criterion(y, x) # compute the loss
 
     loss.backward()        # compute the gradients
-
     optimizer.step()
+
+    w.add_scalar('identity32/loss', loss.data[0], i*BATCH)
 
     if i % (N//50) == 0:
         means, sigmas, values = model.hyper(x)
@@ -60,31 +69,5 @@ def iteration(i, params):
         plt.ylim((-1, SHAPE[0]))
         plt.savefig('./spread/means{:04}.png'.format(i))
 
-        print(means)
-        print(sigmas)
-        print(values)
+
         print('LOSS', torch.sqrt(loss))
-
-
-    # return model.params.data.clone()
-
-torch.manual_seed(2)
-
-nzs = hyper.prod(SHAPE)
-
-N = 300000 // BATCH
-
-plt.figure(figsize=(5,5))
-util.makedirs('./spread/')
-
-params = None
-
-for i in trange(N):
-    iteration(i, None)
-    gc.collect()
-
-    process = psutil.Process(os.getpid())
-    LOG.info('{}: memory usage (GB): {}'.format(i, process.memory_info().rss / 10e9))
-
-    if CUDA:
-        LOG.info(util.nvidia_smi())

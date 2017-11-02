@@ -72,5 +72,4 @@ for i in trange(N):
         plt.ylim((-1, SHAPE[0]))
         plt.savefig('./spread/means{:04}.png'.format(i))
 
-
         print('LOSS', torch.sqrt(loss))

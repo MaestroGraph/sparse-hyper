@@ -399,7 +399,9 @@ class HyperLayer(nn.Module):
             indices = indices.cuda()
 
         # translate tensor indices to matrix indices
+        t0 = time.time()
         mindices, flat_size = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
+        logging.info('flatten: {} seconds'.format(time.time() - t0))
 
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
         #     through 'values', which are a function of both the real_indices and the real_values.
@@ -430,54 +432,6 @@ class HyperLayer(nn.Module):
             y_flat[b,:] = sparsemult(bindices, bvalues, bsize, bx)
 
         logging.info('sparse mult: {} seconds'.format(time.time() - t0))
-
-
-        # t0 = time.time()
-        # mindices, values = sort(mindices, values, self.use_cuda)
-        # logging.info('sort: {} seconds'.format(time.time() - t0))
-        #
-        # # print('<>', real_indices, real_values)
-        # # print('||', mindices, values)
-        #
-        # t0 = time.time()
-        # ttotaldot = 0
-        # ttotalrange = 0
-        # ttotalrange_cpu = 0
-        # ttotalind= 0
-        #
-        # mindices_cpu = mindices.cpu()
-        #
-        # for b in range(batchsize):
-        #     r_start = 0
-        #     r_end = 0
-        #
-        #     while r_end < mindices.size()[1]:
-        #
-        #         r_start_cpu = r_start
-        #         r_end_cpu = r_end
-        #
-        #         t0range = time.time()
-        #         while r_end < mindices.size()[1] and mindices[b, r_start, 0] == mindices[b, r_end, 0]:
-        #             r_end += 1
-        #         ttotalrange += time.time() - t0range
-        #
-        #
-        #         t0ind = time.time()
-        #         i = mindices[b, r_start, 0]
-        #         ixs = mindices[b, r_start:r_end, 1]
-        #         ttotalind += time.time() - t0ind
-        #
-        #         t0dot = time.time()
-        #         y_flat[b, i] = torch.dot(values[b, r_start:r_end], x_flat[b, :][ixs])
-        #         ttotaldot += time.time() - t0dot
-        #
-        #         r_start = r_end
-        #
-        # logging.info('----multiply: {} seconds'.format(time.time() - t0))
-        # logging.info('         dot: {} seconds'.format(ttotaldot))
-        # logging.info('       range: {} seconds'.format(ttotalrange))
-        # logging.info('  range(cpu): {} seconds'.format(ttotalrange_cpu))
-        # logging.info('         ind: {} seconds'.format(ttotalind))
 
         y_shape = [batchsize]
         y_shape.extend(self.out_shape)

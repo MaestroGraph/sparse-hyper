@@ -10,8 +10,6 @@ import torch.nn.functional as F
 
 import torch.optim as optim
 
-from torch.sparse import FloatTensor
-
 import torchvision
 import torchvision.transforms as transforms
 
@@ -25,31 +23,18 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import util
 
-from tensorboardX import SummaryWriter
-w = SummaryWriter()
+values = Variable(torch.rand(3, 4, 2))
+print(values)
+print(util.bsoftmax(values))
 
-import time, random
-import gaussian
-BATCH = 1
-
-for i in range(9):
-    model = gaussian.DenseASHLayer((8,), (8,), k=32, hidden=1)  #
-
-    x = Variable(torch.rand((BATCH, ) + (8,)))
-
-    means, sigmas, values = model.hyper(x)
-    #means = torch.round(means)
-    #means = means + Variable(torch.rand(means.size()) * 0.2)
-
-    # print(means)
-    plt.figure()
-    util.plot(means, sigmas, values)
-
-    plt.xlim((-1, 8))
-    plt.ylim((-1, 8))
-    plt.axis('equal')
-
-    plt.savefig('means.{}.png'.format(i))
-
-
-
+#
+# values = Variable(torch.FloatTensor([0.1, 1.1, 2.1]))
+# v = Variable(torch.randn(2, 10, 3))
+#
+# v = nn.functional.softplus(v) + 0.0001
+#
+# samples = util.bmultinomial(v, 5, replacement=True)
+#
+# b, r, c = samples.size()
+#
+# print(values[samples.view(-1)].view(b, r, c))

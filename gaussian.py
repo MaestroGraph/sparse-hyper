@@ -164,6 +164,46 @@ def densities(points, means, sigmas):
     """
     Compute the unnormalized PDFs of the points under the given MVNs
 
+    (with sigma a diagonal matrix per MVN)
+
+    :param means:
+    :param sigmas:
+    :param points:
+    :return:
+    """
+
+    # n: number of MVNs
+    # d: number of points per MVN
+    # rank: dim of points
+
+    batchsize, n, d, rank = points.size()
+
+    means = means.unsqueeze(2).expand_as(points)
+
+    sigmas = sigmas.unsqueeze(2).expand_as(points)
+    sigmas_squared = torch.sqrt(sigmas)
+
+    points = points - means
+    points = points * (1.0/(EPSILON+sigmas_squared))
+
+    # Compute dot products for all points
+    # -- unroll the batch/n dimensions
+    points = points.view(-1, 1, rank, 1).squeeze(3)
+    # -- dot prod
+    products = torch.bmm(points, points.transpose(1,2))
+    # -- reconstruct shape
+    products = products.view(batchsize, n, d)
+
+    num = torch.exp(- 0.5 * products)
+
+    return num
+
+def densities_single(points, means, sigmas):
+    """
+    Compute the unnormalized PDFs of the points under the given MVNs
+
+    (with sigma a single number per MVN)
+
     :param means:
     :param sigmas:
     :param points:
@@ -332,7 +372,7 @@ class HyperLayer(nn.Module):
 
         self.bias_type = bias_type
 
-    def split_out(self, res, input_size, output_size, gain=5.0):
+    def split_out(self, res, input_size, output_size):
         """
         Utility function. res is a B x K x Wrank+2 tensor with range from
         -inf to inf, this function splits out the means, sigmas and values, and
@@ -348,25 +388,82 @@ class HyperLayer(nn.Module):
         b, k, width = res.size()
         w_rank = width - 2
 
-        means = nn.functional.sigmoid(res[:, :, 0:w_rank] * gain)
+        means = nn.functional.sigmoid(res[:, :, 0:w_rank])
         means = means.unsqueeze(2).contiguous().view(-1, k, w_rank)
 
         ## expand the indices to the range [0, max]
 
         # Limits for each of the w_rank indices
+        # and scales for the sigmas
         ws = list(output_size) + list(input_size)
         s = torch.cuda.FloatTensor(ws) if self.use_cuda else FloatTensor(ws)
         s = Variable(s.contiguous())
-        s = s - 1
-        s = s.unsqueeze(0).unsqueeze(0)
-        s = s.expand_as(means)
 
-        means = means * s
+        ss = s.unsqueeze(0).unsqueeze(0)
+        sm = s - 1
+        sm = sm.unsqueeze(0).unsqueeze(0)
 
-        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2) + 0.0
+        means = means * sm.expand_as(means)
+
+        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2)
         values = nn.functional.softplus(res[:, :, w_rank + 1:].squeeze(2))
 
+        sigmas = sigmas.unsqueeze(2).expand_as(means)
+
+        sigmas = sigmas * ss.expand_as(sigmas)
+
         return means, sigmas, values
+
+
+    def split_shared(self, res, input_size, output_size, values):
+        """
+        Splits res into means and sigmas, samples values according to multinomial parameters
+        in res
+
+        :param res:
+        :param input_size:
+        :param output_size:
+        :param gain:
+        :return:
+        """
+
+        b, k, width = res.size()
+        w_rank = len(input_size) + len(output_size)
+
+        means = nn.functional.sigmoid(res[:, :, 0:w_rank])
+        means = means.unsqueeze(2).contiguous().view(-1, k, w_rank)
+
+        ## expand the indices to the range [0, max]
+
+        # Limits for each of the w_rank indices
+        # and scales for the sigmas
+        ws = list(output_size) + list(input_size)
+        s = torch.cuda.FloatTensor(ws) if self.use_cuda else FloatTensor(ws)
+        s = Variable(s.contiguous())
+
+        ss = s.unsqueeze(0).unsqueeze(0)
+        sm = s - 1
+        sm = sm.unsqueeze(0).unsqueeze(0)
+
+        means = means * sm.expand_as(means)
+
+        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank+1])
+
+        sigmas = sigmas.expand_as(means)
+        sigmas = sigmas * ss.expand_as(sigmas)
+
+        # extract the values
+        vweights = res[:, :, w_rank+1:].contiguous()
+
+        assert vweights.size()[2] == values.size()[0]
+
+        vweights = util.bsoftmax(vweights)
+
+        samples, snode = util.bmultinomial(vweights, num_samples=1)
+
+        weights = values[samples.data.view(-1)].view(b, k)
+
+        return means, sigmas, weights, snode
 
     def forward(self, input):
 
@@ -553,60 +650,24 @@ class HyperLayer(nn.Module):
                 #     plt.savefig('./init/means.{:06}.png'.format(i))
 
 
-class DenseASHLayer(HyperLayer):
-    """
-    Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
-    """
-
-    def __init__(self, in_shape, out_shape, k, additional=0, hidden=256):
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.NONE)
-
-        self.k = k
-        self.in_shape = in_shape
-        self.out_shape = out_shape
-
-        self.w_rank = len(in_shape) + len(out_shape)
-
-        # hypernetwork
-        self.hyp = nn.Sequential(
-            Flatten(),
-            nn.Linear(prod(in_shape), hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, (self.w_rank + 2) * k),
-        )
-
-        # self.bias = Parameter(torch.zeros(out_shape))
-
-    def hyper(self, input):
-        """
-        Evaluates hypernetwork.
-        """
-        res = self.hyp.forward(input)
-
-        res = res.unsqueeze(1).view(-1, self.k, self.w_rank + 2)
-
-        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
-
-        return means, sigmas, values
-
-
 class ParamASHLayer(HyperLayer):
     """
-    Hyperlayer with arbitrary (fixed) in/out shape. Uses simple dense hypernetwork
+    Hyperlayer with free sparse parameters, no hypernetwork.
     """
 
-    def __init__(self, in_shape, out_shape, k, additional=0, gain=5.0):
+    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False):
         super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.NONE)
 
         self.k = k
         self.in_shape = in_shape
         self.out_shape = out_shape
-        self.gain = gain
+        self.sigma_scale = sigma_scale
+        self.fix_values = fix_values
 
         self.w_rank = len(in_shape) + len(out_shape)
 
         p = torch.randn(k, self.w_rank + 2)
-        p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1] * 0.0 + 0.6
+        p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1]
         self.params = Parameter(p)
 
     def hyper(self, input):
@@ -619,11 +680,70 @@ class ParamASHLayer(HyperLayer):
         # Replicate the parameters along the batch dimension
         res = self.params.unsqueeze(0).expand(batch_size, self.k, self.w_rank+2)
 
-        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape, self.gain)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
+
+        sigmas = sigmas * self.sigma_scale
+        if self.fix_values:
+            values = values * 0.0 + 1.0
 
         return means, sigmas, values
 
     def clone(self):
+        result = ParamASHLayer(self.in_shape, self.out_shape, self.k, self.additional, self.gain)
+
+        result.params = Parameter(self.params.data.clone())
+
+        return result
+
+class WeightSharingASHLayer(HyperLayer):
+    """
+    Hyperlayer with free sparse parameters, no hypernetwork, and a limited number of weights with hard sharing
+    """
+
+    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.1, num_values=2):
+        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.NONE)
+
+        self.k = k
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.sigma_scale = sigma_scale
+
+        self.w_rank = len(in_shape) + len(out_shape)
+
+        p = torch.randn(k, self.w_rank + 1 + num_values)
+        p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1]
+        self.params = Parameter(p)
+
+        self.sources = Parameter(torch.randn(num_values))
+        # self.sources = Variable(FloatTensor([-1.0, 1.0]))
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+
+        batch_size = input.size()[0]
+
+        # Replicate the parameters along the batch dimension
+        rows, columns = self.params.size()
+        res = self.params.unsqueeze(0).expand(batch_size, rows, columns)
+
+        means, sigmas, values, self.samples = self.split_shared(res, input.size()[1:], self.out_shape, self.sources)
+        sigmas = sigmas * self.sigma_scale
+
+        return means, sigmas, values
+
+    def call_reinforce(self, downstream_reward):
+        b, = downstream_reward.size()
+
+        rew = downstream_reward.unsqueeze(1).expand(b, self.k)
+        rew = rew.contiguous().view(-1, 1)
+
+        self.samples.reinforce(rew)
+        self.samples.backward()
+
+    def clone(self):
+
         result = ParamASHLayer(self.in_shape, self.out_shape, self.k, self.additional, self.gain)
 
         result.params = Parameter(self.params.data.clone())

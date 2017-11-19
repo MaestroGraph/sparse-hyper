@@ -3,7 +3,7 @@ from time import time
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, Wedge, Polygon
+from matplotlib.patches import Circle, Wedge, Polygon, Ellipse
 from matplotlib.collections import PatchCollection
 from matplotlib.axes import Axes
 import os, errno, random
@@ -17,6 +17,8 @@ import subprocess
 
 import numpy as np
 
+import math
+
 tics = []
 
 def tic():
@@ -28,7 +30,21 @@ def toc():
     else:
         return time()-tics.pop()
 
-def plot(means, sigmas, values, axes=None):
+def clean(axes=None):
+
+    if axes is None:
+        axes = plt.gca()
+
+    axes.spines["right"].set_visible(False)
+    axes.spines["top"].set_visible(False)
+    axes.spines["bottom"].set_visible(False)
+    axes.spines["left"].set_visible(False)
+
+    # axes.get_xaxis().set_tick_params(which='both', top='off', bottom='off', labelbottom='off')
+    # axes.get_yaxis().set_tick_params(which='both', left='off', right='off')
+
+
+def plot(means, sigmas, values, shape=None, axes=None):
 
     b, n, d = means.size()
 
@@ -46,11 +62,16 @@ def plot(means, sigmas, values, axes=None):
     colors = []
     for i in range(n):
         color = map.to_rgba(values[i])
-        alpha = (sigmas[i]+1.0)**-2
-        axes.add_patch(Circle((means[i, :]), radius=sigmas[i], color=color, alpha=alpha, linewidth=0))
+        alpha = max(0.02, ((sigmas[i, 0] * sigmas[i, 0])+1.0)**-2)
+        axes.add_patch(Ellipse((means[i, 1], means[i, 0]), width=sigmas[i,1], height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 
-    axes.scatter(means[:, 0], means[:, 1], c=colors, zorder=100, linewidth=1, edgecolor='k')
+    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=1, edgecolor='k')
+
+    if shape is not None:
+        # gray points for the integer index tuples
+        x, y = np.mgrid[0:shape[0], 0:shape[1]]
+        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.6)
 
 def norm(x):
     """
@@ -194,3 +215,70 @@ class SparseMultGPU(torch.autograd.Function):
 def nvidia_smi():
     command = 'nvidia-smi'
     return subprocess.check_output(command, shell=True)
+
+def orth_loss(batch_size, x_size, model, use_cuda):
+    """
+
+    :param batch_size:
+    :param x_size:
+    :param model:
+    :param use_cuda:
+    :return:
+    """
+
+    x_size = (batch_size,) + x_size
+
+    x1o, x2o = torch.randn(x_size), torch.randn(x_size)
+
+    # normalize to unit tensors
+    x1o, x2o = norm(x1o), norm(x2o)
+
+    if use_cuda:
+        x1o, x2o = x1o.cuda(), x2o.cuda()
+    x1o, x2o = Variable(x1o), Variable(x2o)
+
+    y1 = model(x1o)
+    y2 = model(x2o)
+
+    x1 = x1o.view(batch_size, 1, -1)
+    x2 = x2o.view(batch_size, 1, -1)
+    y1 = y1.view(batch_size, 1, -1)
+    y2 = y2.view(batch_size, 1, -1)
+
+    print('x1 v y1', x1[0, :], y1[0, ])
+
+    xnorm = torch.bmm(x1, x2.transpose(1, 2))
+    ynorm = torch.bmm(y1, y2.transpose(1, 2))
+
+    loss = torch.sum(torch.pow((xnorm - ynorm), 2)) / batch_size
+
+    return loss, x1o, x2o
+
+def bmultinomial(mat, num_samples=1, replacement=False):
+    """
+    Take multinomial samples from a batch of matrices with multinomial parameters on the
+    rows
+
+    :param mat:
+    :param num_samples:
+    :param replacement:
+    :return:
+    """
+
+    batches, rows, columns = mat.size()
+
+    mat = mat.view(1, -1, columns).squeeze(0)
+
+    sample = torch.multinomial(mat, num_samples, replacement)
+
+    return sample.view(batches, rows, num_samples), sample
+
+def bsoftmax(input):
+
+    b, r, c = input.size()
+    input = input.view(1, -1, c)
+    input = nn.functional.softmax(input.squeeze(0)).unsqueeze(0)
+
+    return input.view(b, r, c)
+
+

@@ -24,7 +24,7 @@ MNIST Autoencoder Experiment
 w = SummaryWriter()
 
 BATCH = 256
-SHAPE = (1, 28, 28)
+SHAPE = (28, 28)
 MIDDLE = (8, )
 EPOCHS = 350
 
@@ -76,6 +76,8 @@ for epoch in range(EPOCHS):
 
         # get the inputs
         inputs, _ = data
+        inputs = inputs.squeeze(1)
+
         if CUDA:
             inputs = inputs.cuda()
 
@@ -93,12 +95,16 @@ for epoch in range(EPOCHS):
         w.add_scalar('autoencoder/train-loss', loss.data[0], step)
 
         step += 1
+        if i > 10:
+            break
 
     total = 0.0
     num = 0
     for i, data in enumerate(testloader, 0):
         # get the inputs
         inputs, _ = data
+        inputs = inputs.squeeze(1)
+
         if CUDA:
             inputs = inputs.cuda()
 
@@ -114,15 +120,16 @@ for epoch in range(EPOCHS):
 
         num += 1
 
-        if i < 10:
+        if i < 1:
+            inputs, outputs = inputs.unsqueeze(1), outputs.unsqueeze(1)
 
             plt.figure(figsize=(16, 4))
             plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
-            plt.savefig('input.{}.{}.pdf'.format(epoch, i))
+            plt.savefig('input.{}.pdf'.format(epoch))
 
             plt.figure(figsize=(16, 4))
             plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
-            plt.savefig('output.{}.{}.pdf'.format(epoch, i))
+            plt.savefig('output.{}.pdf'.format(epoch))
 
     epoch_loss = total/(num * BATCH)
 

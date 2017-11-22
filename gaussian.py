@@ -842,8 +842,6 @@ class CASHLayer(HyperLayer):
         super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE)
 
         class NoActivation(nn.Module):
-            def __init__(self):
-                super().__init__()
             def forward(self, input):
                 return input
 

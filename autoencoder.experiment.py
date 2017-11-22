@@ -95,8 +95,6 @@ for epoch in range(EPOCHS):
         w.add_scalar('autoencoder/train-loss', loss.data[0], step)
 
         step += 1
-        if i > 10:
-            break
 
     total = 0.0
     num = 0

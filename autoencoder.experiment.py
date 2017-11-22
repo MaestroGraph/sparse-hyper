@@ -28,7 +28,7 @@ SHAPE = (1, 28, 28)
 MIDDLE = (8, )
 EPOCHS = 350
 
-CUDA = False
+CUDA = True
 
 TYPE = 'non-adaptive'
 
@@ -86,9 +86,6 @@ for epoch in range(EPOCHS):
 
         w.add_scalar('autoencoder/train-loss', loss.data[0], step)
 
-        if i > 1:
-            break
-
         step += 1
 
     total = 0.0
@@ -114,11 +111,11 @@ for epoch in range(EPOCHS):
         if i < 10:
 
             plt.figure(figsize=(16, 4))
-            plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).numpy(), (1, 2, 0)), interpolation='none')
+            plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
             plt.savefig('input.{}.{}.pdf'.format(epoch, i))
 
             plt.figure(figsize=(16, 4))
-            plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16,:]).numpy(), (1, 2, 0)), interpolation='none')
+            plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
             plt.savefig('output.{}.{}.pdf'.format(epoch, i))
 
     epoch_loss = total/(num * BATCH)

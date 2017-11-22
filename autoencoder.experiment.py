@@ -25,7 +25,7 @@ w = SummaryWriter()
 
 BATCH = 256
 SHAPE = (28, 28)
-MIDDLE = (8, )
+MIDDLE = (10, )
 EPOCHS = 350
 
 CUDA = True
@@ -52,14 +52,14 @@ testloader = torch.utils.data.DataLoader(test, batch_size=BATCH,
 if TYPE == 'non-adaptive':
     model = nn.Sequential(
         gaussian.ParamASHLayer(SHAPE, MIDDLE, k=16, additional=8, has_bias=True),
-        nn.ReLU(),
+        nn.Sigmoid(),
         gaussian.ParamASHLayer(MIDDLE, SHAPE, k=16, additional=8, has_bias=True),
         nn.Sigmoid())
 elif TYPE == 'free-weights':
     model = nn.Sequential(
-        gaussian.CASHLayer(SHAPE, MIDDLE, k=16, additional=8, has_bias=True),
-        nn.ReLU(),
-        gaussian.CASHLayer(MIDDLE, SHAPE, k=16, additional=8, has_bias=True),
+        gaussian.CASHLayer(SHAPE, MIDDLE, k=750, additional=8, has_bias=False),
+        nn.Sigmoid(),
+        gaussian.CASHLayer(MIDDLE, SHAPE, k=1500, additional=8, has_bias=False),
         nn.Sigmoid())
 
 if CUDA:
@@ -86,10 +86,11 @@ for epoch in range(EPOCHS):
 
         # forward + backward + optimize
         optimizer.zero_grad()
+
         outputs = model(inputs)
         loss = criterion(outputs, targets)
-
         loss.backward()
+
         optimizer.step()
 
         w.add_scalar('autoencoder/train-loss', loss.data[0], step)

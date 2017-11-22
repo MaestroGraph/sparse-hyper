@@ -299,8 +299,7 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
     # props is batchsize x K x 2^rank+a, giving a weight to each neighboring or sampled integer-index-tuple
 
     # -- normalize the proportions of the neigh points and the
-    sums = torch.sum(props, dim=2, keepdim=True).expand_as(props)
-    props = props / sums
+    sums = torch.sum(props + EPSILON, dim=2, keepdim=True).expand_as(props)
 
     # repeat each value 2^rank+A times, so it matches the new indices
     val = torch.unsqueeze(values, 2).expand_as(props).contiguous()
@@ -489,6 +488,7 @@ class HyperLayer(nn.Module):
         # turn the real values into integers in a differentiable way
         t0 = time.time()
         indices, props, values = discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+
         values = values * props
         logging.info('discretize: {} seconds'.format(time.time() - t0))
 
@@ -509,7 +509,6 @@ class HyperLayer(nn.Module):
         #    now, we'll do a slow, naive multiplication.
 
         x_flat = input.view(batchsize, -1)
-
         ly = prod(self.out_shape)
 
         y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
@@ -519,6 +518,12 @@ class HyperLayer(nn.Module):
         sparsemult = util.sparsemult(self.use_cuda)
 
         t0 = time.time()
+
+        # for value in values.data.view(-1):
+        #     print(value, '!!!!!!!!!!!!!!!!!!!!!!!' if value != value else '')
+
+        # Prevent segfault
+        assert not util.contains_nan(values.data)
 
         for b in range(batchsize):
             bindices = Variable(mindices[b, :, :].squeeze(0).t())

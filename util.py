@@ -285,4 +285,6 @@ def bsoftmax(input):
 
     return input.view(b, r, c)
 
+def contains_nan(tensor):
+    return (tensor != tensor).sum() > 0
 

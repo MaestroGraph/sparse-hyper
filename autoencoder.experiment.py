@@ -33,8 +33,8 @@ CUDA = False
 TYPE = 'non-adaptive'
 
 normalize = transforms.Compose(
-    [transforms.ToTensor(),
-     transforms.Normalize((0.1307,), (0.3081,))
+    [transforms.ToTensor()
+        #,transforms.Normalize((0.1307,), (0.3081,))
      ])
 
 train = torchvision.datasets.MNIST(root='./data', train=True,
@@ -86,6 +86,9 @@ for epoch in range(EPOCHS):
 
         w.add_scalar('autoencoder/train-loss', loss.data[0], step)
 
+        if i > 1:
+            break
+
         step += 1
 
     total = 0.0
@@ -110,18 +113,18 @@ for epoch in range(EPOCHS):
 
         if i < 10:
 
-            plt.figure()
-            plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data).numpy(), (1, 2, 0)))
-            plt.savefig('input.{}.{}.png'.format(epoch, i))
+            plt.figure(figsize=(16, 4))
+            plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).numpy(), (1, 2, 0)), interpolation='none')
+            plt.savefig('input.{}.{}.pdf'.format(epoch, i))
 
-            plt.figure()
-            plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data).numpy(), (1, 2, 0)))
-            plt.savefig('output.{}.{}.png'.format(epoch, i))
+            plt.figure(figsize=(16, 4))
+            plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16,:]).numpy(), (1, 2, 0)), interpolation='none')
+            plt.savefig('output.{}.{}.pdf'.format(epoch, i))
 
     epoch_loss = total/(num * BATCH)
 
-    w.add_scalar('autoencoder/epoch-test-loss', epoch_loss, epoch)
-    print('EPOCH {}: {} loss per instance '.format(epoch, epoch_loss))
+    w.add_scalar('autoencoder/epoch-test-loss', epoch_loss.data[0], epoch)
+    print('EPOCH {}: {} loss per instance '.format(epoch, epoch_loss.data[0]))
 
 print('Finished Training.')
 

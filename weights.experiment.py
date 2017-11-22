@@ -19,8 +19,8 @@ Simple experiment: learn the identity function with even indices negative
 """
 w = SummaryWriter()
 
-BATCH = 64
-SHAPE = (4, )
+BATCH = 4
+SHAPE = (8, )
 CUDA = False
 MARGIN = 0.1
 
@@ -35,13 +35,16 @@ util.makedirs('./spread/')
 
 params = None
 
-model = gaussian.WeightSharingASHLayer(SHAPE, SHAPE, additional=6, k=nzs, sigma_scale=0.2, num_values=2)
+# model = gaussian.WeightSharingASHLayer(SHAPE, SHAPE, additional=6, k=nzs, sigma_scale=0.2, num_values=2)
+
+model = gaussian.CASHLayer(SHAPE, SHAPE, additional=16, k=nzs, sigma_scale=0.2, poolsize=1, deconvs=1, has_bias=False)
+
 # model.initialize(SHAPE, batch_size=64, iterations=100, lr=0.05)
 
 if CUDA:
     model.cuda()
 
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 def mse_unsummed(output, target):
     errs = (output - target) ** 2
@@ -50,7 +53,7 @@ def mse_unsummed(output, target):
 target = torch.eye(SHAPE[0])
 
 for i in range(0, SHAPE[0], 2):
-    target[i,i] = - target[i,i]
+    target[i,i] = target[i,i]
 
 target = target.unsqueeze(0).expand(BATCH, SHAPE[0], SHAPE[0])
 
@@ -74,14 +77,16 @@ for i in trange(N):
     loss = torch.sum(losses)
 
     # reinforce stochastic nodes
-    model.call_reinforce(- losses.data)
+    # model.call_reinforce(- losses.data)
+
+
     loss.backward()        # compute the gradients
 
     optimizer.step()
 
     w.add_scalar('weights/loss', loss.data[0], i*BATCH)
 
-    if i % (N//50) == 0:
+    if i % (N//500) == 0:
         means, sigmas, values = model.hyper(x)
 
         plt.clf()
@@ -92,12 +97,5 @@ for i in trange(N):
         plt.savefig('./spread/means{:04}.png'.format(i))
 
         print('LOSS', torch.sqrt(loss))
-        print('sources', model.sources)
-        print('sources grad', model.sources.grad)
-
-
-        vweights = nn.functional.softmax(model.params[:5,-2:])
-
-        print('vweights', vweights)
-        print('param grad', model.params.grad)
-
+        # print('sources', model.sources)
+        # print('sources grad', model.sources.grad)

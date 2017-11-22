@@ -457,7 +457,7 @@ class HyperLayer(nn.Module):
 
         assert vweights.size()[2] == values.size()[0]
 
-        vweights = util.bsoftmax(vweights)
+        vweights = util.bsoftmax(vweights) + EPSILON
 
         samples, snode = util.bmultinomial(vweights, num_samples=1)
 
@@ -655,20 +655,24 @@ class ParamASHLayer(HyperLayer):
     Hyperlayer with free sparse parameters, no hypernetwork.
     """
 
-    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False):
-        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.NONE)
+    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False, has_bias=False):
+        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.DENSE if has_bias else Bias.NONE)
 
         self.k = k
         self.in_shape = in_shape
         self.out_shape = out_shape
         self.sigma_scale = sigma_scale
         self.fix_values = fix_values
+        self.has_bias = has_bias
 
         self.w_rank = len(in_shape) + len(out_shape)
 
         p = torch.randn(k, self.w_rank + 2)
         p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1]
         self.params = Parameter(p)
+
+        if self.has_bias:
+            self.bias = Parameter(torch.randn(*out_shape))
 
     def hyper(self, input):
         """
@@ -686,6 +690,8 @@ class ParamASHLayer(HyperLayer):
         if self.fix_values:
             values = values * 0.0 + 1.0
 
+        if self.has_bias:
+            return means, sigmas, values, self.bias
         return means, sigmas, values
 
     def clone(self):
@@ -824,7 +830,7 @@ class CASHLayer(HyperLayer):
     """
 
     """
-    def __init__(self, in_shape, out_shape, k,additional=0, poolsize=4, deconvs=2, gain=7.0):
+    def __init__(self, in_shape, out_shape, k,additional=0, poolsize=4, deconvs=2, sigma_scale=0.1, has_bias=True):
         """
         :param in_shape:
         :param out_shape:
@@ -833,7 +839,7 @@ class CASHLayer(HyperLayer):
         :param poolsize:
         :param deconvs: How many deconv layers to use to generate the tuples from the hidden layer
         """
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE)
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE)
 
         class NoActivation(nn.Module):
             def __init__(self):
@@ -843,14 +849,16 @@ class CASHLayer(HyperLayer):
 
         self.activation = NoActivation()
 
+        self.has_bias = has_bias
         self.k = k
         self.in_shape = in_shape
         self.out_shape = out_shape
-        self.gain = gain
+        self.sigma_scale = sigma_scale
 
         self.w_rank = len(in_shape) + len(out_shape)
 
-        hidden = int(math.ceil(k/2**deconvs))
+        self.ha = int(math.ceil(k/2**deconvs))
+        self.hb = 8
 
         if len(in_shape) == 1:
             x = in_shape[0]
@@ -870,11 +878,11 @@ class CASHLayer(HyperLayer):
         # hypernetwork
         self.tohidden = nn.Sequential(
             Flatten(),
-            nn.Linear(flat_size, hidden),
+            nn.Linear(flat_size, self.ha * self.hb),
             self.activation
         )
 
-        self.conv1= nn.ConvTranspose1d(in_channels=1, out_channels=self.w_rank+2, kernel_size=2, stride=2)
+        self.conv1 = nn.ConvTranspose1d(in_channels=self.hb, out_channels=self.w_rank+2, kernel_size=2, stride=2)
 
         self.convs = nn.ModuleList()
         for i in range(deconvs - 1):
@@ -882,7 +890,7 @@ class CASHLayer(HyperLayer):
                 nn.ConvTranspose1d(in_channels=self.w_rank+2, out_channels=self.w_rank+2, kernel_size=2, stride=2))
 
         self.bias = nn.Sequential(
-            nn.Linear(hidden, hyper.prod(out_shape)),
+            nn.Linear(self.ha * self.hb, hyper.prod(out_shape)),
             self.activation
         )
 
@@ -897,7 +905,7 @@ class CASHLayer(HyperLayer):
 
         hidden = self.tohidden(downsampled)
 
-        res = hidden.unsqueeze(1)
+        res = hidden.view(insize[0], self.hb, self.ha)
 
         res = self.conv1(res)
 
@@ -910,14 +918,126 @@ class CASHLayer(HyperLayer):
         # res has shape batch_size x k x rank+2
 
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
+        sigmas = sigmas * self.sigma_scale
+
+        if not self.has_bias:
+            return means, sigmas, values
 
         bias = self.bias(hidden)
-        # bias = bias.view((-1, ) + self.out_shape)
-        # print('down', downsampled)
-        # print('params', list(self.tohidden[1].parameters()))
-        # print('hidden', hidden)
-
         return means, sigmas, values, bias
+
+class WSCASHLayer(HyperLayer):
+    """
+    Weight-sharing (de)convolutional ASH layer
+    """
+    def __init__(self, in_shape, out_shape, k, additional=0, poolsize=4, deconvs=2, sigma_scale=0.1, num_sources=2, has_bias=True):
+        """
+        :param in_shape:
+        :param out_shape:
+        :param k: How many index tuples to generate. If this is not divisible by 2^deconvs, you'll get the next biggest
+        number that is.
+        :param poolsize:
+        :param deconvs: How many deconv layers to use to generate the tuples from the hidden layer
+        """
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE)
+
+        class NoActivation(nn.Module):
+            def forward(self, input):
+                return input
+
+        self.activation = NoActivation()
+
+        self.has_bias = has_bias
+        self.k = k
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.sigma_scale = sigma_scale
+
+        self.w_rank = len(in_shape) + len(out_shape)
+
+        width = self.w_rank + 1 + num_sources # nr of parameters per index-tuple
+
+        self.ha = int(math.ceil(k/2**deconvs))
+        self.hb = 8
+
+        if len(in_shape) == 1:
+            x = in_shape[0]
+            flat_size = int(x / poolsize)
+            self.pool = nn.AvgPool1d(kernel_size=poolsize, stride=poolsize)
+        elif len(in_shape) == 2:
+            x, y = in_shape
+            flat_size = int(x / poolsize) * int(y / poolsize)
+            self.pool = nn.AvgPool2d(kernel_size=poolsize, stride=poolsize)
+        elif len(in_shape) == 3:
+            x, y, z = in_shape
+            flat_size = int(x / poolsize) * int(y / poolsize) * int(z / poolsize)
+            self.pool = nn.AvgPool3d(kernel_size=poolsize, stride=poolsize)
+        else:
+            raise Exception('Input dimensions higher than 3 not supported (yet)')
+
+        # hypernetwork
+        self.tohidden = nn.Sequential(
+            Flatten(),
+            nn.Linear(flat_size, self.ha * self.hb),
+            self.activation
+        )
+
+        self.conv1= nn.ConvTranspose1d(in_channels=self.hb, out_channels=width, kernel_size=2, stride=2)
+
+        self.convs = nn.ModuleList()
+        for i in range(deconvs - 1):
+            self.convs.append(
+                nn.ConvTranspose1d(in_channels=width, out_channels=width, kernel_size=2, stride=2))
+
+        self.bias = nn.Sequential(
+            nn.Linear(self.ha * self.hb, hyper.prod(out_shape)),
+            self.activation
+        )
+
+        self.sources = Parameter(torch.randn(num_sources))
+        # self.sources = Variable(FloatTensor([-1.0, 1.0]))
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+
+        insize = input.size()
+
+        downsampled = self.pool(input.unsqueeze(1)).unsqueeze(1)
+
+        hidden = self.tohidden(downsampled)
+
+        res = hidden.view(insize[0], self.hb, self.ha)
+
+        # print(res.size())
+
+        res = self.conv1(res)
+
+        for i, conv in enumerate(self.convs):
+            if i != 0:
+                res = self.activation(res)
+            res = conv(res)
+
+        res = res.transpose(1,2)
+
+        means, sigmas, values, self.samples = self.split_shared(res, input.size()[1:], self.out_shape, self.sources)
+        sigmas = sigmas * self.sigma_scale
+
+        if not self.has_bias:
+            return means, sigmas, values
+
+        bias = self.bias(hidden)
+        return means, sigmas, values, bias
+
+    def call_reinforce(self, downstream_reward):
+        b, = downstream_reward.size()
+
+        rew = downstream_reward.unsqueeze(1).expand(b, self.k)
+        rew = rew.contiguous().view(-1, 1)
+
+        self.samples.reinforce(rew)
+        self.samples.backward(retain_graph=True)
 
 if __name__ == '__main__':
 

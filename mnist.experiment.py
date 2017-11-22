@@ -1,4 +1,4 @@
-import sampling, hyper, gaussian
+import hyper, gaussian, util
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -26,6 +26,8 @@ EPOCHS = 350
 
 CUDA = False
 
+TYPE = 'non-adaptive'
+
 normalize = transforms.Compose(
     [transforms.ToTensor(),
      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -42,13 +44,14 @@ test = torchvision.datasets.MNIST(root='./data', train=False,
 testloader = torch.utils.data.DataLoader(test, batch_size=BATCH,
                                          shuffle=False, num_workers=2)
 
-model = nn.Sequential(
-    gaussian.ImageCASHLayer(SHAPE, (64,), k=128),
-    nn.ReLU(),
-    gaussian.CASHLayer((64,), (32,), k=128, deconvs=1),
-    nn.ReLU(),
-    gaussian.CASHLayer((32,), (10,), k=128, deconvs=1),
-    nn.Softmax())
+if TYPE == 'non-adaptive':
+    model = nn.Sequential(
+        gaussian.ParamASHLayer(SHAPE, (4, 8, 8), k=512, additional=512, has_bias=True),
+        nn.ReLU(),
+        gaussian.ParamASHLayer((4, 8, 8), (1024,), k=512, additional=512, has_bias=True),
+        nn.ReLU(),
+        gaussian.ParamASHLayer((1024,), (10,), k=512, additional=512, has_bias=True),
+        nn.Softmax())
 
 if CUDA:
     model.apply(lambda t : t.cuda())
@@ -105,5 +108,5 @@ for epoch in range(EPOCHS):
     w.add_scalar('mnist/per-epoch-test-acc', accuracy, epoch)
     print('EPOCH {}: {} accuracy '.format(epoch, accuracy))
 
-print('Finished Training. Took {} seconds'.format(toc()))
+print('Finished Training.')
 

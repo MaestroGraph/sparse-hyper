@@ -18,7 +18,7 @@ import numpy as np
 torch.manual_seed(1)
 
 """
-MNIST experiment
+MNIST Autoencoder Experiment
 
 """
 w = SummaryWriter()
@@ -30,7 +30,7 @@ EPOCHS = 350
 
 CUDA = True
 
-TYPE = 'non-adaptive'
+TYPE = 'free-weights'
 
 normalize = transforms.Compose(
     [transforms.ToTensor()
@@ -54,6 +54,12 @@ if TYPE == 'non-adaptive':
         gaussian.ParamASHLayer(SHAPE, MIDDLE, k=16, additional=8, has_bias=True),
         nn.ReLU(),
         gaussian.ParamASHLayer(MIDDLE, SHAPE, k=16, additional=8, has_bias=True),
+        nn.Sigmoid())
+elif TYPE == 'free-weights':
+    model = nn.Sequential(
+        gaussian.CASHLayer(SHAPE, MIDDLE, k=16, additional=8, has_bias=True),
+        nn.ReLU(),
+        gaussian.CASHLayer(MIDDLE, SHAPE, k=16, additional=8, has_bias=True),
         nn.Sigmoid())
 
 if CUDA:

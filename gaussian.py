@@ -33,6 +33,7 @@ import hyper
 
 # added to the sigmas to prevent NaN
 EPSILON = 10e-10
+PROPER_SAMPLING = True
 
 """
 
@@ -278,10 +279,19 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
         t0 = time.time()
         total = hyper.prod(rng)
 
-        for b in range(batchsize):
-            for m in range(n):
-                sample = util.sample(range(total), additional + 2**rank, list(neighbor_ints[b, m, :]))
-                ints_flat[b, m, :] = LongTensor(sample)
+        if PROPER_SAMPLING:
+            for b in range(batchsize):
+                for m in range(n):
+                    sample = util.sample(range(total), additional + 2**rank, list(neighbor_ints[b, m, :]))
+                    ints_flat[b, m, :] = LongTensor(sample)
+        else:
+            sampled_ints = torch.rand(batchsize, n, additional)
+            if use_cuda:
+                sampled_ints.cuda()
+
+            sampled_ints = (sampled_ints * total).long()
+
+            ints_flat = torch.cat((neighbor_ints, sampled_ints), dim=2)
 
         logging.info('sampling: {} seconds'.format(time.time() - t0))
 
@@ -692,6 +702,7 @@ class ParamASHLayer(HyperLayer):
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
 
         sigmas = sigmas * self.sigma_scale
+
         if self.fix_values:
             values = values * 0.0 + 1.0
 

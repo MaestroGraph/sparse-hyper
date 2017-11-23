@@ -1,4 +1,4 @@
-import hyper, gaussian, util
+import hyper, gaussian, util, logging
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 torch.manual_seed(1)
+logging.basicConfig(filename='run.log',level=logging.INFO)
+LOG = logging.getLogger()
 
 """
 MNIST Autoencoder Experiment
@@ -28,7 +30,7 @@ SHAPE = (28, 28)
 MIDDLE = (10, )
 EPOCHS = 350
 
-CUDA = True
+CUDA = False
 
 TYPE = 'free-weights'
 
@@ -57,9 +59,9 @@ if TYPE == 'non-adaptive':
         nn.Sigmoid())
 elif TYPE == 'free-weights':
     model = nn.Sequential(
-        gaussian.CASHLayer(SHAPE, MIDDLE, k=750, additional=8, has_bias=False),
+        gaussian.CASHLayer(SHAPE, MIDDLE, k=75, additional=8, has_bias=False),
         nn.Sigmoid(),
-        gaussian.CASHLayer(MIDDLE, SHAPE, k=1500, additional=8, has_bias=False),
+        gaussian.CASHLayer(MIDDLE, SHAPE, k=150, additional=8, has_bias=False),
         nn.Sigmoid())
 
 if CUDA:

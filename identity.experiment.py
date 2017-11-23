@@ -8,6 +8,7 @@ from tensorboardX import SummaryWriter
 
 import matplotlib.pyplot as plt
 import util, logging, time, gc
+import numpy as np
 
 import psutil, os
 
@@ -20,57 +21,78 @@ Simple experiment: learn the identity function from one tensor to another
 w = SummaryWriter()
 
 BATCH = 64
-SHAPE = (16, )
+SHAPE = (8, )
 CUDA = False
 MARGIN = 0.1
+
+REPEATS = 10
 
 torch.manual_seed(2)
 
 nzs = hyper.prod(SHAPE)
 
-N = 300000 // BATCH
+N = 30000 # 64000 // BATCH
 
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
 
 params = None
 
-model = gaussian.WeightSharingASHLayer(SHAPE, SHAPE, additional=64, k=nzs, sigma_scale=0.2, num_values=2)
-# model.initialize(SHAPE, batch_size=64, iterations=100, lr=0.05)
 
-if CUDA:
-    model.cuda()
+for tf in [True, False]:
 
-criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+    sigms = []
+    losses = []
 
-for i in trange(N):
+    gaussian.PROPER_SAMPLING = tf
 
-    x = torch.rand((BATCH,) + SHAPE)
-    if CUDA:
-        x = x.cuda()
-    x = Variable(x)
+    offset = -0.005 if tf else 0.005
 
-    optimizer.zero_grad()
+    for s in np.linspace(0.1, 0.9, 3):
+        for r in trange(REPEATS):
 
-    y = model(x)
-    loss = criterion(y, x) # compute the loss
+            model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=16 , k=nzs, sigma_scale=s, fix_values=True)
 
-    t0 = time.time()
-    loss.backward()        # compute the gradients
-    logging.info('backward: {} seconds'.format(time.time() - t0))
+            if CUDA:
+                model.cuda()
 
-    optimizer.step()
+            criterion = nn.MSELoss()
+            optimizer = optim.Adam(model.parameters(), lr=0.05)
 
-    w.add_scalar('identity32/loss', loss.data[0], i*BATCH)
+            for i in range(N):
 
-    if i % (N//2500) == 0:
-        means, sigmas, values = model.hyper(x)
+                x = torch.rand((BATCH,) + SHAPE)
+                if CUDA:
+                    x = x.cuda()
+                x = Variable(x)
 
-        plt.clf()
-        util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
-        plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-        plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-        plt.savefig('./spread/means{:04}.png'.format(i))
+                optimizer.zero_grad()
 
-        print('LOSS', torch.sqrt(loss))
+                y = model(x)
+                loss = criterion(y, x) # compute the loss
+
+                t0 = time.time()
+                loss.backward()        # compute the gradients
+                logging.info('backward: {} seconds'.format(time.time() - t0))
+
+                optimizer.step()
+
+                w.add_scalar('identity32/loss', loss.data[0], i*BATCH)
+
+                # if False or i % (N//50) == 0:
+                #     means, sigmas, values = model.hyper(x)
+                #
+                #     plt.clf()
+                #     util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
+                #     plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+                #     plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+                #     plt.savefig('./spread/means{:04}.png'.format(i))
+
+            sigms.append(s + offset)
+            losses.append(loss.data[0])
+
+    plt.plot(sigms, losses, marker='.', linewidth=0)
+
+plt.yscale('log')
+plt.savefig('losses.pdf')
+

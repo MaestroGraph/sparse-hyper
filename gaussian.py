@@ -289,7 +289,7 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
             if use_cuda:
                 sampled_ints.cuda()
 
-            sampled_ints = (sampled_ints * total).long()
+            sampled_ints = ((sampled_ints - EPSILON) * total).long()
 
             ints_flat = torch.cat((neighbor_ints, sampled_ints), dim=2)
 

@@ -20,26 +20,25 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-BATCH = 64
-SHAPE = (8, )
+BATCH = 256
+SHAPE = (16, )
 CUDA = False
 MARGIN = 0.1
 
-REPEATS = 10
+REPEATS = 1000
 
-torch.manual_seed(2)
+torch.manual_seed(6)
 
 nzs = hyper.prod(SHAPE)
 
-N = 30000 # 64000 // BATCH
+N = 50 # 64000 // BATCH
 
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
 
 params = None
 
-
-for tf in [True, False]:
+for tf in [False]:
 
     sigms = []
     losses = []
@@ -48,7 +47,7 @@ for tf in [True, False]:
 
     offset = -0.005 if tf else 0.005
 
-    for s in np.linspace(0.1, 0.9, 3):
+    for s in np.linspace(0.1, 0.9, 1):
         for r in trange(REPEATS):
 
             model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=16 , k=nzs, sigma_scale=s, fix_values=True)

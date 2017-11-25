@@ -31,14 +31,14 @@ torch.manual_seed(6)
 
 nzs = hyper.prod(SHAPE)
 
-N = 50 # 64000 // BATCH
+N = 1000 # 64000 // BATCH
 
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
 
 params = None
 
-for tf in [False]:
+for tf in [False, True]:
 
     sigms = []
     losses = []
@@ -47,7 +47,7 @@ for tf in [False]:
 
     offset = -0.005 if tf else 0.005
 
-    for s in np.linspace(0.1, 0.9, 1):
+    for s in np.linspace(0.1, 0.9, 3):
         for r in trange(REPEATS):
 
             model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=16 , k=nzs, sigma_scale=s, fix_values=True)

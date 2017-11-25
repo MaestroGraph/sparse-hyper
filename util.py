@@ -288,3 +288,12 @@ def bsoftmax(input):
 def contains_nan(tensor):
     return (tensor != tensor).sum() > 0
 
+if __name__ == '__main__':
+
+
+    i = torch.LongTensor([[0, 16, 1],
+                          [2, 0, 2]])
+    v = torch.FloatTensor([1, 1, 1])
+
+    matrix = torch.sparse.FloatTensor(i, v, torch.Size((16, 16)))
+

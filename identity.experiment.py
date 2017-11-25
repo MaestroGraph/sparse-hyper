@@ -25,7 +25,7 @@ SHAPE = (16, )
 CUDA = False
 MARGIN = 0.1
 
-REPEATS = 1000
+REPEATS = 10
 
 torch.manual_seed(6)
 

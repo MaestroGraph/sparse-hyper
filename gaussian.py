@@ -289,7 +289,7 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
             if use_cuda:
                 sampled_ints.cuda()
 
-            sampled_ints = ((sampled_ints - EPSILON) * total).long()
+            sampled_ints = torch.floor(((sampled_ints - EPSILON) * total)).long()
 
             ints_flat = torch.cat((neighbor_ints, sampled_ints), dim=2)
 
@@ -1024,8 +1024,6 @@ class WSCASHLayer(HyperLayer):
 
         res = hidden.view(insize[0], self.hb, self.ha)
 
-        # print(res.size())
-
         res = self.conv1(res)
 
         for i, conv in enumerate(self.convs):
@@ -1052,8 +1050,6 @@ class WSCASHLayer(HyperLayer):
 
         self.samples.reinforce(rew)
         self.samples.backward(retain_graph=True)
-
-if __name__ == '__main__':
 
     SHAPE = (2, 3, 4)
 

@@ -298,7 +298,7 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
             rng = FloatTensor(rng).unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
 
             if use_cuda:
-                sampled_ints, rng = sampled_ints.cuda(), rng.cuda()
+                neighbor_ints, sampled_ints, rng = neighbor_ints.cuda(), sampled_ints.cuda(), rng.cuda()
 
             sampled_ints = torch.floor(sampled_ints * rng).long()
 

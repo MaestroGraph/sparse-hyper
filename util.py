@@ -112,7 +112,6 @@ def sample(collection, k, required):
     :param required:
     :return:
     """
-
     if(k + len(required) > len(collection)):
         # use rejection sampling
         sample = list(collection)
@@ -194,7 +193,6 @@ class SparseMultGPU(torch.autograd.Function):
     def forward(ctx, indices, values, size, vector):
 
         matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(size))
-
 
         ctx.indices, ctx.matrix, ctx.vector = indices, matrix, vector
 

@@ -32,7 +32,7 @@ from tqdm import trange
 import hyper
 
 # added to the sigmas to prevent NaN
-EPSILON = 10e-10
+EPSILON = 10e-7
 PROPER_SAMPLING = True
 
 """
@@ -259,7 +259,6 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
     # integerized index-tuples we can make from that one real-valued index-tuple
     # ints = torch.cuda.FloatTensor(batchsize, n, 2 ** rank + additional, rank) if use_cuda else FloatTensor(batchsize, n, 2 ** rank, rank)
 
-    ints_flat = LongTensor(batchsize, n, 2 ** rank + additional)
     neighbor_ints = LongTensor(batchsize, n, 2 ** rank, rank)
 
     # produce all integer index-tuples that neighbor the means
@@ -270,38 +269,57 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
                 r = means[:, row, col].data
                 neighbor_ints[:, row, t, col] = torch.floor(r) if bool else torch.ceil(r)
 
-    # flatten
-    neighbor_ints = fi(neighbor_ints.view(-1, rank), rng, use_cuda=False)
-    neighbor_ints = neighbor_ints.unsqueeze(0).view(batchsize, n, 2 ** rank)
-
     # Sample additional points
     if rng is not None:
         t0 = time.time()
         total = hyper.prod(rng)
 
         if PROPER_SAMPLING:
+
+            ints_flat = LongTensor(batchsize, n, 2 ** rank + additional)
+
+            # flatten
+            neighbor_ints = fi(neighbor_ints.view(-1, rank), rng, use_cuda=False)
+            neighbor_ints = neighbor_ints.unsqueeze(0).view(batchsize, n, 2 ** rank)
+
             for b in range(batchsize):
                 for m in range(n):
                     sample = util.sample(range(total), additional + 2**rank, list(neighbor_ints[b, m, :]))
                     ints_flat[b, m, :] = LongTensor(sample)
+
+            ints = tup(ints_flat.view(-1), rng, use_cuda=False)
+            ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)
+            ints_fl = ints.float().cuda() if use_cuda else ints.float()
+
         else:
-            sampled_ints = torch.rand(batchsize, n, additional)
+            sampled_ints = torch.rand(batchsize, n, additional, rank) * (1.0 - EPSILON)
+            orig = sampled_ints
+
+            rng = FloatTensor(rng).unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
+
             if use_cuda:
-                sampled_ints.cuda()
+                sampled_ints, rng = sampled_ints.cuda(), rng.cuda()
 
-            sampled_ints = torch.floor(((sampled_ints - EPSILON) * total)).long()
+            sampled_ints = torch.floor(sampled_ints * rng).long()
 
-            ints_flat = torch.cat((neighbor_ints, sampled_ints), dim=2)
+            if (sampled_ints >= 16).long().sum() > 0:
+                for b in range(batchsize):
+                    for m in range(n):
+                        for a in range(additional):
+                            row = sampled_ints[b, m, a, :]
+                            if (row >= 16).long().sum() > 0:
+                                row_orig = orig[b, m, a, :]
+                                print(row)
+                                print(row_orig)
+
+
+
+            ints = torch.cat((neighbor_ints, sampled_ints), dim=2)
+
+            ints_fl = ints.float()
 
         logging.info('sampling: {} seconds'.format(time.time() - t0))
 
-    ints = tup(ints_flat.view(-1), rng, use_cuda=False)
-    ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)
-
-    # print('means', means)
-    # print('ints', ints)
-
-    ints_fl = ints.float().cuda() if use_cuda else ints.float()
     ints_fl = Variable(ints_fl) # leaf node in the comp graph, gradients go through values
 
     # compute the proportion of the value each integer index tuple receives
@@ -1050,10 +1068,6 @@ class WSCASHLayer(HyperLayer):
 
         self.samples.reinforce(rew)
         self.samples.backward(retain_graph=True)
-
-    SHAPE = (2, 3, 4)
-
-    print(sample_indices(1, 3, 24, SHAPE))
 
     # ints = LongTensor(range(hyper.prod(SHAPE)))
     # print(ints)

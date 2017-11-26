@@ -21,17 +21,17 @@ Simple experiment: learn the identity function from one tensor to another
 w = SummaryWriter()
 
 BATCH = 256
-SHAPE = (16, )
-CUDA = False
+SHAPE = (32, )
+CUDA = True
 MARGIN = 0.1
 
-REPEATS = 10
+REPEATS = 3
 
 torch.manual_seed(6)
 
 nzs = hyper.prod(SHAPE)
 
-N = 1000 # 64000 // BATCH
+N = 500 # 64000 // BATCH
 
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
@@ -50,7 +50,7 @@ for tf in [False, True]:
     for s in np.linspace(0.1, 0.9, 3):
         for r in trange(REPEATS):
 
-            model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=16 , k=nzs, sigma_scale=s, fix_values=True)
+            model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=256, k=nzs, sigma_scale=s, fix_values=True)
 
             if CUDA:
                 model.cuda()

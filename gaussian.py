@@ -302,17 +302,15 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
 
             sampled_ints = torch.floor(sampled_ints * rng).long()
 
-            if (sampled_ints >= 16).long().sum() > 0:
-                for b in range(batchsize):
-                    for m in range(n):
-                        for a in range(additional):
-                            row = sampled_ints[b, m, a, :]
-                            if (row >= 16).long().sum() > 0:
-                                row_orig = orig[b, m, a, :]
-                                print(row)
-                                print(row_orig)
-
-
+            # if (sampled_ints >= 16).long().sum() > 0:
+            #     for b in range(batchsize):
+            #         for m in range(n):
+            #             for a in range(additional):
+            #                 row = sampled_ints[b, m, a, :]
+            #                 if (row >= 16).long().sum() > 0:
+            #                     row_orig = orig[b, m, a, :]
+            #                     print(row)
+            #                     print(row_orig)
 
             ints = torch.cat((neighbor_ints, sampled_ints), dim=2)
 

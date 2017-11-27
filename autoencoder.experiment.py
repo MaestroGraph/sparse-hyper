@@ -138,8 +138,8 @@ for epoch in range(EPOCHS):
 
     epoch_loss = total/(num * BATCH)
 
-    w.add_scalar('autoencoder/epoch-test-loss', epoch_loss.data[0], epoch)
-    print('EPOCH {}: {} loss per instance '.format(epoch, epoch_loss.data[0]))
+    w.add_scalar('autoencoder/epoch-test-loss', epoch_loss, epoch)
+    print('EPOCH {}: {} loss per instance '.format(epoch, epoch_loss))
 
 print('Finished Training.')
 

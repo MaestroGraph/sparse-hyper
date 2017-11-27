@@ -30,7 +30,7 @@ SHAPE = (28, 28)
 MIDDLE = (10, )
 EPOCHS = 350
 
-CUDA = True
+CUDA = False
 
 TYPE = 'free-weights'
 
@@ -61,9 +61,9 @@ if TYPE == 'non-adaptive':
         nn.Sigmoid())
 elif TYPE == 'free-weights':
     model = nn.Sequential(
-        gaussian.CASHLayer(SHAPE, MIDDLE, k=750, additional=8, has_bias=False),
+        gaussian.CASHLayer(SHAPE, MIDDLE, k=750, additional=32, has_bias=False),
         nn.Sigmoid(),
-        gaussian.CASHLayer(MIDDLE, SHAPE, k=1500, additional=8, has_bias=False),
+        gaussian.CASHLayer(MIDDLE, SHAPE, k=1500, additional=32, has_bias=False),
         nn.Sigmoid())
 
 if CUDA:
@@ -101,6 +101,7 @@ for epoch in range(EPOCHS):
 
         step += 1
 
+
     total = 0.0
     num = 0
     for i, data in tqdm(enumerate(testloader, 0)):
@@ -119,7 +120,7 @@ for epoch in range(EPOCHS):
         outputs = model(inputs)
         loss = criterion(outputs, targets)
 
-        total += loss.data
+        total += float(loss.data[0])
         loss = None
 
         num += 1

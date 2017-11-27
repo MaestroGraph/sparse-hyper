@@ -34,6 +34,8 @@ CUDA = True
 
 TYPE = 'free-weights'
 
+gaussian.PROPER_SAMPLING = False
+
 normalize = transforms.Compose(
     [transforms.ToTensor()
         #,transforms.Normalize((0.1307,), (0.3081,))

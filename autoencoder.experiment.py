@@ -25,12 +25,12 @@ MNIST Autoencoder Experiment
 """
 w = SummaryWriter()
 
-BATCH = 256
+BATCH = 64
 SHAPE = (28, 28)
 MIDDLE = (10, )
 EPOCHS = 350
 
-CUDA = False
+CUDA = True
 
 TYPE = 'free-weights'
 
@@ -59,9 +59,9 @@ if TYPE == 'non-adaptive':
         nn.Sigmoid())
 elif TYPE == 'free-weights':
     model = nn.Sequential(
-        gaussian.CASHLayer(SHAPE, MIDDLE, k=75, additional=8, has_bias=False),
+        gaussian.CASHLayer(SHAPE, MIDDLE, k=750, additional=256, has_bias=False),
         nn.Sigmoid(),
-        gaussian.CASHLayer(MIDDLE, SHAPE, k=150, additional=8, has_bias=False),
+        gaussian.CASHLayer(MIDDLE, SHAPE, k=1500, additional=256, has_bias=False),
         nn.Sigmoid())
 
 if CUDA:

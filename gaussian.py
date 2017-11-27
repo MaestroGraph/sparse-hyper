@@ -60,6 +60,26 @@ class Flatten(nn.Module):
 def flatten(input):
     return input.view(input.size(0), -1)
 
+def fi_matrix(indices, shape):
+
+    batchsize, rows, rank = indices.size()
+
+    prod = LongTensor(rank).fill_(1)
+
+    if indices.is_cuda:
+        prod = prod.cuda()
+
+    for i in range(rank):
+        prod[i] = 1
+        for j in range(i + 1, len(shape)):
+            prod[i] *= shape[j]
+
+    print('prod', prod)
+
+    indices = indices * prod.unsqueeze(0).unsqueeze(0).expand_as(indices)
+
+    return indices.sum(dim=2)
+
 def fi(indices, shape, use_cuda=False):
     """
     Returns the single index of the entry indicated by the given index-tuple, after a tensor (of the given shape) is
@@ -138,6 +158,32 @@ def flatten_indices(indices, in_shape, out_shape, use_cuda=False):
         result[:, row, 1] = fi(indices[:, row, outrank:rank], in_shape, use_cuda) # j index
 
     return result, LongTensor((prod(out_shape), prod(in_shape)))
+
+def flatten_indices_mat(indices, in_shape, out_shape):
+    """
+    Turns a n NxK matrix of N index-tuples for a tensor T of rank K into an Nx2 matrix M of index-tuples for a _matrix_
+    that is created by flattening the first 'in_shape' dimensions into the vertical dimension of M and the remaining
+    dimensions in the the horizontal dimension of M.
+
+    :param indices: Long tensor
+    :param in_rank:
+    :return: A matrix of size N by 2. The size of the matrix as a LongTensor
+    """
+
+    batchsize, n, rank = indices.size()
+
+    inrank = len(in_shape)
+    outrank = len(out_shape)
+
+    result = torch.cuda.LongTensor(batchsize, n, 2) if indices.is_cuda else LongTensor(batchsize, n, 2)
+
+    left = fi_matrix(indices[:, :, 0:outrank], out_shape)   # i index of the weight matrix
+    right = fi_matrix(indices[:, :, outrank:rank], in_shape) # j index
+
+    result = torch.cat([left.unsqueeze(2), right.unsqueeze(2)], dim=2)
+
+    return result, LongTensor((prod(out_shape), prod(in_shape)))
+
 
 def sort(indices, vals, use_cuda=False):
     """
@@ -523,7 +569,10 @@ class HyperLayer(nn.Module):
 
         # translate tensor indices to matrix indices
         t0 = time.time()
-        mindices, flat_size = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
+
+        # mindices, flat_size = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
+        mindices, flat_size = flatten_indices_mat(indices, input.size()[1:], self.out_shape)
+
         logging.info('flatten: {} seconds'.format(time.time() - t0))
 
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
@@ -575,111 +624,6 @@ class HyperLayer(nn.Module):
         logging.info('total: {} seconds'.format(time.time() - t0total))
 
         return y
-
-    def initialize(self, in_shape, batch_size=64, iterations=250, lr=0.001, verbose=True):
-        """
-        We aim to initialize to a generally orthonormal weight-tensor. To be precise, the subtensors of any two output
-        nodes y_i and y_j should be orthogonal, when flattened to vectors, and each such subtensor should have unit
-        length when flattened to a vector. This intialization ensures that each output nodeis initialized to represent
-        independent aspects of the input, and that the outputs and gradients do not blow up or fade away over successive
-        layers.
-
-        For a simple, generic training objective, we use the property that orthonormal matrices preserve the dot-product. We
-        sample two vectors x1 and x2, with independently drawn standard-normally distributed elements, and compute their
-        respective outputs y1 and y2. We then use (dot(x1, x2) - dot(y1, y2))^2 as our loss function and optimize with
-        Adam.
-
-        NB: For small batch sizes, the loss tends to go to inf/NaN
-
-        :param: in_shape Either a tuple representing the input shape, or (if the input has variable shape) a generator
-        that generates random input shapes according to the data distribution.
-        :return:
-        """
-
-        from tensorboardX import SummaryWriter
-        w = SummaryWriter()
-
-        y_size = (batch_size, ) + self.out_shape
-
-        optimizer = torch.optim.Adam(self.parameters(),lr=lr)
-
-        print('Initializing')
-
-        restart = True
-        while restart:
-            restart = False
-            for i in (trange(iterations) if verbose else range(iterations)):
-                optimizer.zero_grad()
-
-                # sample an input shape (if we have a generator
-                ins = in_shape.next() if isinstance(in_shape, types.GeneratorType) else in_shape
-                x_size = (batch_size,) + ins
-
-                x1, x2 = torch.randn(x_size), torch.randn(x_size)
-
-                # normalize to unit tensors
-                x1, x2 = util.norm(x1), util.norm(x2)
-
-                if self.use_cuda:
-                    x1, x2 = x1.cuda(), x2.cuda()
-                x1, x2 = Variable(x1), Variable(x2)
-
-                y1 = self.forward(x1)
-                y2 = self.forward(x2)
-
-                x1 = x1.view(batch_size, 1, -1)
-                x2 = x2.view(batch_size, 1, -1)
-                y1 = y1.view(batch_size, 1, -1)
-                y2 = y2.view(batch_size, 1, -1)
-
-                xnorm = torch.bmm(x1, x2.transpose(1, 2))
-                ynorm = torch.bmm(y1, y2.transpose(1, 2))
-
-                # print('xy',x1, x2, y1, y2)
-                # print(xnorm)
-
-                loss = torch.sum(torch.pow((xnorm - ynorm), 2)) / batch_size
-                # print('LOSS', loss)
-
-                if math.isnan(loss.data[0]) or math.isinf(loss.data[0]):
-                    if verbose:
-                        print('Infinite or NaN loss encountered, restarting with new parameters.')
-
-                        # print('x1', x1)
-                        # print('x2', x2)
-                        # print(xnorm)
-                        #
-                        # print('y1', y1)
-                        # print('y2', y2)
-                        # print(ynorm)
-                        #
-                        # print('loss (per batch)', torch.pow((xnorm - ynorm), 2))
-
-                        sys.exit(1)
-                    def reset(t):
-                        if hasattr(t, 'reset_parameters'):
-                            t.reset_parameters()
-                    self.apply(reset)
-
-                    restart = True
-                    break
-
-                w.add_scalar('init/loss', loss.data[0], i)
-
-                loss.backward()
-                optimizer.step()
-
-                # if i % 50 == 0:
-                #     means, sigmas, values = self.hyper(Variable(torch.randn(x_size)))
-                #     plt.clf()
-                #     util.plot(means, sigmas, values)
-                #
-                #     plt.xlim((-1, 8))
-                #     plt.ylim((-1, 8))
-                #     plt.axis('equal')
-                #
-                #     plt.savefig('./init/means.{:06}.png'.format(i))
-
 
 class ParamASHLayer(HyperLayer):
     """

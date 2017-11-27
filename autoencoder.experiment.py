@@ -50,8 +50,8 @@ trainloader = torch.utils.data.DataLoader(train, batch_size=BATCH,
 test = torchvision.datasets.MNIST(root='./data', train=False,
                                        download=True, transform=normalize)
 
-testloader = torch.utils.data.DataLoader(test, batch_size=BATCH,
-                                         shuffle=False, num_workers=2)
+testloader = torch.utils.data.DataLoader(test, batch_size=BATCH//8,
+                                         shuffle=True, num_workers=2)
 
 if TYPE == 'non-adaptive':
     model = nn.Sequential(
@@ -61,9 +61,9 @@ if TYPE == 'non-adaptive':
         nn.Sigmoid())
 elif TYPE == 'free-weights':
     model = nn.Sequential(
-        gaussian.CASHLayer(SHAPE, MIDDLE, k=750, additional=256, has_bias=False),
+        gaussian.CASHLayer(SHAPE, MIDDLE, k=750, additional=8, has_bias=False),
         nn.Sigmoid(),
-        gaussian.CASHLayer(MIDDLE, SHAPE, k=1500, additional=256, has_bias=False),
+        gaussian.CASHLayer(MIDDLE, SHAPE, k=1500, additional=8, has_bias=False),
         nn.Sigmoid())
 
 if CUDA:
@@ -103,7 +103,7 @@ for epoch in range(EPOCHS):
 
     total = 0.0
     num = 0
-    for i, data in enumerate(testloader, 0):
+    for i, data in tqdm(enumerate(testloader, 0)):
         # get the inputs
         inputs, _ = data
         inputs = inputs.squeeze(1)

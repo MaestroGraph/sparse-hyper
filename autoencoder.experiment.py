@@ -25,7 +25,7 @@ MNIST Autoencoder Experiment
 """
 w = SummaryWriter()
 
-BATCH = 64
+BATCH = 1024
 SHAPE = (28, 28)
 MIDDLE = (10, )
 EPOCHS = 350
@@ -50,7 +50,7 @@ trainloader = torch.utils.data.DataLoader(train, batch_size=BATCH,
 test = torchvision.datasets.MNIST(root='./data', train=False,
                                        download=True, transform=normalize)
 
-testloader = torch.utils.data.DataLoader(test, batch_size=BATCH//8,
+testloader = torch.utils.data.DataLoader(test, batch_size=BATCH,
                                          shuffle=True, num_workers=2)
 
 if TYPE == 'non-adaptive':
@@ -119,7 +119,8 @@ for epoch in range(EPOCHS):
         outputs = model(inputs)
         loss = criterion(outputs, targets)
 
-        total += loss
+        total += loss.data
+        loss = None
 
         num += 1
 

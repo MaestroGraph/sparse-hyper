@@ -74,8 +74,6 @@ def fi_matrix(indices, shape):
         for j in range(i + 1, len(shape)):
             prod[i] *= shape[j]
 
-    print('prod', prod)
-
     indices = indices * prod.unsqueeze(0).unsqueeze(0).expand_as(indices)
 
     return indices.sum(dim=2)

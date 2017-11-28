@@ -1,4 +1,4 @@
-import hyper, gaussian, util, logging
+import hyper, gaussian, util, logging, time
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -93,7 +93,10 @@ for epoch in range(EPOCHS):
 
         outputs = model(inputs)
         loss = criterion(outputs, targets)
-        loss.backward()
+
+        t0 = time.time()
+        loss.backward()  # compute the gradients
+        logging.info('backward: {} seconds'.format(time.time() - t0))
 
         optimizer.step()
 

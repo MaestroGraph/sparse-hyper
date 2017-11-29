@@ -1,4 +1,4 @@
-import hyper, gaussian, util, logging
+import hyper, gaussian, util, logging, time
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim

@@ -26,7 +26,9 @@ BATCH = 512
 SHAPE = (1, 28, 28)
 EPOCHS = 350
 
-CUDA = True
+CUDA = False
+
+gaussian.PROPER_SAMPLING = False
 
 TYPE = 'non-adaptive'
 

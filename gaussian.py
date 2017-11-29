@@ -636,10 +636,6 @@ class HyperLayer(nn.Module):
 
                 y_flat[b,:] = sparsemult(bindices, bvalues, bsize, bx)
 
-        print(x_flat[3, 3], y_flat[3, 3])
-        print(x_flat[0, 0], y_flat[0, 0])
-        print(x_flat[2, 1], y_flat[2, 1])
-
         logging.info('sparse mult: {} seconds'.format(time.time() - t0))
 
         y_shape = [batchsize]

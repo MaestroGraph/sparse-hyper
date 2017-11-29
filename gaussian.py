@@ -34,6 +34,7 @@ import hyper
 # added to the sigmas to prevent NaN
 EPSILON = 10e-7
 PROPER_SAMPLING = True
+BATCH_FLATTEN = True
 
 """
 
@@ -441,6 +442,19 @@ class HyperLayer(nn.Module):
 
         self.bias_type = bias_type
 
+    def bmult(self, width, height, num_indices, batchsize, use_cuda):
+
+        bmult = torch.cuda.LongTensor([height, width]) if use_cuda else LongTensor([height, width])
+        m = torch.cuda.LongTensor(range(batchsize)) if use_cuda else LongTensor(range(batchsize))
+
+        bmult = bmult.unsqueeze(0).unsqueeze(0)
+        m = m.unsqueeze(1).unsqueeze(1)
+
+        bmult = bmult.expand(batchsize, num_indices, 2)
+        m = m.expand(batchsize, num_indices, 2)
+
+        return m * bmult
+
     def split_out(self, res, input_size, output_size):
         """
         Utility function. res is a B x K x Wrank+2 tensor with range from
@@ -598,13 +612,33 @@ class HyperLayer(nn.Module):
         # Prevent segfault
         assert not util.contains_nan(values.data)
 
-        for b in range(batchsize):
-            bindices = Variable(mindices[b, :, :].squeeze(0).t())
-            bvalues = values[b, :]
-            bsize = Variable(flat_size)
-            bx = x_flat[b,:]
+        if BATCH_FLATTEN:
+            bm = self.bmult(flat_size[1], flat_size[0], mindices.size()[1], batchsize, self.use_cuda)
+            bfsize = Variable(flat_size * batchsize)
 
-            y_flat[b,:] = sparsemult(bindices, bvalues, bsize, bx)
+            bfindices = mindices + bm
+            bfindices = bfindices.view(1, -1, 2).squeeze(0)
+            vindices = Variable(bfindices.t())
+
+            bfvalues = values.view(1, -1).squeeze(0)
+            bfx = x_flat.view(1, -1).squeeze(0)
+
+            # print(vindices.size(), bfvalues.size(), bfsize, bfx.size())
+            bfy = sparsemult(vindices, bfvalues, bfsize, bfx)
+
+            y_flat = bfy.unsqueeze(0).view(batchsize, -1)
+        else:
+            for b in range(batchsize):
+                bindices = Variable(mindices[b, :, :].squeeze(0).t())
+                bvalues = values[b, :]
+                bsize = Variable(flat_size)
+                bx = x_flat[b,:]
+
+                y_flat[b,:] = sparsemult(bindices, bvalues, bsize, bx)
+
+        print(x_flat[3, 3], y_flat[3, 3])
+        print(x_flat[0, 0], y_flat[0, 0])
+        print(x_flat[2, 1], y_flat[2, 1])
 
         logging.info('sparse mult: {} seconds'.format(time.time() - t0))
 

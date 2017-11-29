@@ -25,20 +25,21 @@ SHAPE = (4, )
 CUDA = False
 MARGIN = 0.1
 
-REPEATS = 3
+REPEATS = 2
+gaussian.BATCH_FLATTEN = True
 
 torch.manual_seed(6)
 
 nzs = hyper.prod(SHAPE)
 
-N = 500 # 64000 // BATCH
+N = 30 # 64000 // BATCH
 
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
 
 params = None
 
-for tf in [False, True]:
+for tf in [False]:
 
     sigms = []
     losses = []
@@ -69,6 +70,8 @@ for tf in [False, True]:
 
                 y = model(x)
                 loss = criterion(y, x) # compute the loss
+
+                sys.exit()
 
                 t0 = time.time()
                 loss.backward()        # compute the gradients

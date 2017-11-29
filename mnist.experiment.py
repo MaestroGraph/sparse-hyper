@@ -1,4 +1,4 @@
-import hyper, gaussian, util
+import hyper, gaussian, util, logging
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -13,6 +13,8 @@ import torchvision
 import torchvision.transforms as transforms
 
 torch.manual_seed(1)
+logging.basicConfig(filename='run.log',level=logging.INFO)
+LOG = logging.getLogger()
 
 """
 MNIST experiment
@@ -20,11 +22,11 @@ MNIST experiment
 """
 w = SummaryWriter()
 
-BATCH = 4
+BATCH = 512
 SHAPE = (1, 28, 28)
 EPOCHS = 350
 
-CUDA = False
+CUDA = True
 
 TYPE = 'non-adaptive'
 
@@ -46,11 +48,19 @@ testloader = torch.utils.data.DataLoader(test, batch_size=BATCH,
 
 if TYPE == 'non-adaptive':
     model = nn.Sequential(
-        gaussian.ParamASHLayer(SHAPE, (4, 8, 8), k=512, additional=512, has_bias=True),
-        nn.ReLU(),
-        gaussian.ParamASHLayer((4, 8, 8), (1024,), k=512, additional=512, has_bias=True),
-        nn.ReLU(),
-        gaussian.ParamASHLayer((1024,), (10,), k=512, additional=512, has_bias=True),
+        gaussian.ParamASHLayer(SHAPE, (4, 8, 8), k=64, additional=32, has_bias=True),
+        nn.Sigmoid(),
+        gaussian.ParamASHLayer((4, 8, 8), (128,), k=64, additional=32, has_bias=True),
+        nn.Sigmoid(),
+        nn.Linear(128, 10),
+        nn.Softmax())
+elif TYPE == 'non-adaptive':
+    model = nn.Sequential(
+        gaussian.CASHLayer(SHAPE, (4, 8, 8), k=64, additional=32, has_bias=True),
+        nn.Sigmoid(),
+        gaussian.CASHLayer((4, 8, 8), (128,), k=64, additional=32, has_bias=True),
+        nn.Sigmoid(),
+        nn.Linear(128, 10),
         nn.Softmax())
 
 if CUDA:
@@ -79,7 +89,9 @@ for epoch in range(EPOCHS):
         outputs = model(inputs)
         loss = criterion(outputs, labels)
 
-        loss.backward()
+        t0 = time.time()
+        loss.backward()  # compute the gradients
+        logging.info('backward: {} seconds'.format(time.time() - t0))
         optimizer.step()
 
         w.add_scalar('mnist/train-loss', loss.data[0], step)

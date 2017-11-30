@@ -499,8 +499,6 @@ class HyperLayer(nn.Module):
 
         logging.info('  neighbors: {} seconds'.format(time.time() - t0))
 
-        print(neighbor_ints)
-
         # Sample additional points
         if rng is not None:
             t0 = time.time()

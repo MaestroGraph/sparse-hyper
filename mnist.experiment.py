@@ -23,15 +23,15 @@ MNIST experiment
 w = SummaryWriter()
 
 BATCH = 512
-SHAPE = (1, 28, 28)
+SHAPE = (28, 28)
 EPOCHS = 350
 
-CUDA = True
+CUDA = False
 
 gaussian.PROPER_SAMPLING = False
 gaussian.BATCH_FLATTEN = True
 
-TYPE = 'non-adaptive'
+TYPE = 'free'
 
 normalize = transforms.Compose(
     [transforms.ToTensor(),
@@ -51,17 +51,17 @@ testloader = torch.utils.data.DataLoader(test, batch_size=BATCH,
 
 if TYPE == 'non-adaptive':
     model = nn.Sequential(
-        gaussian.ParamASHLayer(SHAPE, (4, 8, 8), k=64, additional=32, has_bias=True),
+        gaussian.ParamASHLayer(SHAPE, (4, 8, 8), k=64, additional=8, has_bias=True),
         nn.Sigmoid(),
         gaussian.ParamASHLayer((4, 8, 8), (128,), k=64, additional=32, has_bias=True),
         nn.Sigmoid(),
         nn.Linear(128, 10),
         nn.Softmax())
-elif TYPE == 'non-adaptive':
+elif TYPE == 'free':
     model = nn.Sequential(
-        gaussian.CASHLayer(SHAPE, (4, 8, 8), k=64, additional=32, has_bias=True),
+        gaussian.CASHLayer(SHAPE, (4, 8, 8), k=640, additional=256, has_bias=True),
         nn.Sigmoid(),
-        gaussian.CASHLayer((4, 8, 8), (128,), k=64, additional=32, has_bias=True),
+        gaussian.CASHLayer((4, 8, 8), (128,), k=640, additional=256, has_bias=True),
         nn.Sigmoid(),
         nn.Linear(128, 10),
         nn.Softmax())
@@ -72,7 +72,7 @@ if CUDA:
 ## SIMPLE
 criterion = nn.CrossEntropyLoss()
 acc = CategoricalAccuracy()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.01)
 
 step = 0
 
@@ -81,6 +81,8 @@ for epoch in range(EPOCHS):
 
         # get the inputs
         inputs, labels = data
+        inputs = inputs.squeeze(1)
+
         if CUDA:
             inputs, labels = inputs.cuda(), labels.cuda()
 
@@ -106,6 +108,8 @@ for epoch in range(EPOCHS):
     for i, data in enumerate(testloader, 0):
         # get the inputs
         inputs, labels = data
+        inputs = inputs.squeeze(1)
+
         if CUDA:
             inputs, labels = inputs.cuda(), labels.cuda()
 
@@ -118,6 +122,7 @@ for epoch in range(EPOCHS):
 
         total += acc(outputs, labels)
         num += 1
+
     accuracy = total/num
 
     w.add_scalar('mnist/per-epoch-test-acc', accuracy, epoch)

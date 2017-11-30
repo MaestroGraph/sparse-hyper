@@ -307,12 +307,15 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
     neighbor_ints = LongTensor(batchsize, n, 2 ** rank, rank)
 
     # produce all integer index-tuples that neighbor the means
+    t0 = time.time()
     for row in range(n):
         for t, bools in enumerate(itertools.product([True, False], repeat=rank)):
 
             for col, bool in enumerate(bools):
                 r = means[:, row, col].data
                 neighbor_ints[:, row, t, col] = torch.floor(r) if bool else torch.ceil(r)
+
+    logging.info('  neighbors: {} seconds'.format(time.time() - t0))
 
     # Sample additional points
     if rng is not None:
@@ -361,16 +364,20 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
 
             ints_fl = ints.float()
 
-        logging.info('sampling: {} seconds'.format(time.time() - t0))
+        logging.info('  sampling: {} seconds'.format(time.time() - t0))
 
     ints_fl = Variable(ints_fl) # leaf node in the comp graph, gradients go through values
 
+
+    t0 = time.time()
     # compute the proportion of the value each integer index tuple receives
     props = densities(ints_fl, means, sigmas)
     # props is batchsize x K x 2^rank+a, giving a weight to each neighboring or sampled integer-index-tuple
 
     # -- normalize the proportions of the neigh points and the
     sums = torch.sum(props + EPSILON, dim=2, keepdim=True).expand_as(props)
+    logging.info('  densities: {} seconds'.format(time.time() - t0))
+    t0 = time.time()
 
     # repeat each value 2^rank+A times, so it matches the new indices
     val = torch.unsqueeze(values, 2).expand_as(props).contiguous()
@@ -382,6 +389,7 @@ def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False)
     # ... and reshape the props and vals the same way
     props = props.view(batchsize, -1)
     val = val.view(batchsize, -1)
+    logging.info('  reshaping: {} seconds'.format(time.time() - t0))
 
     return ints, props, val
 

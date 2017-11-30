@@ -20,9 +20,9 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-BATCH = 4
-SHAPE = (4, )
-CUDA = True
+BATCH = 2
+SHAPE = (3, )
+CUDA = False
 MARGIN = 0.1
 
 REPEATS = 2
@@ -51,7 +51,7 @@ for tf in [False]:
     for s in np.linspace(0.1, 0.9, 3):
         for r in trange(REPEATS):
 
-            model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=4, k=nzs, sigma_scale=s, fix_values=True)
+            model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=3, k=nzs, sigma_scale=s, fix_values=True)
 
             if CUDA:
                 model.cuda()
@@ -69,6 +69,7 @@ for tf in [False]:
                 optimizer.zero_grad()
 
                 y = model(x)
+
                 loss = criterion(y, x) # compute the loss
 
                 sys.exit()

@@ -34,7 +34,7 @@ import hyper
 # added to the sigmas to prevent NaN
 EPSILON = 10e-7
 PROPER_SAMPLING = True
-BATCH_FLATTEN = True
+BATCH_NEIGHBORS = True
 
 """
 
@@ -281,118 +281,6 @@ def densities_single(points, means, sigmas):
 
     return num
 
-def discretize(means, sigmas, values, rng=None, additional=16, use_cuda = False):
-    """
-    Takes the output of a hypernetwork (real-valued indices and corresponding values) and turns it into a list of
-    integer indices, by "distributing" the values to the nearest neighboring integer indices.
-
-    NB: the returned ints is not a Variable (just a plain LongTensor). autograd of the real valued indices passes
-    through the values alone, not the integer indices used to instantiate the sparse matrix.
-
-    :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
-    :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
-    :return: a triple (ints, props, vals). ints is an N*2^K by K matrix representing the N*2^K integer index-tuples that can
-        be made by flooring or ceiling the indices in 'ind'. 'props' is a vector of length N*2^K, which indicates how
-        much of the original value each integer index-tuple receives (based on the distance to the real-valued
-        index-tuple). vals is vector of length N*2^K, containing the value of the corresponding real-valued index-tuple
-        (ie. vals just repeats each value in the input 'val' 2^K times).
-    """
-
-    batchsize, n, rank = means.size()
-
-    # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^rank
-    # integerized index-tuples we can make from that one real-valued index-tuple
-    # ints = torch.cuda.FloatTensor(batchsize, n, 2 ** rank + additional, rank) if use_cuda else FloatTensor(batchsize, n, 2 ** rank, rank)
-
-    neighbor_ints = LongTensor(batchsize, n, 2 ** rank, rank)
-
-    # produce all integer index-tuples that neighbor the means
-    t0 = time.time()
-    for row in range(n):
-        for t, bools in enumerate(itertools.product([True, False], repeat=rank)):
-
-            for col, bool in enumerate(bools):
-                r = means[:, row, col].data
-                neighbor_ints[:, row, t, col] = torch.floor(r) if bool else torch.ceil(r)
-
-    logging.info('  neighbors: {} seconds'.format(time.time() - t0))
-
-    # Sample additional points
-    if rng is not None:
-        t0 = time.time()
-        total = hyper.prod(rng)
-
-        if PROPER_SAMPLING:
-
-            ints_flat = LongTensor(batchsize, n, 2 ** rank + additional)
-
-            # flatten
-            neighbor_ints = fi(neighbor_ints.view(-1, rank), rng, use_cuda=False)
-            neighbor_ints = neighbor_ints.unsqueeze(0).view(batchsize, n, 2 ** rank)
-
-            for b in range(batchsize):
-                for m in range(n):
-                    sample = util.sample(range(total), additional + 2**rank, list(neighbor_ints[b, m, :]))
-                    ints_flat[b, m, :] = LongTensor(sample)
-
-            ints = tup(ints_flat.view(-1), rng, use_cuda=False)
-            ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)
-            ints_fl = ints.float().cuda() if use_cuda else ints.float()
-
-        else:
-            sampled_ints = torch.rand(batchsize, n, additional, rank) * (1.0 - EPSILON)
-            orig = sampled_ints
-
-            rng = FloatTensor(rng).unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
-
-            if use_cuda:
-                neighbor_ints, sampled_ints, rng = neighbor_ints.cuda(), sampled_ints.cuda(), rng.cuda()
-
-            sampled_ints = torch.floor(sampled_ints * rng).long()
-
-            # if (sampled_ints >= 16).long().sum() > 0:
-            #     for b in range(batchsize):
-            #         for m in range(n):
-            #             for a in range(additional):
-            #                 row = sampled_ints[b, m, a, :]
-            #                 if (row >= 16).long().sum() > 0:
-            #                     row_orig = orig[b, m, a, :]
-            #                     print(row)
-            #                     print(row_orig)
-
-            ints = torch.cat((neighbor_ints, sampled_ints), dim=2)
-
-            ints_fl = ints.float()
-
-        logging.info('  sampling: {} seconds'.format(time.time() - t0))
-
-    ints_fl = Variable(ints_fl) # leaf node in the comp graph, gradients go through values
-
-
-    t0 = time.time()
-    # compute the proportion of the value each integer index tuple receives
-    props = densities(ints_fl, means, sigmas)
-    # props is batchsize x K x 2^rank+a, giving a weight to each neighboring or sampled integer-index-tuple
-
-    # -- normalize the proportions of the neigh points and the
-    sums = torch.sum(props + EPSILON, dim=2, keepdim=True).expand_as(props)
-    logging.info('  densities: {} seconds'.format(time.time() - t0))
-    t0 = time.time()
-
-    # repeat each value 2^rank+A times, so it matches the new indices
-    val = torch.unsqueeze(values, 2).expand_as(props).contiguous()
-
-    # 'Unroll' the ints tensor into a long list of integer index tuples (ie. a matrix of n*2^rank by rank for each
-    # instance in the batch) ...
-    ints = ints.view(batchsize, -1, rank, 1).squeeze(3)
-
-    # ... and reshape the props and vals the same way
-    props = props.view(batchsize, -1)
-    val = val.view(batchsize, -1)
-    logging.info('  reshaping: {} seconds'.format(time.time() - t0))
-
-    return ints, props, val
-
 def sample_indices(batchsize, k, num, rng, use_cuda=False):
     """
     Sample 'num' integer indices within the dimensions indicated by the tuple, resulting in a LongTensor of size
@@ -435,8 +323,11 @@ class HyperLayer(nn.Module):
         return
 
     def cuda(self, device_id=None):
+
         self.use_cuda = True
         super().cuda(device_id)
+
+        self.floor_mask = self.floor_mask.cuda()
 
     def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE):
         super().__init__()
@@ -449,6 +340,10 @@ class HyperLayer(nn.Module):
         self.weights_rank = in_rank + len(out_shape) # implied rank of W
 
         self.bias_type = bias_type
+
+        # create a tensor with all binary sequences of length rank as rows
+        lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=self.weights_rank)]
+        self.floor_mask = torch.ByteTensor(lsts)
 
     def bmult(self, width, height, num_indices, batchsize, use_cuda):
 
@@ -556,6 +451,121 @@ class HyperLayer(nn.Module):
 
         return means, sigmas, weights, snode
 
+    def discretize(self, means, sigmas, values, rng=None, additional=16, use_cuda=False):
+        """
+        Takes the output of a hypernetwork (real-valued indices and corresponding values) and turns it into a list of
+        integer indices, by "distributing" the values to the nearest neighboring integer indices.
+
+        NB: the returned ints is not a Variable (just a plain LongTensor). autograd of the real valued indices passes
+        through the values alone, not the integer indices used to instantiate the sparse matrix.
+
+        :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
+        :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
+        :return: a triple (ints, props, vals). ints is an N*2^K by K matrix representing the N*2^K integer index-tuples that can
+            be made by flooring or ceiling the indices in 'ind'. 'props' is a vector of length N*2^K, which indicates how
+            much of the original value each integer index-tuple receives (based on the distance to the real-valued
+            index-tuple). vals is vector of length N*2^K, containing the value of the corresponding real-valued index-tuple
+            (ie. vals just repeats each value in the input 'val' 2^K times).
+        """
+
+        batchsize, n, rank = means.size()
+
+        # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^rank
+        # integerized index-tuples we can make from that one real-valued index-tuple
+        # ints = torch.cuda.FloatTensor(batchsize, n, 2 ** rank + additional, rank) if use_cuda else FloatTensor(batchsize, n, 2 ** rank, rank)
+        t0 = time.time()
+
+        if BATCH_NEIGHBORS:
+            fm = self.floor_mask.unsqueeze(0).unsqueeze(0).expand(batchsize, n, 2 ** rank, rank)
+
+            neighbor_ints = means.data.unsqueeze(2).expand(batchsize, n, 2 ** rank, rank).contiguous()
+
+
+            neighbor_ints[fm] = neighbor_ints[fm].floor()
+            neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
+
+            neighbor_ints = neighbor_ints.long()
+
+        else:
+            neighbor_ints = LongTensor(batchsize, n, 2 ** rank, rank)
+
+            # produce all integer index-tuples that neighbor the means
+            for row in range(n):
+                for t, bools in enumerate(itertools.product([True, False], repeat=rank)):
+
+                    for col, bool in enumerate(bools):
+                        r = means[:, row, col].data
+                        neighbor_ints[:, row, t, col] = torch.floor(r) if bool else torch.ceil(r)
+
+        logging.info('  neighbors: {} seconds'.format(time.time() - t0))
+
+        print(neighbor_ints)
+
+        # Sample additional points
+        if rng is not None:
+            t0 = time.time()
+            total = hyper.prod(rng)
+
+            if PROPER_SAMPLING:
+
+                ints_flat = LongTensor(batchsize, n, 2 ** rank + additional)
+
+                # flatten
+                neighbor_ints = fi(neighbor_ints.view(-1, rank), rng, use_cuda=False)
+                neighbor_ints = neighbor_ints.unsqueeze(0).view(batchsize, n, 2 ** rank)
+
+                for b in range(batchsize):
+                    for m in range(n):
+                        sample = util.sample(range(total), additional + 2 ** rank, list(neighbor_ints[b, m, :]))
+                        ints_flat[b, m, :] = LongTensor(sample)
+
+                ints = tup(ints_flat.view(-1), rng, use_cuda=False)
+                ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)
+                ints_fl = ints.float().cuda() if use_cuda else ints.float()
+
+            else:
+                sampled_ints = torch.rand(batchsize, n, additional, rank) * (1.0 - EPSILON)
+                orig = sampled_ints
+
+                rng = FloatTensor(rng).unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
+
+                if use_cuda:
+                    neighbor_ints, sampled_ints, rng = neighbor_ints.cuda(), sampled_ints.cuda(), rng.cuda()
+
+                sampled_ints = torch.floor(sampled_ints * rng).long()
+
+                ints = torch.cat((neighbor_ints, sampled_ints), dim=2)
+
+                ints_fl = ints.float()
+
+            logging.info('  sampling: {} seconds'.format(time.time() - t0))
+
+        ints_fl = Variable(ints_fl)  # leaf node in the comp graph, gradients go through values
+
+        t0 = time.time()
+        # compute the proportion of the value each integer index tuple receives
+        props = densities(ints_fl, means, sigmas)
+        # props is batchsize x K x 2^rank+a, giving a weight to each neighboring or sampled integer-index-tuple
+
+        # -- normalize the proportions of the neigh points and the
+        sums = torch.sum(props + EPSILON, dim=2, keepdim=True).expand_as(props)
+        logging.info('  densities: {} seconds'.format(time.time() - t0))
+        t0 = time.time()
+
+        # repeat each value 2^rank+A times, so it matches the new indices
+        val = torch.unsqueeze(values, 2).expand_as(props).contiguous()
+
+        # 'Unroll' the ints tensor into a long list of integer index tuples (ie. a matrix of n*2^rank by rank for each
+        # instance in the batch) ...
+        ints = ints.view(batchsize, -1, rank, 1).squeeze(3)
+
+        # ... and reshape the props and vals the same way
+        props = props.view(batchsize, -1)
+        val = val.view(batchsize, -1)
+        logging.info('  reshaping: {} seconds'.format(time.time() - t0))
+
+        return ints, props, val
+
     def forward(self, input):
 
         t0total = time.time()
@@ -579,7 +589,7 @@ class HyperLayer(nn.Module):
 
         # turn the real values into integers in a differentiable way
         t0 = time.time()
-        indices, props, values = discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+        indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
 
         values = values * props
         logging.info('discretize: {} seconds'.format(time.time() - t0))
@@ -620,29 +630,21 @@ class HyperLayer(nn.Module):
         # Prevent segfault
         assert not util.contains_nan(values.data)
 
-        if BATCH_FLATTEN:
-            bm = self.bmult(flat_size[1], flat_size[0], mindices.size()[1], batchsize, self.use_cuda)
-            bfsize = Variable(flat_size * batchsize)
+        bm = self.bmult(flat_size[1], flat_size[0], mindices.size()[1], batchsize, self.use_cuda)
+        bfsize = Variable(flat_size * batchsize)
 
-            bfindices = mindices + bm
-            bfindices = bfindices.view(1, -1, 2).squeeze(0)
-            vindices = Variable(bfindices.t())
+        bfindices = mindices + bm
+        bfindices = bfindices.view(1, -1, 2).squeeze(0)
+        vindices = Variable(bfindices.t())
 
-            bfvalues = values.view(1, -1).squeeze(0)
-            bfx = x_flat.view(1, -1).squeeze(0)
+        bfvalues = values.view(1, -1).squeeze(0)
+        bfx = x_flat.view(1, -1).squeeze(0)
 
-            # print(vindices.size(), bfvalues.size(), bfsize, bfx.size())
-            bfy = sparsemult(vindices, bfvalues, bfsize, bfx)
+        # print(vindices.size(), bfvalues.size(), bfsize, bfx.size())
+        bfy = sparsemult(vindices, bfvalues, bfsize, bfx)
 
-            y_flat = bfy.unsqueeze(0).view(batchsize, -1)
-        else:
-            for b in range(batchsize):
-                bindices = Variable(mindices[b, :, :].squeeze(0).t())
-                bvalues = values[b, :]
-                bsize = Variable(flat_size)
-                bx = x_flat[b,:]
+        y_flat = bfy.unsqueeze(0).view(batchsize, -1)
 
-                y_flat[b,:] = sparsemult(bindices, bvalues, bsize, bx)
 
         logging.info('sparse mult: {} seconds'.format(time.time() - t0))
 

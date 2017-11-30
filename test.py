@@ -23,9 +23,21 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import util
 
-values = Variable(torch.rand(3, 4, 2))
-print(values)
-print(util.bsoftmax(values))
+
+mask = torch.ByteTensor([[0, 1],[1, 0]])
+
+vals = torch.FloatTensor([[[0.01, 0.1],[0.2, 0.3]], [[0.01, 0.1],[0.2, 0.3]]])
+
+mask = mask.unsqueeze(0).expand_as(vals)
+
+vals[mask] = vals[mask].ceil()
+vals[~mask] = vals[~mask].floor()
+
+print(vals)
+
+# values = Variable(torch.rand(3, 4, 2))
+# print(values)
+# print(util.bsoftmax(values))
 
 #
 # values = Variable(torch.FloatTensor([0.1, 1.1, 2.1]))

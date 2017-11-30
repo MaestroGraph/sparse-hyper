@@ -26,7 +26,7 @@ BATCH = 512
 SHAPE = (28, 28)
 EPOCHS = 350
 
-CUDA = False
+CUDA = True
 
 gaussian.PROPER_SAMPLING = False
 gaussian.BATCH_FLATTEN = True
@@ -59,9 +59,9 @@ if TYPE == 'non-adaptive':
         nn.Softmax())
 elif TYPE == 'free':
     model = nn.Sequential(
-        gaussian.CASHLayer(SHAPE, (4, 8, 8), k=640, additional=256, has_bias=True),
+        gaussian.CASHLayer(SHAPE, (4, 8, 8), k=640, additional=32, has_bias=True),
         nn.Sigmoid(),
-        gaussian.CASHLayer((4, 8, 8), (128,), k=640, additional=256, has_bias=True),
+        gaussian.CASHLayer((4, 8, 8), (128,), k=640, additional=32, has_bias=True),
         nn.Sigmoid(),
         nn.Linear(128, 10),
         nn.Softmax())

@@ -22,7 +22,7 @@ w = SummaryWriter()
 
 BATCH = 4
 SHAPE = (4, )
-CUDA = False
+CUDA = True
 MARGIN = 0.1
 
 REPEATS = 2

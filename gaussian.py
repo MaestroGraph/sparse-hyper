@@ -523,7 +523,7 @@ class HyperLayer(nn.Module):
 
             else:
 
-                sampled_ints = torch.cuda.FloatTensor() if use_cuda else FloatTensor(batchsize, n, additional, rank)
+                sampled_ints = torch.cuda.FloatTensor(batchsize, n, additional, rank) if use_cuda else FloatTensor(batchsize, n, additional, rank)
 
                 sampled_ints.uniform_()
                 sampled_ints *= (1.0 - EPSILON)

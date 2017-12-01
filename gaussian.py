@@ -522,13 +522,14 @@ class HyperLayer(nn.Module):
                 ints_fl = ints.float().cuda() if use_cuda else ints.float()
 
             else:
-                sampled_ints = torch.rand(batchsize, n, additional, rank) * (1.0 - EPSILON)
-                orig = sampled_ints
 
-                rng = FloatTensor(rng).unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
+                sampled_ints = torch.cuda.FloatTensor() if use_cuda else FloatTensor(batchsize, n, additional, rank)
 
-                if use_cuda:
-                    neighbor_ints, sampled_ints, rng = neighbor_ints.cuda(), sampled_ints.cuda(), rng.cuda()
+                sampled_ints.uniform_()
+                sampled_ints *= (1.0 - EPSILON)
+
+                rng = torch.cuda.FloatTensor(rng) if use_cuda else FloatTensor(rng)
+                rng = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
 
                 sampled_ints = torch.floor(sampled_ints * rng).long()
 

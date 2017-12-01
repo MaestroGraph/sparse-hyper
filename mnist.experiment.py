@@ -59,9 +59,13 @@ if TYPE == 'non-adaptive':
         nn.Softmax())
 elif TYPE == 'free':
     model = nn.Sequential(
-        gaussian.CASHLayer(SHAPE, (4, 8, 8), k=640, additional=32, has_bias=True),
+        gaussian.CASHLayer(SHAPE, (4, 8, 8), k=256, additional=64, has_bias=True),
         nn.Sigmoid(),
-        gaussian.CASHLayer((4, 8, 8), (128,), k=640, additional=32, has_bias=True),
+        gaussian.CASHLayer((4, 8, 8), (8,4,4), k=128, additional=64, has_bias=True),
+        nn.Sigmoid(),
+        gaussian.CASHLayer((8, 4, 4), (16,4,4), k=128, additional=64, has_bias=True),
+        nn.Sigmoid(),
+        gaussian.CASHLayer((16, 4, 4), (128,), k=128, additional=256, has_bias=True),
         nn.Sigmoid(),
         nn.Linear(128, 10),
         nn.Softmax())

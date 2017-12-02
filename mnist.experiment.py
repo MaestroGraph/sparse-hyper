@@ -36,8 +36,7 @@ gaussian.PROPER_SAMPLING = False
 TYPE = 'free'
 
 normalize = transforms.Compose(
-    [transforms.ToTensor(),
-     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+    [transforms.ToTensor()])
 
 train = torchvision.datasets.MNIST(root='./data', train=True,
                                         download=True, transform=normalize)

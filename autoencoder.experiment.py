@@ -131,8 +131,6 @@ for epoch in range(EPOCHS):
         if i < 1:
             inputs, outputs = inputs.unsqueeze(1), outputs.unsqueeze(1)
 
-            inputs = inputs.nor
-
             plt.figure(figsize=(16, 4))
             plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
             plt.savefig('input.{}.pdf'.format(epoch))

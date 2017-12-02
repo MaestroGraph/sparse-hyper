@@ -67,9 +67,11 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=640, o
 
                 w.add_scalar('pretrain/train-loss-{}'.format(j), loss.data[0], i)
 
-                if plot and i == 0 and epoch > 0:
+                if plot and i == 0:
 
                     inputs, outputs = inputs.unsqueeze(1), outputs.unsqueeze(1)
+
+                    outputs[0, 0, 0] = 0.5
 
                     plt.figure(figsize=(16, 4))
                     plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')

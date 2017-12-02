@@ -24,7 +24,7 @@ MNIST experiment
 """
 w = SummaryWriter()
 
-BATCH = 64
+BATCH = 512
 SHAPE = (28, 28)
 EPOCHS = 350
 PRETRAIN = True
@@ -32,7 +32,6 @@ PRETRAIN = True
 CUDA = True
 
 gaussian.PROPER_SAMPLING = False
-gaussian.BATCH_FLATTEN = True
 
 TYPE = 'free'
 
@@ -64,18 +63,18 @@ elif TYPE == 'free':
 
     shapes = [(28, 28), (4, 8, 8), (8, 4, 4), (128,)]
     layers = [
-        gaussian.CASHLayer(shapes[0], shapes[1], k=640, additional=64, has_bias=True),
+        gaussian.CASHLayer(shapes[0], shapes[1], k=64, additional=64, has_bias=True),
         nn.Sigmoid(),
-        gaussian.CASHLayer(shapes[1], shapes[2], k=320, additional=32, has_bias=True),
+        gaussian.CASHLayer(shapes[1], shapes[2], k=32, additional=32, has_bias=True),
         nn.Sigmoid(),
-        gaussian.CASHLayer(shapes[2], shapes[3], k=320, additional=16, has_bias=True),
+        gaussian.CASHLayer(shapes[2], shapes[3], k=32, additional=16, has_bias=True),
         nn.Sigmoid(),
         nn.Linear(shapes[3][0], 10),
         nn.Softmax()]
     pivots = [2, 4, 6, 7]
 
 if PRETRAIN:
-    pretrain.pretrain(layers, shapes, pivots, trainloader, use_cuda=CUDA)
+    pretrain.pretrain(layers, shapes, pivots, trainloader, use_cuda=CUDA, plot=True)
 
 
 model = nn.Sequential(od(layers))

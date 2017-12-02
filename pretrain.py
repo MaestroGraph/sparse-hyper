@@ -29,10 +29,12 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=640, o
 
         print('pretraining, level ', j)
 
-        in_shape, out_shape = shapes[j+1], shapes[j]
+        mid_shape, out_shape = shapes[j+1], shapes[j]
 
-        decoder.append(gaussian.CASHLayer(in_shape, out_shape, k=k_out, additional=out_additional, has_bias=out_has_bias))
-        decoder.append(nn.Sigmoid())
+        dec = []
+        dec.append(gaussian.CASHLayer(mid_shape, out_shape, k=k_out, additional=out_additional, has_bias=out_has_bias))
+        dec.append(nn.Sigmoid())
+        decoder = dec + decoder
 
         model = nn.Sequential(od(layers[:pivot] + decoder))
 

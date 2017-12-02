@@ -13,6 +13,8 @@ from torch import nn
 from torch import FloatTensor
 from torch.autograd import Variable
 
+from collections import OrderedDict
+
 import subprocess
 
 import numpy as np
@@ -294,4 +296,11 @@ if __name__ == '__main__':
     v = torch.FloatTensor([1, 1, 1])
 
     matrix = torch.sparse.FloatTensor(i, v, torch.Size((16, 16)))
+
+def od(lst):
+    od = OrderedDict()
+    for i, elem in enumerate(lst):
+        od[str(i)] = elem
+
+    return od
 

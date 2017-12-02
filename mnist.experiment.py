@@ -1,4 +1,4 @@
-import hyper, gaussian, util, logging, time
+import hyper, gaussian, util, logging, time, pretrain
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -12,6 +12,8 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 
+from util import od
+
 torch.manual_seed(1)
 logging.basicConfig(filename='run.log',level=logging.INFO)
 LOG = logging.getLogger()
@@ -22,9 +24,10 @@ MNIST experiment
 """
 w = SummaryWriter()
 
-BATCH = 512
+BATCH = 64
 SHAPE = (28, 28)
 EPOCHS = 350
+PRETRAIN = True
 
 CUDA = True
 
@@ -50,25 +53,32 @@ testloader = torch.utils.data.DataLoader(test, batch_size=BATCH,
                                          shuffle=False, num_workers=2)
 
 if TYPE == 'non-adaptive':
-    model = nn.Sequential(
+    layers = [
         gaussian.ParamASHLayer(SHAPE, (4, 8, 8), k=64, additional=8, has_bias=True),
         nn.Sigmoid(),
         gaussian.ParamASHLayer((4, 8, 8), (128,), k=64, additional=32, has_bias=True),
         nn.Sigmoid(),
         nn.Linear(128, 10),
-        nn.Softmax())
+        nn.Softmax()]
 elif TYPE == 'free':
-    model = nn.Sequential(
-        gaussian.CASHLayer(SHAPE, (4, 8, 8), k=256, additional=64, has_bias=True),
+
+    shapes = [(28, 28), (4, 8, 8), (8, 4, 4), (128,)]
+    layers = [
+        gaussian.CASHLayer(shapes[0], shapes[1], k=640, additional=64, has_bias=True),
         nn.Sigmoid(),
-        gaussian.CASHLayer((4, 8, 8), (8,4,4), k=128, additional=64, has_bias=True),
+        gaussian.CASHLayer(shapes[1], shapes[2], k=320, additional=32, has_bias=True),
         nn.Sigmoid(),
-        gaussian.CASHLayer((8, 4, 4), (16,4,4), k=128, additional=64, has_bias=True),
+        gaussian.CASHLayer(shapes[2], shapes[3], k=320, additional=16, has_bias=True),
         nn.Sigmoid(),
-        gaussian.CASHLayer((16, 4, 4), (128,), k=128, additional=256, has_bias=True),
-        nn.Sigmoid(),
-        nn.Linear(128, 10),
-        nn.Softmax())
+        nn.Linear(shapes[3][0], 10),
+        nn.Softmax()]
+    pivots = [2, 4, 6, 7]
+
+if PRETRAIN:
+    pretrain.pretrain(layers, shapes, pivots, trainloader, use_cuda=CUDA)
+
+
+model = nn.Sequential(od(layers))
 
 if CUDA:
     model.apply(lambda t : t.cuda())

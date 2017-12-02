@@ -67,7 +67,7 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=640, o
 
                 w.add_scalar('pretrain/train-loss-{}'.format(j), loss.data[0], i)
 
-                if plot and i ==0:
+                if plot and i == 0 and epoch > 0:
 
                     inputs, outputs = inputs.unsqueeze(1), outputs.unsqueeze(1)
 

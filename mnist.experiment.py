@@ -24,7 +24,7 @@ MNIST experiment
 """
 w = SummaryWriter()
 
-BATCH = 512
+BATCH = 256
 SHAPE = (28, 28)
 EPOCHS = 350
 PRETRAIN = True

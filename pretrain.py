@@ -77,11 +77,11 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=640, o
 
                     plt.figure(figsize=(16, 4))
                     plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
-                    plt.savefig('pretrain.input.{}.pdf'.format(epoch))
+                    plt.savefig('pretrain.input.{}.{:03d}.pdf'.format(j,epoch))
 
                     plt.figure(figsize=(16, 4))
                     plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
-                    plt.savefig('pretrain.output.{}.pdf'.format(epoch))
+                    plt.savefig('pretrain.output.{}.{:03d}.pdf'.format(j,epoch))
 
         print('finished.')
 

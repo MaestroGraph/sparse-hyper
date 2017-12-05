@@ -95,8 +95,8 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
                     plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
                     plt.savefig('pretrain.output.{}.{:03d}.pdf'.format(j,epoch))
 
-            pre = pre + encoder
-            post = decoder + post
+        pre = pre + encoder
+        post = decoder + post
 
         print('finished pretraining.')
 

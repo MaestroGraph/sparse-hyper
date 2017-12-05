@@ -920,8 +920,6 @@ class CASHLayer(HyperLayer):
 
         insize = input.size()
 
-        print(self.has_channels, self.pool)
-
         if self.has_channels:
             downsampled = self.pool(input)
         else:

@@ -60,13 +60,13 @@ if TYPE == 'non-adaptive':
         nn.Softmax()]
 elif TYPE == 'free':
 
-    shapes = [(28, 28), (4, 8, 8), (8, 4, 4), (128,)]
+    shapes = [(28, 28), (4, 16, 16), (8, 4, 4), (128,)]
     layers = [
-        gaussian.CASHLayer(shapes[0], shapes[1], k=256, additional=64, has_bias=True, has_channels=False),
+        gaussian.CASHLayer(shapes[0], shapes[1], k=1500, additional=256, has_bias=True, has_channels=False),
         nn.Sigmoid(),
-        gaussian.CASHLayer(shapes[1], shapes[2], k=128, additional=32, has_bias=True, has_channels=True),
+        gaussian.CASHLayer(shapes[1], shapes[2], k=750, additional=128, has_bias=True, has_channels=True),
         nn.Sigmoid(),
-        gaussian.CASHLayer(shapes[2], shapes[3], k=128, additional=32, has_bias=True, has_channels=True),
+        gaussian.CASHLayer(shapes[2], shapes[3], k=750, additional=128, has_bias=True, has_channels=True),
         nn.Sigmoid(),
         nn.Linear(shapes[3][0], 10),
         nn.Softmax()]
@@ -74,7 +74,7 @@ elif TYPE == 'free':
     decoder_channels = [True, True, False]
 
 if PRETRAIN:
-    pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=5, k_out=256, out_additional=64, use_cuda=CUDA, plot=True, has_channels=decoder_channels)
+    pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=5, k_out=256, out_additional=128, use_cuda=CUDA, plot=True, has_channels=decoder_channels)
 
 
 model = nn.Sequential(od(layers))

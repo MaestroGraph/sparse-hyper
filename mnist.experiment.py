@@ -74,7 +74,7 @@ elif TYPE == 'free':
     decoder_channels = [True, True, False]
 
 if PRETRAIN:
-    pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=25, k_out=256, out_additional=64, use_cuda=CUDA, plot=True, has_channels=decoder_channels)
+    pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=5, k_out=256, out_additional=64, use_cuda=CUDA, plot=True, has_channels=decoder_channels)
 
 
 model = nn.Sequential(od(layers))

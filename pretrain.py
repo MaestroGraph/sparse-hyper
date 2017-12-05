@@ -19,11 +19,12 @@ from util import od
 
 w = SummaryWriter()
 
-def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=640, out_additional=128, out_has_bias=True, learn_rate=0.01, use_cuda=False):
+def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, out_additional=128, out_has_bias=True, learn_rate=0.01, use_cuda=False):
 
     ## SIMPLE
     criterion = nn.MSELoss()
-    decoder = []
+    pre = []
+    post = []
 
     for j, pivot in enumerate(pivots):
 
@@ -31,12 +32,15 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=640, o
 
         mid_shape, out_shape = shapes[j+1], shapes[j]
 
-        dec = []
-        dec.append(gaussian.CASHLayer(mid_shape, out_shape, k=k_out, additional=out_additional, has_bias=out_has_bias))
-        dec.append(nn.Sigmoid())
-        decoder = dec + decoder
+        encoder = layers[:pivots[j]] if j == 0 else layers[pivots[j-1]:pivots[j]]
 
-        model = nn.Sequential(od(layers[:pivot] + decoder))
+        decoder = [
+            gaussian.CASHLayer(mid_shape, out_shape, k=k_out, additional=out_additional, has_bias=out_has_bias),
+            nn.Sigmoid()]
+
+        model = nn.Sequential(od(encoder + decoder))
+        pre_model = None if len(pre) == 0 else nn.Sequential(od(pre))
+        post_model = None if len(post) == 0 else nn.Sequential(od(post))
 
         if use_cuda:
             model.apply(lambda t: t.cuda())
@@ -53,8 +57,14 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=640, o
                 if use_cuda:
                     inputs = inputs.cuda()
 
-                # wrap them in Variables
-                inputs, targets = Variable(inputs), Variable(inputs)
+                inputs = Variable(inputs)
+                inputs_old = inputs
+
+                if pre_model is not None:
+                    inputs = pre_model(inputs)
+
+                inputs.detach()
+                targets = Variable(inputs.data)
 
                 # forward + backward + optimize
                 optimizer.zero_grad()
@@ -72,10 +82,10 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=640, o
 
                 if plot and i == 0:
 
-                    inputs, outputs = inputs.unsqueeze(1), outputs.unsqueeze(1)
+                    if post_model is not None:
+                        outputs = post_model(outputs)
 
-                    # print(outputs.sum())
-                    # print(outputs)
+                    inputs, outputs = inputs_old.unsqueeze(1), outputs.unsqueeze(1)
 
                     plt.figure(figsize=(16, 4))
                     plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
@@ -85,5 +95,11 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=640, o
                     plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')
                     plt.savefig('pretrain.output.{}.{:03d}.pdf'.format(j,epoch))
 
-        print('finished.')
+                if i > 3:
+                    break
+
+            pre = pre + encoder
+            post = decoder + post
+
+        print('finished pretraining.')
 

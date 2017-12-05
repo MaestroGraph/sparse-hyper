@@ -58,12 +58,12 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
                     inputs = inputs.cuda()
 
                 inputs = Variable(inputs)
-                inputs_old = inputs
+                inputs_old = inputs.detach()
 
                 if pre_model is not None:
                     inputs = pre_model(inputs)
 
-                inputs.detach()
+                inputs = inputs.detach()
                 targets = Variable(inputs.data)
 
                 # forward + backward + optimize

@@ -80,6 +80,9 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
 
                 w.add_scalar('pretrain/train-loss-{}'.format(j), loss.data[0], i)
 
+                if i > 0:
+                    break
+
                 if plot and i == 0:
 
                     if post_model is not None:

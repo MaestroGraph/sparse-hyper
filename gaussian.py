@@ -843,13 +843,15 @@ class CASHLayer(HyperLayer):
     """
 
     """
-    def __init__(self, in_shape, out_shape, k,additional=0, poolsize=4, deconvs=2, sigma_scale=0.1, has_bias=True):
+    def __init__(self, in_shape, out_shape, k,additional=0, poolsize=4, deconvs=2, sigma_scale=0.1, has_bias=True, has_channels=False):
         """
         :param in_shape:
         :param out_shape:
         :param k: How many index tuples to generate. If this is not divisible by 2^deconvs, you'll get the next biggest
         number that is.
         :param poolsize:
+        :param has_channels: If true, the first non-batch dimension is interpreted as a 'channel dimension', which means
+           that the input is not downsampled along that dimension.
         :param deconvs: How many deconv layers to use to generate the tuples from the hidden layer
         """
         super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE)
@@ -865,26 +867,32 @@ class CASHLayer(HyperLayer):
         self.in_shape = in_shape
         self.out_shape = out_shape
         self.sigma_scale = sigma_scale
+        self.has_channels = has_channels
 
         self.w_rank = len(in_shape) + len(out_shape)
 
         self.ha = int(math.ceil(k/2**deconvs))
         self.hb = 8
 
-        if len(in_shape) == 1:
-            x = in_shape[0]
+        c_in_shape = in_shape[1:] if has_channels else in_shape
+
+        if len(c_in_shape) == 1:
+            x = c_in_shape[0]
             flat_size = int(x / poolsize)
             self.pool = nn.AvgPool1d(kernel_size=poolsize, stride=poolsize)
-        elif len(in_shape) == 2:
-            x, y = in_shape
+        elif len(c_in_shape) == 2:
+            x, y = c_in_shape
             flat_size = int(x / poolsize) * int(y / poolsize)
             self.pool = nn.AvgPool2d(kernel_size=poolsize, stride=poolsize)
-        elif len(in_shape) == 3:
-            x, y, z = in_shape
+        elif len(c_in_shape) == 3:
+            x, y, z = c_in_shape
             flat_size = int(x / poolsize) * int(y / poolsize) * int(z / poolsize)
             self.pool = nn.AvgPool3d(kernel_size=poolsize, stride=poolsize)
         else:
             raise Exception('Input dimensions higher than 3 not supported (yet)')
+
+        if self.has_channels:
+            flat_size *= in_shape[0]
 
         # hypernetwork
         self.tohidden = nn.Sequential(
@@ -912,7 +920,12 @@ class CASHLayer(HyperLayer):
 
         insize = input.size()
 
-        downsampled = self.pool(input.unsqueeze(1)).unsqueeze(1)
+        print(self.has_channels, self.pool)
+
+        if self.has_channels:
+            downsampled = self.pool(input)
+        else:
+            downsampled = self.pool(input.unsqueeze(1)).squeeze(1)
 
         hidden = self.tohidden(downsampled)
 

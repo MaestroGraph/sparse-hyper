@@ -19,7 +19,7 @@ from util import od
 
 w = SummaryWriter()
 
-def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, out_additional=128, out_has_bias=True, learn_rate=0.01, use_cuda=False):
+def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, out_additional=128, out_has_bias=True, learn_rate=0.01, use_cuda=False, has_channels=True):
 
     ## SIMPLE
     criterion = nn.MSELoss()
@@ -35,7 +35,7 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
         encoder = layers[:pivots[j]] if j == 0 else layers[pivots[j-1]:pivots[j]]
 
         decoder = [
-            gaussian.CASHLayer(mid_shape, out_shape, k=k_out, additional=out_additional, has_bias=out_has_bias),
+            gaussian.CASHLayer(mid_shape, out_shape, k=k_out, additional=out_additional, has_bias=out_has_bias, has_channels=has_channels[j]),
             nn.Sigmoid()]
 
         model = nn.Sequential(od(encoder + decoder))
@@ -79,9 +79,6 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
                 optimizer.step()
 
                 w.add_scalar('pretrain/train-loss-{}'.format(j), loss.data[0], i)
-
-                if i > 0:
-                    break
 
                 if plot and i == 0:
 

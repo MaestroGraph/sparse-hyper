@@ -33,7 +33,7 @@ import hyper
 
 # added to the sigmas to prevent NaN
 EPSILON = 10e-7
-PROPER_SAMPLING = True
+PROPER_SAMPLING = False # NB: set to true for very small tranformations.
 BATCH_NEIGHBORS = True
 
 """

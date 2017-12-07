@@ -304,3 +304,29 @@ def od(lst):
 
     return od
 
+class Lambda(nn.Module):
+    def __init__(self, lambd):
+        super(Lambda, self).__init__()
+        self.lambd = lambd
+    def forward(self, x):
+        return self.lambd(x)
+
+class Debug(nn.Module):
+    def __init__(self, lambd):
+        super(Debug, self).__init__()
+        self.lambd = lambd
+    def forward(self, x):
+        self.lambd(x)
+        return x
+
+class Flatten(nn.Module):
+    def forward(self, input):
+        return input.view(input.size(0), -1)
+
+def prod(tuple):
+    result = 1
+
+    for v in tuple:
+        result *= v
+
+    return result

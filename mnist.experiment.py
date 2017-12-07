@@ -4,6 +4,7 @@ from torch.autograd import Variable
 from torch import nn, optim
 from tqdm import trange, tqdm
 from tensorboardX import SummaryWriter
+from util import Lambda, Debug
 
 from torchsample.metrics import CategoricalAccuracy
 
@@ -29,11 +30,11 @@ SHAPE = (28, 28)
 EPOCHS = 350
 PRETRAIN = True
 
-CUDA = True
+CUDA = False
 
 gaussian.PROPER_SAMPLING = False
 
-TYPE = 'free'
+TYPE = 'baseline'
 
 normalize = transforms.Compose(
     [transforms.ToTensor()])
@@ -58,6 +59,7 @@ if TYPE == 'non-adaptive':
         nn.Sigmoid(),
         nn.Linear(128, 10),
         nn.Softmax()]
+
 elif TYPE == 'free':
 
     shapes = [(28, 28), (4, 16, 16), (8, 4, 4), (128,)]
@@ -73,11 +75,26 @@ elif TYPE == 'free':
     pivots = [2, 4, 6]
     decoder_channels = [True, True, False]
 
-if PRETRAIN:
-    pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=5, k_out=256, out_additional=128, use_cuda=CUDA, plot=True, has_channels=decoder_channels)
+    if PRETRAIN:
+        pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=5, k_out=256, out_additional=128, use_cuda=CUDA,
+                          plot=True, has_channels=decoder_channels)
 
+    model = nn.Sequential(od(layers))
 
-model = nn.Sequential(od(layers))
+elif TYPE == 'baseline':
+    model = nn.Sequential(
+        Lambda(lambda x : x.unsqueeze(1)),
+        # Debug(lambda x: print('0', x.size(), util.prod(x[-1:].size()))),
+        nn.Conv2d(in_channels=1, out_channels=4, kernel_size=5, stride=1, padding=4),
+        nn.MaxPool2d(stride=2, kernel_size=2),
+        # Debug(lambda x: print('1', x.size(), util.prod(x[-1:].size()))),
+        nn.Conv2d(in_channels=4, out_channels=8, kernel_size=5, stride=1, padding=2),
+        nn.MaxPool2d(stride=2, kernel_size=2),
+        # Debug(lambda x: print('2', x.size(), util.prod(x[-1:].size()))),
+        util.Flatten(),
+        # Debug(lambda x: print('3', x.size(), util.prod(x[-1:].size()))),
+        nn.Linear(512, 10),
+        nn.Softmax())
 
 if CUDA:
     model.apply(lambda t : t.cuda())

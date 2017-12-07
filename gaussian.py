@@ -53,11 +53,6 @@ class Bias(Enum):
     # The bias is returnd in sparse format, in the same way as the weight matrix is.
     SPARSE = 3
 
-class Flatten(nn.Module):
-    def forward(self, input):
-        return input.view(input.size(0), -1)
-
-
 def flatten(input):
     return input.view(input.size(0), -1)
 

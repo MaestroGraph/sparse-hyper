@@ -30,7 +30,6 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
     w = SummaryWriter()
 
     SHAPE = (28, 28)
-    CUDA = False
 
     gaussian.PROPER_SAMPLING = False
 
@@ -84,7 +83,7 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
             nn.Linear(648, 10),
             nn.Softmax())
 
-    if CUDA:
+    if cuda:
         model.apply(lambda t : t.cuda())
 
     ## SIMPLE
@@ -101,7 +100,7 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
             inputs, labels = data
             inputs = inputs.squeeze(1)
 
-            if CUDA:
+            if cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
 
             # wrap them in Variables
@@ -128,7 +127,7 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
             inputs, labels = data
             inputs = inputs.squeeze(1)
 
-            if CUDA:
+            if cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
 
             # wrap them in Variables
@@ -163,6 +162,10 @@ if __name__ == "__main__":
                         help="The batch size.",
                         default=64)
 
+    parser.add_argument("-c", "--cuda", dest="cuda",
+                        help="Whether to use cuda.",
+                        action="store_true")
+
     options = parser.parse_args()
 
-    go(batch=options.batch_size, model=options.model)
+    go(batch=options.batch_size, model=options.model, cuda=options.cuda)

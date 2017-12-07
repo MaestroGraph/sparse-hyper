@@ -29,7 +29,7 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
     w = SummaryWriter()
 
-    SHAPE = (28, 28)
+    SHAPE = (1, 28, 28)
 
     gaussian.PROPER_SAMPLING = False
 
@@ -50,7 +50,7 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
     elif model == 'free':
 
-        shapes = [(28, 28), (4, 16, 16), (8, 4, 4), (128,)]
+        shapes = [SHAPE, (4, 16, 16), (8, 4, 4), (128,)]
         layers = [
             gaussian.CASHLayer(shapes[0], shapes[1], k=1500, additional=256, has_bias=True, has_channels=False),
             nn.Sigmoid(),
@@ -70,7 +70,6 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
     elif model == 'baseline':
         model = nn.Sequential(
-            Lambda(lambda x : x.unsqueeze(1).contiguous()),
             # Debug(lambda x: print('0', x.size(), util.prod(x[-1:].size()))),
             nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, stride=1, padding=4),
             nn.MaxPool2d(stride=2, kernel_size=2),
@@ -98,7 +97,7 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
             # get the inputs
             inputs, labels = data
-            inputs = inputs.squeeze(1)
+            # inputs = inputs.squeeze(1)
 
             if cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
@@ -125,7 +124,7 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
         for i, data in enumerate(testloader, 0):
             # get the inputs
             inputs, labels = data
-            inputs = inputs.squeeze(1)
+            # inputs = inputs.squeeze(1)
 
             if cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()

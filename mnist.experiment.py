@@ -70,7 +70,7 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
     elif model == 'baseline':
         model = nn.Sequential(
-            Lambda(lambda x : x.unsqueeze(1)),
+            Lambda(lambda x : x.unsqueeze(1).contiguous()),
             # Debug(lambda x: print('0', x.size(), util.prod(x[-1:].size()))),
             nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, stride=1, padding=4),
             nn.MaxPool2d(stride=2, kernel_size=2),

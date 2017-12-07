@@ -48,6 +48,10 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
             nn.Linear(128, 10),
             nn.Softmax()]
 
+        if cuda:
+            model.apply(lambda t: t.cuda())
+
+
     elif model == 'free':
 
         shapes = [SHAPE, (4, 16, 16), (8, 4, 4), (128,)]
@@ -68,6 +72,9 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
         model = nn.Sequential(od(layers))
 
+        if cuda:
+            model.apply(lambda t: t.cuda())
+
     elif model == 'baseline':
         model = nn.Sequential(
             # Debug(lambda x: print('0', x.size(), util.prod(x[-1:].size()))),
@@ -82,8 +89,8 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
             nn.Linear(648, 10),
             nn.Softmax())
 
-    if cuda:
-        model.apply(lambda t : t.cuda())
+        if cuda:
+            model = model.cuda()
 
     ## SIMPLE
     criterion = nn.CrossEntropyLoss()

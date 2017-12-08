@@ -52,7 +52,8 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
 
                 # get the inputs
                 inputs, _ = data
-                inputs = inputs.squeeze(1)
+
+                util.corrupt_(inputs)
 
                 if use_cuda:
                     inputs = inputs.cuda()
@@ -64,7 +65,7 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
                     inputs = pre_model(inputs)
 
                 inputs = inputs.detach()
-                targets = Variable(inputs.data)
+                targets = inputs.detach()
 
                 # forward + backward + optimize
                 optimizer.zero_grad()
@@ -85,7 +86,7 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
                     if post_model is not None:
                         outputs = post_model(outputs)
 
-                    inputs, outputs = inputs_old.unsqueeze(1), outputs.unsqueeze(1)
+                    inputs, outputs = inputs_old, outputs
 
                     plt.figure(figsize=(16, 4))
                     plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')

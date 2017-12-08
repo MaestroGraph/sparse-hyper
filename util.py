@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Wedge, Polygon, Ellipse
 from matplotlib.collections import PatchCollection
 from matplotlib.axes import Axes
-import os, errno, random
+import os, errno, random, time
 
 import torch
 from torch import nn
@@ -330,3 +330,37 @@ def prod(tuple):
         result *= v
 
     return result
+
+def add_noise(input, std=0.1):
+    """
+    In-place
+    :param input:
+    :param std:
+    :return:
+    """
+
+    noise = torch.cuda.FloatTensor(input.size()) if input.is_cuda else FloatTensor(input.size())
+    noise.normal_(std=std)
+
+    return input + noise
+
+def corrupt_(input, prop=0.3):
+    """
+    Sets a random proportion of the input to zero
+    :param input:
+    :param prop:
+    :return:
+    """
+
+    t0 = time.time()
+    FT = torch.cuda.FloatTensor if input.is_cuda else torch.FloatTensor
+    mask = FT(input.size())
+    mask.uniform_()
+
+    mask.sub_(prop).ceil_()
+
+    input.mul_(mask)
+
+
+
+

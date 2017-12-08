@@ -54,20 +54,19 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
     elif model == 'free':
 
-        shapes = [SHAPE, (4, 16, 16), (8, 4, 4), (128,)]
+        shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
         layers = [
-            gaussian.CASHLayer(shapes[0], shapes[1], k=1500, additional=256, has_bias=True, has_channels=False),
+            gaussian.CASHLayer(shapes[0], shapes[1], k=4500, additional=512, has_bias=True, has_channels=True),
             nn.Sigmoid(),
-            gaussian.CASHLayer(shapes[1], shapes[2], k=750, additional=128, has_bias=True, has_channels=True),
+            gaussian.CASHLayer(shapes[1], shapes[2], k=4500, additional=512, has_bias=True, has_channels=True),
             nn.Sigmoid(),
-            gaussian.CASHLayer(shapes[2], shapes[3], k=750, additional=128, has_bias=True, has_channels=True),
-            nn.Sigmoid(),
-            nn.Linear(shapes[3][0], 10),
+            util.Flatten(),
+            nn.Linear(512, 10),
             nn.Softmax()]
         pivots = [2, 4, 6]
         decoder_channels = [True, True, False]
 
-        pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=5, k_out=256, out_additional=128, use_cuda=cuda,
+        pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=10, k_out=256, out_additional=128, use_cuda=cuda,
                 plot=True, has_channels=decoder_channels)
 
         model = nn.Sequential(od(layers))
@@ -77,16 +76,18 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
     elif model == 'baseline':
         model = nn.Sequential(
-            # Debug(lambda x: print('0', x.size(), util.prod(x[-1:].size()))),
-            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, stride=1, padding=4),
+            # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
+            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, stride=1, padding=3),
             nn.MaxPool2d(stride=2, kernel_size=2),
-            # Debug(lambda x: print('1', x.size(), util.prod(x[-1:].size()))),
-            nn.Conv2d(in_channels=4, out_channels=8, kernel_size=3, stride=1, padding=2),
+            # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
+            nn.Conv2d(in_channels=4, out_channels=8, kernel_size=3, stride=1, padding=1),
             nn.MaxPool2d(stride=2, kernel_size=2),
-            # Debug(lambda x: print('2', x.size(), util.prod(x[-1:].size()))),
+            # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
+            nn.Conv2d(in_channels=8, out_channels=16, kernel_size=3, stride=1, padding=1),
+            nn.MaxPool2d(stride=2, kernel_size=2),
+            # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
             util.Flatten(),
-            # Debug(lambda x: print('3', x.size(), util.prod(x[-1:].size()))),
-            nn.Linear(648, 10),
+            nn.Linear(256, 10),
             nn.Softmax())
 
         if cuda:
@@ -174,4 +175,4 @@ if __name__ == "__main__":
 
     options = parser.parse_args()
 
-    go(batch=options.batch_size, model=options.model, cuda=options.cuda)
+    go(batch=int(options.batch_size), model=options.model, cuda=bool(options.cuda))

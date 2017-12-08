@@ -19,7 +19,7 @@ from util import od
 
 w = SummaryWriter()
 
-def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, out_additional=128, out_has_bias=True, learn_rate=0.01, use_cuda=False, has_channels=True):
+def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, out_additional=128, out_has_bias=True, learn_rate=0.001, use_cuda=False, has_channels=True):
 
     ## SIMPLE
     criterion = nn.MSELoss()

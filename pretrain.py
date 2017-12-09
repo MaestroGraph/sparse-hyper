@@ -26,6 +26,8 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
     pre = []
     post = []
 
+    step = 0
+
     for j, pivot in enumerate(pivots):
 
         print('pretraining, level ', j)
@@ -79,7 +81,8 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
 
                 optimizer.step()
 
-                w.add_scalar('pretrain/train-loss-{}'.format(j), loss.data[0], i)
+                w.add_scalar('pretrain/train-loss', loss.data[0], step)
+                step += 1
 
                 if plot and i == 0:
 

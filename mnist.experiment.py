@@ -22,7 +22,7 @@ MNIST experiment
 
 """
 
-def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
+def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1):
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
     LOG = logging.getLogger()
@@ -56,9 +56,9 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
         layers = [
-            gaussian.CASHLayer(shapes[0], shapes[1], k=1500, additional=64, has_bias=True, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=True, has_channels=True, adaptive_bias=False),
             nn.Sigmoid(),
-            gaussian.CASHLayer(shapes[1], shapes[2], k=1500, additional=64, has_bias=True, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=True, has_channels=True, adaptive_bias=False),
             nn.Sigmoid(),
             util.Flatten(),
             nn.Linear(512, 10),
@@ -66,7 +66,7 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
         pivots = [2, 4]
         decoder_channels = [True, True]
 
-        pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=10, k_out=256, out_additional=128, use_cuda=cuda,
+        pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=10, k_out=k, out_additional=additional, use_cuda=cuda,
                 plot=True, has_channels=decoder_channels)
 
         model = nn.Sequential(od(layers))
@@ -167,7 +167,17 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--batch-size",
                         dest="batch_size",
                         help="The batch size.",
-                        default=64)
+                        default=64, type=int)
+
+    parser.add_argument("-k", "--num-points",
+                        dest="k",
+                        help="Number of index tuples",
+                        default=750, type=int)
+
+    parser.add_argument("-a", "--additional",
+                        dest="additional",
+                        help="Number of additional points sampled",
+                        default=512, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
@@ -175,4 +185,4 @@ if __name__ == "__main__":
 
     options = parser.parse_args()
 
-    go(batch=int(options.batch_size), model=options.model, cuda=bool(options.cuda))
+    go(batch=options.batch_size, k=options.k, additional=options.additional, model=options.model, cuda=options.cuda)

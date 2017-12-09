@@ -22,7 +22,7 @@ MNIST experiment
 
 """
 
-def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1):
+def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1, pretrain_lr=0.001):
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
     LOG = logging.getLogger()
@@ -67,7 +67,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
         decoder_channels = [True, True]
 
         pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=10, k_out=k, out_additional=additional, use_cuda=cuda,
-                plot=True, has_channels=decoder_channels)
+                plot=True, has_channels=decoder_channels, learn_rate=pretrain_lr)
 
         model = nn.Sequential(od(layers))
 
@@ -179,10 +179,15 @@ if __name__ == "__main__":
                         help="Number of additional points sampled",
                         default=512, type=int)
 
+    parser.add_argument("-p.l", "--pretrain-learn-rate",
+                        dest="plr",
+                        help="Pretraining learn rate",
+                        default=0.001, type=float)
+
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
                         action="store_true")
 
     options = parser.parse_args()
 
-    go(batch=options.batch_size, k=options.k, additional=options.additional, model=options.model, cuda=options.cuda)
+    go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, additional=options.additional, model=options.model, cuda=options.cuda)

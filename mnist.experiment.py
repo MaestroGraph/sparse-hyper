@@ -22,7 +22,7 @@ MNIST experiment
 
 """
 
-def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1, pretrain_lr=0.001):
+def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1, pretrain_lr=0.001, pretrain_epochs=20):
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
     LOG = logging.getLogger()
@@ -66,7 +66,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
         pivots = [2, 4]
         decoder_channels = [True, True]
 
-        pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=10, k_out=k, out_additional=additional, use_cuda=cuda,
+        pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
                 plot=True, has_channels=decoder_channels, learn_rate=pretrain_lr)
 
         model = nn.Sequential(od(layers))
@@ -179,6 +179,11 @@ if __name__ == "__main__":
                         help="Number of additional points sampled",
                         default=512, type=int)
 
+    parser.add_argument("-p.e", "--pretrain-epochs",
+                        dest="pretrain_epochs",
+                        help="Number of training epochs per layer",
+                        default=20, type=int)
+
     parser.add_argument("-p.l", "--pretrain-learn-rate",
                         dest="plr",
                         help="Pretraining learn rate",
@@ -190,4 +195,4 @@ if __name__ == "__main__":
 
     options = parser.parse_args()
 
-    go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, additional=options.additional, model=options.model, cuda=options.cuda)
+    go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, additional=options.additional, model=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs)

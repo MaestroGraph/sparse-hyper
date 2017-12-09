@@ -63,8 +63,8 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
             util.Flatten(),
             nn.Linear(512, 10),
             nn.Softmax()]
-        pivots = [2, 4, 6]
-        decoder_channels = [True, True, False]
+        pivots = [2, 4]
+        decoder_channels = [True, True]
 
         pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=10, k_out=256, out_additional=128, use_cuda=cuda,
                 plot=True, has_channels=decoder_channels)

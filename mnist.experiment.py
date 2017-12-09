@@ -56,9 +56,9 @@ def go(batch=64, epochs=350, model='baseline', cuda=False, seed=1):
 
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
         layers = [
-            gaussian.CASHLayer(shapes[0], shapes[1], k=1500, additional=64, has_bias=True, has_channels=True),
+            gaussian.CASHLayer(shapes[0], shapes[1], k=1500, additional=64, has_bias=True, has_channels=True, adaptive_bias=False),
             nn.Sigmoid(),
-            gaussian.CASHLayer(shapes[1], shapes[2], k=1500, additional=64, has_bias=True, has_channels=True),
+            gaussian.CASHLayer(shapes[1], shapes[2], k=1500, additional=64, has_bias=True, has_channels=True, adaptive_bias=False),
             nn.Sigmoid(),
             util.Flatten(),
             nn.Linear(512, 10),

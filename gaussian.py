@@ -838,7 +838,9 @@ class CASHLayer(HyperLayer):
     """
 
     """
-    def __init__(self, in_shape, out_shape, k,additional=0, poolsize=4, deconvs=2, sigma_scale=0.1, has_bias=True, has_channels=False):
+    def __init__(self, in_shape, out_shape, k,
+                 additional=0, poolsize=4, deconvs=2, sigma_scale=0.1, has_bias=True,
+                 has_channels=False, adaptive_bias=True):
         """
         :param in_shape:
         :param out_shape:
@@ -863,6 +865,7 @@ class CASHLayer(HyperLayer):
         self.out_shape = out_shape
         self.sigma_scale = sigma_scale
         self.has_channels = has_channels
+        self.adaptive_bias = adaptive_bias
 
         self.w_rank = len(in_shape) + len(out_shape)
 
@@ -903,10 +906,13 @@ class CASHLayer(HyperLayer):
             self.convs.append(
                 nn.ConvTranspose1d(in_channels=self.w_rank+2, out_channels=self.w_rank+2, kernel_size=2, stride=2))
 
-        self.bias = nn.Sequential(
-            nn.Linear(self.ha * self.hb, hyper.prod(out_shape)),
-            self.activation
-        )
+        if self.adaptive_bias:
+            self.bias = nn.Sequential(
+                nn.Linear(self.ha * self.hb, hyper.prod(out_shape)),
+                self.activation
+            )
+        else:
+            self.bias = Parameter(torch.randn(*out_shape))
 
     def hyper(self, input):
         """
@@ -939,8 +945,11 @@ class CASHLayer(HyperLayer):
 
         if not self.has_bias:
             return means, sigmas, values
+        if self.adaptive_bias:
+            bias = self.bias(hidden)
+        else:
+            bias = self.bias
 
-        bias = self.bias(hidden)
         return means, sigmas, values, bias
 
 class WSCASHLayer(HyperLayer):

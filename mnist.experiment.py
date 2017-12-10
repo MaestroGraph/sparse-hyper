@@ -40,17 +40,25 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
     testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
 
     if model == 'non-adaptive':
+        shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
         layers = [
-            gaussian.ParamASHLayer(SHAPE, (4, 8, 8), k=64, additional=8, has_bias=True),
+            gaussian.ParamASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=True),
             nn.Sigmoid(),
-            gaussian.ParamASHLayer((4, 8, 8), (128,), k=64, additional=32, has_bias=True),
+            gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=True),
             nn.Sigmoid(),
-            nn.Linear(128, 10),
+            util.Flatten(),
+            nn.Linear(512, 10),
             nn.Softmax()]
+        pivots = [2, 4]
+        decoder_channels = [True, True]
+
+        pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
+                plot=True, has_channels=decoder_channels, learn_rate=pretrain_lr)
+
+        model = nn.Sequential(od(layers))
 
         if cuda:
             model.apply(lambda t: t.cuda())
-
 
     elif model == 'free':
 

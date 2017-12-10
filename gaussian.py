@@ -662,7 +662,7 @@ class ParamASHLayer(HyperLayer):
     Hyperlayer with free sparse parameters, no hypernetwork.
     """
 
-    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False, has_bias=False):
+    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False):
         super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.DENSE if has_bias else Bias.NONE)
 
         self.k = k

@@ -22,7 +22,7 @@ MNIST experiment
 
 """
 
-def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1, pretrain_lr=0.001, pretrain_epochs=20):
+def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1, pretrain_lr=0.001, pretrain_epochs=20, bias=True):
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
     LOG = logging.getLogger()
@@ -42,9 +42,9 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
     if model == 'non-adaptive':
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
         layers = [
-            gaussian.ParamASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=True),
+            gaussian.ParamASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias),
             nn.Sigmoid(),
-            gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=True),
+            gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias),
             nn.Sigmoid(),
             util.Flatten(),
             nn.Linear(512, 10),
@@ -53,7 +53,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
         decoder_channels = [True, True]
 
         pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
-                plot=True, has_channels=decoder_channels, learn_rate=pretrain_lr)
+                plot=True, out_has_bias=bias, has_channels=decoder_channels, learn_rate=pretrain_lr)
 
         model = nn.Sequential(od(layers))
 
@@ -64,9 +64,9 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
 
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
         layers = [
-            gaussian.CASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=True, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
             nn.Sigmoid(),
-            gaussian.CASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=True, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
             nn.Sigmoid(),
             util.Flatten(),
             nn.Linear(512, 10),
@@ -75,7 +75,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
         decoder_channels = [True, True]
 
         pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
-                plot=True, has_channels=decoder_channels, learn_rate=pretrain_lr)
+                plot=True, out_has_bias=bias, has_channels=decoder_channels, learn_rate=pretrain_lr)
 
         model = nn.Sequential(od(layers))
 
@@ -201,6 +201,11 @@ if __name__ == "__main__":
                         help="Whether to use cuda.",
                         action="store_true")
 
+    parser.add_argument("-B", "--no-bias", dest="bias",
+                        help="Whether to give the layers biases.",
+                        action="store_false")
+
     options = parser.parse_args()
 
-    go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, additional=options.additional, model=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs)
+    go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, bias=options.bias, additional=options.additional,
+       model=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs)

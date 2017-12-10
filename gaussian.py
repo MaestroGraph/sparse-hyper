@@ -386,8 +386,10 @@ class HyperLayer(nn.Module):
 
         means = means * sm.expand_as(means)
 
-        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2)
-        values = nn.functional.softplus(res[:, :, w_rank + 1:].squeeze(2))
+        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2) + EPSILON
+        values = res[:, :, w_rank + 1:].squeeze(2)
+
+        # values = values * 0.0 + 1.0
 
         sigmas = sigmas.unsqueeze(2).expand_as(means)
 
@@ -581,6 +583,10 @@ class HyperLayer(nn.Module):
         # NB: due to batching, real_indices has shape batchsize x K x rank(W)
         #     real_values has shape batchsize x K
 
+        # print('--------------------------------')
+        # for i in range(util.prod(sigmas.size())):
+        #     print(sigmas.view(-1)[i].data[0])
+
         # turn the real values into integers in a differentiable way
         t0 = time.time()
         indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
@@ -617,9 +623,6 @@ class HyperLayer(nn.Module):
         sparsemult = util.sparsemult(self.use_cuda)
 
         t0 = time.time()
-
-        # for value in values.data.view(-1):
-        #     print(value, '!!!!!!!!!!!!!!!!!!!!!!!' if value != value else '')
 
         # Prevent segfault
         assert not util.contains_nan(values.data)

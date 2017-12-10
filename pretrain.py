@@ -37,8 +37,9 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
         encoder = layers[:pivots[j]] if j == 0 else layers[pivots[j-1]:pivots[j]]
 
         decoder = [
-            gaussian.CASHLayer(mid_shape, out_shape, k=k_out, additional=out_additional, has_bias=out_has_bias, has_channels=has_channels[j], adaptive_bias=False),
-            nn.Sigmoid()]
+            gaussian.CASHLayer(mid_shape, out_shape, k=k_out, additional=out_additional, has_bias=out_has_bias, has_channels=has_channels[j], adaptive_bias=False)
+            ]
+            #nn.Sigmoid()]
 
         model = nn.Sequential(od(encoder + decoder))
         pre_model = None if len(pre) == 0 else nn.Sequential(od(pre))
@@ -90,6 +91,9 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
                         outputs = post_model(outputs)
 
                     inputs, outputs = inputs_old, outputs
+
+                    # print('i', inputs[0, 0, :].data)
+                    # print('o', outputs[0, 0, :].data)
 
                     plt.figure(figsize=(16, 4))
                     plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16,:]).cpu().numpy(), (1, 2, 0)), interpolation='nearest')

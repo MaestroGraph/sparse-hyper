@@ -92,6 +92,8 @@ def pretrain(layers, shapes, pivots, loader, epochs=50, plot=False, k_out=256, o
 
                     inputs, outputs = inputs_old, outputs
 
+                    outputs = outputs.clamp(0.0, 1.0)
+
                     # print('i', inputs[0, 0, :].data)
                     # print('o', outputs[0, 0, :].data)
 

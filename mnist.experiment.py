@@ -22,7 +22,7 @@ MNIST experiment
 
 """
 
-def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1, pretrain_lr=0.001, pretrain_epochs=20, bias=True):
+def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1, pretrain_lr=0.001, pretrain_epochs=20, bias=True, data='./data'):
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
     LOG = logging.getLogger()
@@ -34,9 +34,9 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
     gaussian.PROPER_SAMPLING = False
 
     normalize = transforms.Compose([transforms.ToTensor()])
-    train = torchvision.datasets.MNIST(root='./data', train=True, download=True, transform=normalize)
+    train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
     trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
-    test = torchvision.datasets.MNIST(root='./data', train=False, download=True, transform=normalize)
+    test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
     testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
 
     if model == 'non-adaptive':
@@ -205,7 +205,13 @@ if __name__ == "__main__":
                         help="Whether to give the layers biases.",
                         action="store_false")
 
+    parser.add_argument("-D", "--data", dest="data",
+                        help="Data directory",
+                        default='./data')
+
     options = parser.parse_args()
 
+    print('OPTIONS', options)
+
     go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, bias=options.bias, additional=options.additional,
-       model=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs)
+       model=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs, data=options.data )

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Wedge, Polygon, Ellipse
 from matplotlib.collections import PatchCollection
 from matplotlib.axes import Axes
-import os, errno, random, time
+import os, errno, random, time, string
 
 import torch
 from torch import nn
@@ -364,6 +364,10 @@ def corrupt_(input, prop=0.3):
     mask.sub_(prop).ceil_()
 
     input.mul_(mask)
+
+
+def rstring(n):
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=n))
 
 
 

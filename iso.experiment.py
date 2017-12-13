@@ -61,16 +61,15 @@ TEST_SIZE = 15000
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modelname='baseline', cuda=False, seed=1, pretrain_lr=0.001, pretrain_epochs=20, bias=True, data='./data'):
 
     torch.manual_seed(seed)
-    LOG = logging.getLogger()
 
     w = SummaryWriter()
 
     SHAPE = (1, nodes, nodes)
 
-    LOG.info('generating data...')
+    logging.info('generating data...')
     train, train_labels = generate(nodes, links, TRAIN_SIZE)
     test, test_labels = generate(nodes, links, TRAIN_SIZE)
-    LOG.info('done.')
+    logging.info('done.')
 
     ds_pretrain = TensorDataset(train.view(-1, 1, nodes, nodes), torch.zeros(train.size()[0]*2))
     ds_train = TensorDataset(train, train_labels)
@@ -294,10 +293,9 @@ if __name__ == "__main__":
     options = parser.parse_args()
 
     logging.basicConfig(filename='run.log',level=logging.INFO)
-    log = logging.getLogger()
 
     print('OPTIONS ', options)
-    log.info('OPTIONS ' + str(options))
+    logging.info('OPTIONS ' + str(options))
 
     go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, bias=options.bias, additional=options.additional,
        modelname=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs, data=options.data )

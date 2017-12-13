@@ -69,8 +69,8 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
     SHAPE = (1, nodes, nodes)
 
     print('generating data...')
-    train, train_labels = generate(nodes, links, TRAIN_SIZE, cuda=cuda)
-    test, test_labels = generate(nodes, links, TRAIN_SIZE, cuda=cuda)
+    train, train_labels = generate(nodes, links, TRAIN_SIZE)
+    test, test_labels = generate(nodes, links, TRAIN_SIZE)
     print('done.')
 
     ds_train = TensorDataset(train, train_labels)

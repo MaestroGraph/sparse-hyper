@@ -23,17 +23,22 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import util
 
+import logging
 
-mask = torch.ByteTensor([[0, 1],[1, 0]])
+logging.basicConfig(filename='run.log',level=logging.INFO)
 
-vals = torch.FloatTensor([[[0.01, 0.1],[0.2, 0.3]], [[0.01, 0.1],[0.2, 0.3]]])
+# logging.info('TEST')
 
-mask = mask.unsqueeze(0).expand_as(vals)
-
-vals[mask] = vals[mask].ceil()
-vals[~mask] = vals[~mask].floor()
-
-print(vals)
+# mask = torch.ByteTensor([[0, 1],[1, 0]])
+#
+# vals = torch.FloatTensor([[[0.01, 0.1],[0.2, 0.3]], [[0.01, 0.1],[0.2, 0.3]]])
+#
+# mask = mask.unsqueeze(0).expand_as(vals)
+#
+# vals[mask] = vals[mask].ceil()
+# vals[~mask] = vals[~mask].floor()
+#
+# print(vals)
 
 # values = Variable(torch.rand(3, 4, 2))
 # print(values)

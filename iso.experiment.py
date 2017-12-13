@@ -1,4 +1,4 @@
-import hyper, gaussian, util, logging, time, pretrain
+import hyper, gaussian, util, time, pretrain, os
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -20,6 +20,14 @@ from util import od, prod
 from argparse import ArgumentParser
 
 import networkx as nx
+
+import logging
+
+LOG = logging.getLogger('ash')
+LOG.setLevel(logging.INFO)
+fh = logging.FileHandler('ash.log')
+fh.setLevel(logging.INFO)
+LOG.addHandler(fh)
 
 """
 Graph isomorphism experiment
@@ -66,10 +74,10 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
 
     SHAPE = (1, nodes, nodes)
 
-    logging.info('generating data...')
+    LOG.info('generating data...')
     train, train_labels = generate(nodes, links, TRAIN_SIZE)
     test, test_labels = generate(nodes, links, TRAIN_SIZE)
-    logging.info('done.')
+    LOG.info('done.')
 
     ds_pretrain = TensorDataset(train.view(-1, 1, nodes, nodes), torch.zeros(train.size()[0]*2))
     ds_train = TensorDataset(train, train_labels)
@@ -292,10 +300,8 @@ if __name__ == "__main__":
 
     options = parser.parse_args()
 
-    logging.basicConfig(filename='run.log',level=logging.INFO)
-
     print('OPTIONS ', options)
-    logging.info('OPTIONS ' + str(options))
+    LOG.info('OPTIONS ' + str(options))
 
     go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, bias=options.bias, additional=options.additional,
        modelname=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs, data=options.data )

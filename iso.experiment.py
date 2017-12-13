@@ -55,8 +55,8 @@ def generate(n=128, m=512, num=64):
 
     return data, classes
 
-TRAIN_SIZE = 600
-TEST_SIZE = 150
+TRAIN_SIZE = 60000
+TEST_SIZE = 15000
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modelname='baseline', cuda=False, seed=1, pretrain_lr=0.001, pretrain_epochs=20, bias=True, data='./data'):
 

@@ -26,13 +26,10 @@ MNIST experiment
 
 """
 
-def generate(n=128, m=512, num=64, cuda=False):
-    FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-    LT = torch.cuda.LongTensor if cuda else torch.LongTensor
+def generate(n=128, m=512, num=64):
 
-
-    data = FT(num, 2, n, n)
-    classes = LT(num)
+    data = torch.FloatTensor(num, 2, n, n)
+    classes = torch.LongTensor(num)
 
     for i in range(num):
         graph1 = nx.gnm_random_graph(n, m)
@@ -186,10 +183,12 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
 
             # get the inputs
             graphs, labels = data
+            if cuda:
+                graphs, labels = graphs.cuda(), labels.cuda()
             graphs1, graphs2 = graphs[:, 0, :], graphs[:, 1, :]
 
-            graphs1, graphs2, labels = Variable(graphs1), Variable(graphs2), Variable(labels)
             graphs1, graphs2 = graphs1.unsqueeze(1), graphs2.unsqueeze(1)
+            graphs1, graphs2, labels = Variable(graphs1), Variable(graphs2), Variable(labels)
 
             # forward + backward + optimize
             optimizer.zero_grad()
@@ -218,10 +217,12 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
 
             # get the inputs
             graphs, labels = data
+            if cuda:
+                graphs, labels = graphs.cuda(), labels.cuda()
             graphs1, graphs2 = graphs[:, 0, :], graphs[:, 1, :]
 
-            graphs1, graphs2, labels = Variable(graphs1), Variable(graphs2), Variable(labels)
             graphs1, graphs2 = graphs1.unsqueeze(1), graphs2.unsqueeze(1)
+            graphs1, graphs2, labels = Variable(graphs1), Variable(graphs2), Variable(labels)
 
             # forward + backward + optimize
             optimizer.zero_grad()

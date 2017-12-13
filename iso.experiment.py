@@ -40,7 +40,7 @@ def generate(n=128, m=512, num=64, cuda=False):
 
         if random.choice([True, False]):
             # graphs are isomorphic
-            nodes = graph1.nodes()
+            nodes = list(graph1.nodes())
             random.shuffle(nodes)
 
             am2 = nx.to_numpy_matrix(graph1, nodelist=nodes)

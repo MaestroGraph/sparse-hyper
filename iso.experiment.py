@@ -22,7 +22,7 @@ from argparse import ArgumentParser
 import networkx as nx
 
 """
-MNIST experiment
+Graph isomorphism experiment
 
 """
 
@@ -55,27 +55,28 @@ def generate(n=128, m=512, num=64):
 
     return data, classes
 
-TRAIN_SIZE = 60000
-TEST_SIZE = 15000
+TRAIN_SIZE = 600
+TEST_SIZE = 150
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modelname='baseline', cuda=False, seed=1, pretrain_lr=0.001, pretrain_epochs=20, bias=True, data='./data'):
 
     torch.manual_seed(seed)
-    logging.basicConfig(filename='run.log',level=logging.INFO)
     LOG = logging.getLogger()
 
     w = SummaryWriter()
 
     SHAPE = (1, nodes, nodes)
 
-    print('generating data...')
+    LOG.info('generating data...')
     train, train_labels = generate(nodes, links, TRAIN_SIZE)
     test, test_labels = generate(nodes, links, TRAIN_SIZE)
-    print('done.')
+    LOG.info('done.')
 
+    ds_pretrain = TensorDataset(train.view(-1, 1, nodes, nodes), torch.zeros(train.size()[0]*2))
     ds_train = TensorDataset(train, train_labels)
     ds_test = TensorDataset(test, test_labels)
 
+    pretrain_loader = DataLoader(ds_pretrain, batch_size=batch,shuffle=True)
     train_loader = DataLoader(ds_train,batch_size=batch,shuffle=True)
     test_loader = DataLoader(ds_test, batch_size=batch, shuffle=True)
 
@@ -92,7 +93,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
         pivots = [2, 4]
         decoder_channels = [True, True]
 
-        pretrain.pretrain(layers, shapes, pivots, train_loader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
+        pretrain.pretrain(layers, shapes, pivots, pretrain_loader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
                 plot=True, out_has_bias=bias, has_channels=decoder_channels, learn_rate=pretrain_lr)
 
         model = nn.Sequential(od(layers))
@@ -114,7 +115,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
         pivots = [2, 4]
         decoder_channels = [True, True]
 
-        pretrain.pretrain(layers, shapes, pivots, train_loader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
+        pretrain.pretrain(layers, shapes, pivots, pretrain_loader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
                 plot=True, out_has_bias=bias, has_channels=decoder_channels, learn_rate=pretrain_lr)
 
         model = nn.Sequential(od(layers))
@@ -238,7 +239,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
 
         accuracy = total/num
 
-        w.add_scalar('mnist/per-epoch-test-acc', accuracy, epoch)
+        w.add_scalar('graphs/per-epoch-test-acc', accuracy, epoch)
         print('EPOCH {}: {} accuracy '.format(epoch, accuracy))
 
     print('Finished Training.')
@@ -292,7 +293,11 @@ if __name__ == "__main__":
 
     options = parser.parse_args()
 
-    print('OPTIONS', options)
+    logging.basicConfig(filename='run.log',level=logging.INFO)
+    log = logging.getLogger()
+
+    print('OPTIONS ', options)
+    log.info('OPTIONS ' + str(options))
 
     go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, bias=options.bias, additional=options.additional,
        modelname=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs, data=options.data )

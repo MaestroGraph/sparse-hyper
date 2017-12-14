@@ -875,6 +875,8 @@ class CASHLayer(HyperLayer):
         self.ha = int(math.ceil(k/ksize**deconvs))
         self.hb = 8
 
+        print('hidden size is  ', self.ha,' by ', self.hb)
+
         c_in_shape = in_shape[1:] if has_channels else in_shape
 
         if len(c_in_shape) == 1:

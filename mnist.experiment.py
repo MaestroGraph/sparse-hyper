@@ -82,6 +82,28 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
         if cuda:
             model.apply(lambda t: t.cuda())
 
+    elif model == 'free9':
+
+        shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
+        layers = [
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            nn.Sigmoid(),
+            gaussian.CASHLayer(shapes[1], shapes[2], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            nn.Sigmoid(),
+            util.Flatten(),
+            nn.Linear(512, 10),
+            nn.Softmax()]
+        pivots = [2, 4]
+        decoder_channels = [True, True]
+
+        pretrain.pretrain(layers, shapes, pivots, trainloader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
+                plot=True, out_has_bias=bias, has_channels=decoder_channels, learn_rate=pretrain_lr)
+
+        model = nn.Sequential(od(layers))
+
+        if cuda:
+            model.apply(lambda t: t.cuda())
+
     elif model == 'baseline':
         model = nn.Sequential(
             # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),

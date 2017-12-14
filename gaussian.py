@@ -842,7 +842,7 @@ class CASHLayer(HyperLayer):
 
     """
     def __init__(self, in_shape, out_shape, k,
-                 additional=0, poolsize=4, deconvs=2, sigma_scale=0.1, has_bias=True,
+                 additional=0, poolsize=4, deconvs=2, ksize=2, sigma_scale=0.1, has_bias=True,
                  has_channels=False, adaptive_bias=True):
         """
         :param in_shape:
@@ -872,7 +872,7 @@ class CASHLayer(HyperLayer):
 
         self.w_rank = len(in_shape) + len(out_shape)
 
-        self.ha = int(math.ceil(k/2**deconvs))
+        self.ha = int(math.ceil(k/ksize**deconvs))
         self.hb = 8
 
         c_in_shape = in_shape[1:] if has_channels else in_shape
@@ -902,12 +902,12 @@ class CASHLayer(HyperLayer):
             self.activation
         )
 
-        self.conv1 = nn.ConvTranspose1d(in_channels=self.hb, out_channels=self.w_rank+2, kernel_size=2, stride=2)
+        self.conv1 = nn.ConvTranspose1d(in_channels=self.hb, out_channels=self.w_rank+2, kernel_size=ksize, stride=ksize)
 
         self.convs = nn.ModuleList()
         for i in range(deconvs - 1):
             self.convs.append(
-                nn.ConvTranspose1d(in_channels=self.w_rank+2, out_channels=self.w_rank+2, kernel_size=2, stride=2))
+                nn.ConvTranspose1d(in_channels=self.w_rank+2, out_channels=self.w_rank+2, kernel_size=ksize, stride=ksize))
 
         if self.adaptive_bias:
             self.bias = nn.Sequential(

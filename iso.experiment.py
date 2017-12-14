@@ -256,6 +256,16 @@ if __name__ == "__main__":
     ## Parse the command line options
     parser = ArgumentParser()
 
+    parser.add_argument("-N", "--nodes",
+                        dest="nodes",
+                        help="Number of nodes in the generated graphs.",
+                        default=128, type=int)
+
+    parser.add_argument("-M", "--links",
+                        dest="links",
+                        help="Number of links in the generated graphs.",
+                        default=256, type=int)
+
     parser.add_argument("-m", "--model",
                         dest="model",
                         help="Which model to train.",
@@ -303,5 +313,5 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, bias=options.bias, additional=options.additional,
+    go(n=options.nodes, m=options.links, batch=options.batch_size, k=options.k, pretrain_lr=options.plr, bias=options.bias, additional=options.additional,
        modelname=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs, data=options.data )

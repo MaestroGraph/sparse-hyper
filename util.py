@@ -369,6 +369,14 @@ def corrupt_(input, prop=0.3):
 def rstring(n):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=n))
 
+def count_params(model):
+    sum = 0
+    for tensor in model.parameters():
+        sum += prod(tensor.size())
+
+    return sum
+
+
 
 
 

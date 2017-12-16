@@ -27,6 +27,9 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
     logging.basicConfig(filename='run.log',level=logging.INFO)
     LOG = logging.getLogger()
 
+    l1Params = None
+    L1WEIGHT = 0.1
+
     w = SummaryWriter()
 
     SHAPE = (1, 28, 28)
@@ -123,6 +126,55 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
         if cuda:
             model = model.cuda()
 
+    elif model == 'baseline-big':
+        model = nn.Sequential(
+            # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
+            nn.Conv2d(in_channels=1, out_channels=256, kernel_size=5, stride=1, padding=2),
+            nn.ReLU(),
+            # nn.MaxPool2d(stride=2, kernel_size=2),
+            #  Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
+            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=5, stride=1, padding=2),
+            nn.ReLU(),
+            # nn.MaxPool2d(stride=2, kernel_size=2),
+            # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
+            nn.Conv2d(in_channels=256, out_channels=128, kernel_size=5, stride=1, padding=2),
+            nn.ReLU(),
+            # nn.MaxPool2d(stride=2, kernel_size=2),
+            # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
+            util.Flatten(),
+            nn.Linear(100352, 328),
+            nn.ReLU(),
+            nn.Linear(328, 196),
+            nn.Softmax())
+
+        print(util.count_params(model), ' parameters')
+
+        if cuda:
+            model = model.cuda()
+
+    elif model == 'baseline-dense':
+
+        lin1 = nn.Linear(28*28, 4*16*16)
+        lin2 = nn.Linear(4*16*16, 8*8*8)
+
+        model = nn.Sequential(
+            util.Flatten(),
+            lin1,
+            nn.ReLU(),
+            lin2,
+            nn.ReLU(),
+            nn.Linear(512, 10),
+            nn.Softmax()
+        )
+
+        l1Params = [lin1.weight, lin2.weight]
+
+        if cuda:
+            model = model.cuda()
+
+    else:
+        raise Exception('Model {} not found'.format(model))
+
     ## SIMPLE
     criterion = nn.CrossEntropyLoss()
     acc = CategoricalAccuracy()
@@ -147,6 +199,10 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, labels)
+
+            if l1Params is not None:
+                for l1_param in l1Params:
+                    loss += L1WEIGHT * l1_param.abs().sum()
 
             t0 = time.time()
             loss.backward()  # compute the gradients

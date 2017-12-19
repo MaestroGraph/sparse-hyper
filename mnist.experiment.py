@@ -22,7 +22,8 @@ MNIST experiment
 
 """
 
-def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1, pretrain_lr=0.001, pretrain_epochs=20, bias=True, data='./data'):
+def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False, seed=1, pretrain_lr=0.001,
+       pretrain_epochs=20, bias=True, data='./data', lr=0.01):
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
     LOG = logging.getLogger()
@@ -127,6 +128,14 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
             model = model.cuda()
 
     elif model == 'baseline-big':
+
+        # Reload the data with augmentation
+        normalize = transforms.Compose([transforms.RandomCrop(size=28, padding=2), transforms.ToTensor()])
+        train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
+        trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
+        test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
+        testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
+
         model = nn.Sequential(
             # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
             nn.Conv2d(in_channels=1, out_channels=256, kernel_size=5, stride=1, padding=2),
@@ -144,6 +153,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
             util.Flatten(),
             nn.Linear(100352, 328),
             nn.ReLU(),
+            nn.Dropout(p=0.5),
             nn.Linear(328, 196),
             nn.Softmax())
 
@@ -178,7 +188,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
     ## SIMPLE
     criterion = nn.CrossEntropyLoss()
     acc = CategoricalAccuracy()
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
     step = 0
 
@@ -275,6 +285,11 @@ if __name__ == "__main__":
                         help="Pretraining learn rate",
                         default=0.001, type=float)
 
+    parser.add_argument("-l", "--learn-rate",
+                        dest="lr",
+                        help="Learning rate",
+                        default=0.01, type=float)
+
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
                         action="store_true")
@@ -292,4 +307,4 @@ if __name__ == "__main__":
     print('OPTIONS', options)
 
     go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, bias=options.bias, additional=options.additional,
-       model=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs, data=options.data )
+       model=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs, data=options.data, lr=options.lr )

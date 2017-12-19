@@ -247,9 +247,9 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
         accuracy = total/num
 
         w.add_scalar('graphs/per-epoch-test-acc', accuracy, epoch)
-        print('EPOCH {}: {} accuracy '.format(epoch, accuracy))
+        LOG.info('EPOCH {}: {} accuracy '.format(epoch, accuracy))
 
-    print('Finished Training.')
+    LOG.info('Finished Training.')
 
 if __name__ == "__main__":
 

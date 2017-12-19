@@ -65,7 +65,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
             layer1.apply(lambda t: t.cuda())
             layer2.apply(lambda t: t.cuda())
 
-            decoder1.cuda()
+            decoder1.apply(lambda t: t.cuda())
             decoder2.apply(lambda t: t.cuda())
 
             to_class.cuda()

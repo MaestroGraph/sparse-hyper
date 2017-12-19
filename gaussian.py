@@ -843,7 +843,7 @@ class CASHLayer(HyperLayer):
     """
     def __init__(self, in_shape, out_shape, k,
                  additional=0, poolsize=4, deconvs=2, ksize=2, sigma_scale=0.1, has_bias=True,
-                 has_channels=False, adaptive_bias=True):
+                 has_channels=False, adaptive_bias=False):
         """
         :param in_shape:
         :param out_shape:

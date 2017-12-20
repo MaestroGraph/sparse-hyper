@@ -32,6 +32,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
     LOG = logging.getLogger()
+    plt.figure(figsize=(16, 4))
 
     w = SummaryWriter()
 
@@ -117,26 +118,28 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
             logging.info('backward: {} seconds'.format(time.time() - t0))
             optimizer.step()
 
-            w.add_scalar('mnist/train-loss', loss.data[0], step)
+            w.add_scalar('mnist/train-loss-cls', cls_loss.data[0], step)
+            w.add_scalar('mnist/train-loss-rec', rec_loss.data[0], step)
+
 
             step += 1
 
-            if PLOT and i % 10 == 0:
+            if PLOT and i == 0:
 
                 rec1 = rec1.clamp(0.0, 1.0)
                 rec2 = rec2.clamp(0.0, 1.0)
 
-                plt.figure(figsize=(16, 4))
+                plt.cla()
                 plt.imshow(np.transpose(torchvision.utils.make_grid(inputs.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                            interpolation='nearest')
                 plt.savefig('rec.{:03d}.input.pdf'.format(epoch))
 
-                plt.figure(figsize=(16, 4))
+                plt.cla()
                 plt.imshow(np.transpose(torchvision.utils.make_grid(rec1.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                            interpolation='nearest')
                 plt.savefig('rec.{:03d}.layer1.pdf'.format(epoch))
 
-                plt.figure(figsize=(16, 4))
+                plt.cla()
                 plt.imshow(np.transpose(torchvision.utils.make_grid(rec2.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                            interpolation='nearest')
                 plt.savefig('rec.{:03d}.layer2.pdf'.format(epoch))

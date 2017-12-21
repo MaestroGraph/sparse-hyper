@@ -71,6 +71,58 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
 
             to_class.cuda()
 
+    if model_name == 'free':
+        shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
+
+        layer1   = nn.Sequential(
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias, has_channels=True),
+            nn.Sigmoid())
+        decoder1 = nn.Sequential(gaussian.ParamASHLayer(shapes[1], shapes[0], k=k, additional=additional, has_bias=bias, has_channels=True))
+
+        layer2 = gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias, has_channels=True)
+        decoder2 = nn.Sequential(
+            gaussian.ParamASHLayer(shapes[2], shapes[1], k=k, additional=additional, has_bias=bias, has_channels=True),
+            nn.Sigmoid())
+
+        to_class = nn.Sequential(
+            util.Flatten(),
+            nn.Linear(512, 10),
+            nn.Softmax())
+
+        if cuda:
+            layer1.apply(lambda t: t.cuda())
+            layer2.apply(lambda t: t.cuda())
+
+            decoder1.apply(lambda t: t.cuda())
+            decoder2.apply(lambda t: t.cuda())
+
+            to_class.cuda()
+
+    elif model_name == 'free9':
+        layer1   = nn.Sequential(
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True),
+            nn.Sigmoid())
+        decoder1 = nn.Sequential(gaussian.ParamASHLayer(shapes[1], shapes[0], k=k,ksize=9, additional=additional, has_bias=bias, has_channels=True))
+
+        layer2 = gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True)
+        decoder2 = nn.Sequential(
+            gaussian.ParamASHLayer(shapes[2], shapes[1], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True),
+            nn.Sigmoid())
+
+        to_class = nn.Sequential(
+            util.Flatten(),
+            nn.Linear(512, 10),
+            nn.Softmax())
+
+        if cuda:
+            layer1.apply(lambda t: t.cuda())
+            layer2.apply(lambda t: t.cuda())
+
+            decoder1.apply(lambda t: t.cuda())
+            decoder2.apply(lambda t: t.cuda())
+
+            to_class.cuda()
+
     else:
         raise Exception('Model {} not found'.format(model_name))
 

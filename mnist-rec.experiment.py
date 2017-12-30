@@ -27,7 +27,7 @@ MNIST experiment
 PLOT = True
 
 def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', cuda=False, seed=1,
-       bias=True, data='./data', lr=0.01, lambd=0.01, subsample=None):
+       bias=True, data='./data', lr=0.01, lambd=0.01, subsample=None, deconvs=2):
 
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
@@ -103,13 +103,13 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
 
         layer1   = nn.Sequential(
-            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
             nn.Sigmoid())
-        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k,ksize=9, additional=additional, has_bias=bias, has_channels=True, subsample=subsample))
+        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k,ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample))
 
-        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True, subsample=subsample)
+        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample)
         decoder2 = nn.Sequential(
-            gaussian.CASHLayer(shapes[2], shapes[1], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
+            gaussian.CASHLayer(shapes[2], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
             nn.Sigmoid())
 
         to_class = nn.Sequential(
@@ -254,6 +254,11 @@ if __name__ == "__main__":
                         help="Number of additional points sampled",
                         default=512, type=int)
 
+    parser.add_argument("-d", "--deconvs",
+                        dest="deconvs",
+                        help="Number of deconvolutions in adaptive model",
+                        default=512, type=int)
+
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
                         help="Learning rate",
@@ -287,4 +292,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size, k=options.k, bias=options.bias, additional=options.additional,
        model_name=options.model, cuda=options.cuda, data=options.data, lr=options.lr,
-       lambd=options.lambd, subsample=options.subsample)
+       lambd=options.lambd, subsample=options.subsample, deconvs=options.deconvs)

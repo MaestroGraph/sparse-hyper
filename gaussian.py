@@ -312,7 +312,7 @@ class HyperLayer(nn.Module):
     @abc.abstractmethod
     def hyper(self, input):
         """
-            Returns the hypernetwork. This network should take the same input as the hyperlayer itself
+            Applies the hypernetwork. This network should take the same input as the hyperlayer itself
             and output a pair (L, V), with L a matrix of k by R (with R the rank of W) and a vector V of length k.
         """
         return
@@ -324,7 +324,7 @@ class HyperLayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE):
+    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None):
         super().__init__()
 
         self.use_cuda = False
@@ -335,8 +335,10 @@ class HyperLayer(nn.Module):
         self.weights_rank = in_rank + len(out_shape) # implied rank of W
 
         self.bias_type = bias_type
+        self.sparse_input = sparse_input
+        self.subsample = subsample
 
-        # create a tensor with all binary sequences of length rank as rows
+        # create a tensor with all binary sequences of length 'rank' as rows
         lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=self.weights_rank)]
         self.floor_mask = torch.ByteTensor(lsts)
 
@@ -580,6 +582,9 @@ class HyperLayer(nn.Module):
             means, sigmas, values, bias_means, bias_sigmas, bias_values = self.hyper(input)
         logging.info('compute hyper: {} seconds'.format(time.time() - t0))
 
+        if self.sparse_input:
+            input = input.dense()
+
         # NB: due to batching, real_indices has shape batchsize x K x rank(W)
         #     real_values has shape batchsize x K
 
@@ -589,9 +594,37 @@ class HyperLayer(nn.Module):
 
         # turn the real values into integers in a differentiable way
         t0 = time.time()
-        indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
 
-        values = values * props
+        if self.subsample is None:
+            indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+
+            values = values * props
+        else: # select a small proportion of the indices to learn over
+
+            b, k, r = means.size()
+
+            prop = torch.cuda.FloatTensor([self.subsample]) if self.use_cuda else torch.FloatTensor([self.subsample])
+            selection = torch.bernoulli(prop.expand(k)).byte()
+
+            mselection = selection.unsqueeze(0).unsqueeze(2).expand_as(means)
+            sselection = selection.unsqueeze(0).unsqueeze(2).expand_as(sigmas)
+            vselection = selection.unsqueeze(0).expand_as(values)
+
+            means_in, means_out = means[mselection].view(b, -1, r), means[~ mselection].view(b, -1, r)
+            sigmas_in, sigmas_out = sigmas[sselection].view(b, -1, r), sigmas[~ sselection].view(b, -1, r)
+            values_in, values_out = values[vselection].view(b, -1), values[~ vselection].view(b, -1)
+
+            means_out = means_out.detach()
+            values_out = values_out.detach()
+
+            indices_in, props, values_in = self.discretize(means_in, sigmas_in, values_in, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+            values_in = values_in * props
+
+            indices_out = means_out.data.round().long()
+
+            indices = torch.cat([indices_in, indices_out], dim=1)
+            values = torch.cat([values_in, values_out], dim=1)
+
         logging.info('discretize: {} seconds'.format(time.time() - t0))
 
         if self.use_cuda:
@@ -665,8 +698,8 @@ class ParamASHLayer(HyperLayer):
     Hyperlayer with free sparse parameters, no hypernetwork.
     """
 
-    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False):
-        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.DENSE if has_bias else Bias.NONE)
+    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False, subsample=None):
+        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample)
 
         self.k = k
         self.in_shape = in_shape
@@ -717,8 +750,8 @@ class WeightSharingASHLayer(HyperLayer):
     Hyperlayer with free sparse parameters, no hypernetwork, and a limited number of weights with hard sharing
     """
 
-    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.1, num_values=2):
-        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.NONE)
+    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.1, num_values=2, subsample=None):
+        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.NONE, subsample=subsample)
 
         self.k = k
         self.in_shape = in_shape
@@ -771,8 +804,8 @@ class ImageCASHLayer(HyperLayer):
     """
     """
 
-    def __init__(self, in_shape, out_shape, k, additional=0, poolsize=4):
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE)
+    def __init__(self, in_shape, out_shape, k, additional=0, poolsize=4, subsample=None):
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE, subsample=subsample)
 
         self.k = k
         self.in_shape = in_shape
@@ -843,7 +876,7 @@ class CASHLayer(HyperLayer):
     """
     def __init__(self, in_shape, out_shape, k,
                  additional=0, poolsize=4, deconvs=2, ksize=2, sigma_scale=0.1, has_bias=True,
-                 has_channels=False, adaptive_bias=False):
+                 has_channels=False, adaptive_bias=False, subsample=None):
         """
         :param in_shape:
         :param out_shape:
@@ -854,7 +887,7 @@ class CASHLayer(HyperLayer):
            that the input is not downsampled along that dimension.
         :param deconvs: How many deconv layers to use to generate the tuples from the hidden layer
         """
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE)
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample)
 
         class NoActivation(nn.Module):
             def forward(self, input):
@@ -961,7 +994,7 @@ class WSCASHLayer(HyperLayer):
     """
     Weight-sharing (de)convolutional ASH layer
     """
-    def __init__(self, in_shape, out_shape, k, additional=0, poolsize=4, deconvs=2, sigma_scale=0.1, num_sources=2, has_bias=True):
+    def __init__(self, in_shape, out_shape, k, additional=0, poolsize=4, deconvs=2, sigma_scale=0.1, num_sources=2, has_bias=True, subsample=None):
         """
         :param in_shape:
         :param out_shape:
@@ -970,7 +1003,7 @@ class WSCASHLayer(HyperLayer):
         :param poolsize:
         :param deconvs: How many deconv layers to use to generate the tuples from the hidden layer
         """
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE)
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample)
 
         class NoActivation(nn.Module):
             def forward(self, input):

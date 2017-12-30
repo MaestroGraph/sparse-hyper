@@ -26,8 +26,8 @@ MNIST experiment
 
 PLOT = True
 
-def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', cuda=False, seed=1, pretrain_lr=0.001,
-       pretrain_epochs=20, bias=True, data='./data', lr=0.01, lambd=0.01):
+def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', cuda=False, seed=1,
+       bias=True, data='./data', lr=0.01, lambd=0.01, subsample=None):
 
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
@@ -49,12 +49,12 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
     if model_name == 'non-adaptive':
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
 
-        layer1   = nn.Sequential(gaussian.ParamASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias), nn.Sigmoid())
-        decoder1 = nn.Sequential(gaussian.ParamASHLayer(shapes[1], shapes[0], k=k, additional=additional, has_bias=bias))
+        layer1   = nn.Sequential(gaussian.ParamASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias, subsample=subsample), nn.Sigmoid())
+        decoder1 = nn.Sequential(gaussian.ParamASHLayer(shapes[1], shapes[0], k=k, additional=additional, has_bias=bias, subsample=subsample))
 
-        layer2 = gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias)
+        layer2 = gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias, subsample=subsample)
         decoder2 = nn.Sequential(
-            gaussian.ParamASHLayer(shapes[2], shapes[1], k=k, additional=additional, has_bias=bias),
+            gaussian.ParamASHLayer(shapes[2], shapes[1], k=k, additional=additional, has_bias=bias, subsample=subsample),
             nn.Sigmoid())
 
         to_class = nn.Sequential(
@@ -75,14 +75,14 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
 
         layer1   = nn.Sequential(
-            gaussian.CASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias, has_channels=True),
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
             nn.Sigmoid())
 
-        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k, additional=additional, has_bias=bias, has_channels=True))
+        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k, additional=additional, has_bias=bias, has_channels=True, subsample=subsample))
 
-        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias, has_channels=True)
+        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias, has_channels=True, subsample=subsample)
         decoder2 = nn.Sequential(
-            gaussian.CASHLayer(shapes[2], shapes[1], k=k,  additional=additional, has_bias=bias, has_channels=True),
+            gaussian.CASHLayer(shapes[2], shapes[1], k=k,  additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
             nn.Sigmoid())
 
         to_class = nn.Sequential(
@@ -103,13 +103,13 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
 
         layer1   = nn.Sequential(
-            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True),
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
             nn.Sigmoid())
-        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k,ksize=9, additional=additional, has_bias=bias, has_channels=True))
+        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k,ksize=9, additional=additional, has_bias=bias, has_channels=True, subsample=subsample))
 
-        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True)
+        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True, subsample=subsample)
         decoder2 = nn.Sequential(
-            gaussian.CASHLayer(shapes[2], shapes[1], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True),
+            gaussian.CASHLayer(shapes[2], shapes[1], k=k, ksize=9, additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
             nn.Sigmoid())
 
         to_class = nn.Sequential(
@@ -254,16 +254,6 @@ if __name__ == "__main__":
                         help="Number of additional points sampled",
                         default=512, type=int)
 
-    parser.add_argument("-p.e", "--pretrain-epochs",
-                        dest="pretrain_epochs",
-                        help="Number of training epochs per layer",
-                        default=20, type=int)
-
-    parser.add_argument("-p.l", "--pretrain-learn-rate",
-                        dest="plr",
-                        help="Pretraining learn rate",
-                        default=0.001, type=float)
-
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
                         help="Learning rate",
@@ -286,10 +276,15 @@ if __name__ == "__main__":
                         help="Data directory",
                         default='./data')
 
+    parser.add_argument("-S", "--subsample",
+                        dest="subsample",
+                        help="Sample a subset of the indices to estimate gradients for",
+                        default=None, type=float)
+
     options = parser.parse_args()
 
     print('OPTIONS', options)
 
-    go(batch=options.batch_size, k=options.k, pretrain_lr=options.plr, bias=options.bias, additional=options.additional,
-       model_name=options.model, cuda=options.cuda, pretrain_epochs=options.pretrain_epochs, data=options.data, lr=options.lr,
-       lambd=options.lambd)
+    go(batch=options.batch_size, k=options.k, bias=options.bias, additional=options.additional,
+       model_name=options.model, cuda=options.cuda, data=options.data, lr=options.lr,
+       lambd=options.lambd, subsample=options.subsample)

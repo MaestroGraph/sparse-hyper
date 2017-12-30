@@ -189,6 +189,9 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
         nn.Softmax()
     )
 
+    if cuda:
+        cls_decoder.cuda()
+
     xent = nn.CrossEntropyLoss()
     mse = nn.MSELoss()
 

@@ -289,6 +289,8 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
 
                 for i, recon in enumerate(r[:3]):
 
+                    recon = recon.clamp(0.0, 1.0)
+
                     plt.cla()
                     plt.imshow(np.transpose(torchvision.utils.make_grid(recon.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                                interpolation='nearest')

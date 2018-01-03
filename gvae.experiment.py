@@ -296,6 +296,12 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
                                interpolation='nearest')
                     plt.savefig('gvae.{:03d}.layer{:01d}.pdf'.format(epoch, i))
 
+                reconstruction = reconstruction.clamp(0.0, 1.0)
+
+                plt.cla()
+                plt.imshow(np.transpose(torchvision.utils.make_grid(reconstruction.data[:16, :]).cpu().numpy(), (1, 2, 0)),
+                           interpolation='nearest')
+                plt.savefig('gvae.{:03d}.output.pdf'.format(epoch))
 
     LOG.info('Finished Training.')
 

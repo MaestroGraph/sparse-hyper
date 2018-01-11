@@ -23,7 +23,7 @@ Simple experiment: learn the identity function from one tensor to another
 w = SummaryWriter()
 
 
-def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01):
+def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False):
 
     SHAPE = (size,)
     MARGIN = 0.1
@@ -38,7 +38,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
     params = None
 
     gaussian.PROPER_SAMPLING = False
-    model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=0.25, has_bias=False)
+    model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=0.25, has_bias=False, fix_values=fv)
 
     if cuda:
         model.cuda()
@@ -101,6 +101,10 @@ if __name__ == "__main__":
                         help="Whether to use cuda.",
                         action="store_true")
 
+    parser.add_argument("-F", "--fix_values", dest="fix_values",
+                        help="Whether to fix the values to 1.",
+                        action="store_true")
+
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
                         help="Learning rate",
@@ -118,4 +122,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every)
+        lr=options.lr, plot_every=options.plot_every, fv=options.fix_values)

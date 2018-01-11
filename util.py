@@ -77,7 +77,7 @@ def plot(means, sigmas, values, shape=None, axes=None):
 
         # gray points for the integer index tuples
         x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
-        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.2)
+        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.05)
 
 def norm(x):
     """

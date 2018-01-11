@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import util, logging, time, gc
 import numpy as np
 
+from argparse import ArgumentParser
+
 import psutil, os
 
 logging.basicConfig(filename='run.log',level=logging.INFO)
@@ -20,58 +22,99 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-BATCH = 4
-SHAPE = (32,)
-CUDA = False
-MARGIN = 0.1
 
-torch.manual_seed(0)
+def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01):
 
-nzs = hyper.prod(SHAPE)
+    SHAPE = (size,)
+    MARGIN = 0.1
 
-N = 300000 // BATCH
+    torch.manual_seed(0)
 
-plt.figure(figsize=(5,5))
-util.makedirs('./spread/')
+    nzs = hyper.prod(SHAPE)
 
-params = None
+    plt.figure(figsize=(5,5))
+    util.makedirs('./identity/')
 
-gaussian.PROPER_SAMPLING = False
-model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=32, additional=64, sigma_scale=0.25, has_bias=False)
+    params = None
 
-if CUDA:
-    model.cuda()
+    gaussian.PROPER_SAMPLING = False
+    model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=0.25, has_bias=False)
 
-criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+    if cuda:
+        model.cuda()
+
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
 
-for i in trange(N):
+    for i in trange(iterations):
 
-    x = torch.rand((BATCH,) + SHAPE)
-    if CUDA:
-        x = x.cuda()
-    x = Variable(x)
+        x = torch.rand((batch,) + SHAPE)
+        if cuda:
+            x = x.cuda()
+        x = Variable(x)
 
-    optimizer.zero_grad()
+        optimizer.zero_grad()
 
-    y = model(x)
+        y = model(x)
 
-    loss = criterion(y, x) # compute the loss
+        loss = criterion(y, x) # compute the loss
 
-    t0 = time.time()
-    loss.backward()        # compute the gradients
+        t0 = time.time()
+        loss.backward()        # compute the gradients
 
-    optimizer.step()
+        optimizer.step()
 
-    w.add_scalar('identity32/loss', loss.data[0], i*BATCH)
+        w.add_scalar('identity32/loss', loss.data[0], i*batch)
 
-    if False or i % (N//500) == 0:
-        means, sigmas, values = model.hyper(x)
+        if False or i % plot_every == 0:
+            means, sigmas, values = model.hyper(x)
 
-        plt.cla()
-        util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
-        plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-        plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-        plt.savefig('./identity/means{:04}.png'.format(i))
+            plt.cla()
+            util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
+            plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+            plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+            plt.savefig('./identity/means{:04}.png'.format(i))
 
+if __name__ == "__main__":
+
+    ## Parse the command line options
+    parser = ArgumentParser()
+
+    parser.add_argument("-b", "--batch-size",
+                        dest="batch_size",
+                        help="The batch size.",
+                        default=64, type=int)
+
+    parser.add_argument("-i", "--iterations",
+                        dest="iterations",
+                        help="The number of iterations (ie. the nr of batches).",
+                        default=30000, type=int)
+
+    parser.add_argument("-a", "--additional",
+                        dest="additional",
+                        help="Number of additional points sampled",
+                        default=512, type=int)
+
+    parser.add_argument("-c", "--cuda", dest="cuda",
+                        help="Whether to use cuda.",
+                        action="store_true")
+
+    parser.add_argument("-l", "--learn-rate",
+                        dest="lr",
+                        help="Learning rate",
+                        default=0.001, type=float)
+
+    parser.add_argument("-p", "--plot-every",
+                        dest="plot_every",
+                        help="Plot every x iterations",
+                        default=50, type=int)
+
+    options = parser.parse_args()
+
+    print('OPTIONS ', options)
+    LOG.info('OPTIONS ' + str(options))
+
+    go(batch=options.batch_size,
+        additional=options.additional, iterations=options.iterations, cuda=options.cuda,
+        lr=options.lr, plot_every=options.plot_every)

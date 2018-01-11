@@ -20,82 +20,58 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-BATCH = 2
-SHAPE = (3, )
+BATCH = 4
+SHAPE = (32,)
 CUDA = False
 MARGIN = 0.1
 
-REPEATS = 2
-gaussian.BATCH_FLATTEN = True
-
-torch.manual_seed(6)
+torch.manual_seed(0)
 
 nzs = hyper.prod(SHAPE)
 
-N = 30 # 64000 // BATCH
+N = 300000 // BATCH
 
 plt.figure(figsize=(5,5))
 util.makedirs('./spread/')
 
 params = None
 
-for tf in [False]:
+gaussian.PROPER_SAMPLING = False
+model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=32, additional=64, sigma_scale=0.25, has_bias=False)
 
-    sigms = []
-    losses = []
+if CUDA:
+    model.cuda()
 
-    gaussian.PROPER_SAMPLING = tf
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.01)
 
-    offset = -0.005 if tf else 0.005
 
-    for s in np.linspace(0.1, 0.9, 3):
-        for r in trange(REPEATS):
+for i in trange(N):
 
-            model = gaussian.ParamASHLayer(SHAPE, SHAPE, additional=3, k=nzs, sigma_scale=s, fix_values=True)
+    x = torch.rand((BATCH,) + SHAPE)
+    if CUDA:
+        x = x.cuda()
+    x = Variable(x)
 
-            if CUDA:
-                model.cuda()
+    optimizer.zero_grad()
 
-            criterion = nn.MSELoss()
-            optimizer = optim.Adam(model.parameters(), lr=0.05)
+    y = model(x)
 
-            for i in range(N):
+    loss = criterion(y, x) # compute the loss
 
-                x = torch.rand((BATCH,) + SHAPE)
-                if CUDA:
-                    x = x.cuda()
-                x = Variable(x)
+    t0 = time.time()
+    loss.backward()        # compute the gradients
 
-                optimizer.zero_grad()
+    optimizer.step()
 
-                y = model(x)
+    w.add_scalar('identity32/loss', loss.data[0], i*BATCH)
 
-                loss = criterion(y, x) # compute the loss
+    if False or i % (N//500) == 0:
+        means, sigmas, values = model.hyper(x)
 
-                sys.exit()
-
-                t0 = time.time()
-                loss.backward()        # compute the gradients
-                logging.info('backward: {} seconds'.format(time.time() - t0))
-
-                optimizer.step()
-
-                w.add_scalar('identity32/loss', loss.data[0], i*BATCH)
-
-                # if False or i % (N//50) == 0:
-                #     means, sigmas, values = model.hyper(x)
-                #
-                #     plt.clf()
-                #     util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
-                #     plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-                #     plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-                #     plt.savefig('./spread/means{:04}.png'.format(i))
-
-            sigms.append(s + offset)
-            losses.append(loss.data[0])
-
-    plt.plot(sigms, losses, marker='.', linewidth=0)
-
-plt.yscale('log')
-plt.savefig('losses.pdf')
+        plt.cla()
+        util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
+        plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+        plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+        plt.savefig('./identity/means{:04}.png'.format(i))
 

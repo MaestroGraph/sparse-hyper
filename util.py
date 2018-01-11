@@ -64,7 +64,7 @@ def plot(means, sigmas, values, shape=None, axes=None):
     colors = []
     for i in range(n):
         color = map.to_rgba(values[i])
-        alpha = max(0.02, ((sigmas[i, 0] * sigmas[i, 0])+1.0)**-2)
+        alpha = max(0.05, ((sigmas[i, 0] * sigmas[i, 0])+1.0)**-2)
         axes.add_patch(Ellipse((means[i, 1], means[i, 0]), width=sigmas[i,1], height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 
@@ -77,7 +77,7 @@ def plot(means, sigmas, values, shape=None, axes=None):
 
         # gray points for the integer index tuples
         x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
-        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.6)
+        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.2)
 
 def norm(x):
     """

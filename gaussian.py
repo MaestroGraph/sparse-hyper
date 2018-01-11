@@ -222,10 +222,10 @@ def densities(points, means, sigmas):
     means = means.unsqueeze(2).expand_as(points)
 
     sigmas = sigmas.unsqueeze(2).expand_as(points)
-    sigmas_squared = torch.sqrt(sigmas)
+    sigmas_squared = torch.sqrt(1.0/(EPSILON+sigmas))
 
     points = points - means
-    points = points * (1.0/(EPSILON+sigmas_squared))
+    points = points * sigmas_squared
 
     # Compute dot products for all points
     # -- unroll the batch/n dimensions
@@ -547,6 +547,8 @@ class HyperLayer(nn.Module):
 
         # -- normalize the proportions of the neigh points and the
         sums = torch.sum(props + EPSILON, dim=2, keepdim=True).expand_as(props)
+        props = props / sums
+
         logging.info('  densities: {} seconds'.format(time.time() - t0))
         t0 = time.time()
 
@@ -711,7 +713,9 @@ class ParamASHLayer(HyperLayer):
         self.w_rank = len(in_shape) + len(out_shape)
 
         p = torch.randn(k, self.w_rank + 2)
-        p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1]
+
+        # p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1] * 0.0 + 1.0
+
         self.params = Parameter(p)
 
         if self.has_bias:
@@ -728,7 +732,6 @@ class ParamASHLayer(HyperLayer):
         res = self.params.unsqueeze(0).expand(batch_size, self.k, self.w_rank+2)
 
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
-
         sigmas = sigmas * self.sigma_scale
 
         if self.fix_values:

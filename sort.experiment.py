@@ -18,7 +18,7 @@ logging.basicConfig(filename='run.log',level=logging.INFO)
 LOG = logging.getLogger()
 
 """
-Simple experiment: learn the identity function from one tensor to another
+Experiment: learn a mapping from a random x, to x sorted.
 """
 w = SummaryWriter()
 
@@ -33,12 +33,12 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
     nzs = hyper.prod(SHAPE)
 
     plt.figure(figsize=(5,5))
-    util.makedirs('./identity/')
+    util.makedirs('./sort/')
 
     params = None
 
     gaussian.PROPER_SAMPLING = False
-    model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=0.25, has_bias=False)
+    model = gaussian.CASHLayer(SHAPE, SHAPE, k=size, additional=additional, poolsize=1, sigma_scale=0.25, has_bias=False)
 
     if cuda:
         model.cuda()
@@ -50,22 +50,26 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
     for i in trange(iterations):
 
         x = torch.rand((batch,) + SHAPE)
+
+        t = x.sort()[0]
+
         if cuda:
-            x = x.cuda()
-        x = Variable(x)
+            x, t = x.cuda(), t.cuda()
+
+        x, t = Variable(x), Variable(t)
 
         optimizer.zero_grad()
 
         y = model(x)
 
-        loss = criterion(y, x) # compute the loss
+        loss = criterion(y, t) # compute the loss
 
         t0 = time.time()
         loss.backward()        # compute the gradients
 
         optimizer.step()
 
-        w.add_scalar('identity32/loss', loss.data[0], i*batch)
+        w.add_scalar('sort/loss', loss.data[0], i*batch)
 
         if False or i % plot_every == 0:
             means, sigmas, values = model.hyper(x)
@@ -74,8 +78,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
             util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
             plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
             plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-
-            plt.savefig('./identity/means{:04}.png'.format(i))
+            plt.savefig('./sort/means{:04}.png'.format(i))
 
 if __name__ == "__main__":
 
@@ -86,6 +89,11 @@ if __name__ == "__main__":
                         dest="batch_size",
                         help="The batch size.",
                         default=64, type=int)
+
+    parser.add_argument("-s", "--size",
+                        dest="size",
+                        help="Size of the input",
+                        default=32, type=int)
 
     parser.add_argument("-i", "--iterations",
                         dest="iterations",
@@ -118,4 +126,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every)
+        lr=options.lr, plot_every=options.plot_every, size=options.size)

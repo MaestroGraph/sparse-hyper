@@ -79,6 +79,11 @@ def plot(means, sigmas, values, shape=None, axes=None):
         x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
         axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.05)
 
+    axes.spines['right'].set_visible(False)
+    axes.spines['top'].set_visible(False)
+    axes.spines['bottom'].set_visible(False)
+    axes.spines['left'].set_visible(False)
+
 def norm(x):
     """
     Normalize a tensor to a tensor with unit norm (treating first dim as batch dim)

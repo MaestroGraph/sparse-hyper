@@ -14,6 +14,8 @@ from argparse import ArgumentParser
 
 import psutil, os
 
+from gaussian import HyperLayer
+
 logging.basicConfig(filename='run.log',level=logging.INFO)
 LOG = logging.getLogger()
 
@@ -22,8 +24,49 @@ Experiment: learn a mapping from a random x, to x sorted.
 """
 w = SummaryWriter()
 
+class SortLayer(HyperLayer):
+    """
 
-def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01):
+    """
+    def __init__(self, size, k, additional=0, sigma_scale=0.01, fix_values=False):
+
+        super().__init__(in_rank=1, out_shape=(size,), additional=additional, bias_type=gaussian.Bias.NONE, subsample=None)
+
+        class NoActivation(nn.Module):
+            def forward(self, input):
+                return input
+
+        self.activation = nn.ReLU()
+
+        self.k = k
+        self.size = size
+        self.sigma_scale = sigma_scale
+        self.fix_values = fix_values
+
+        outsize = 4 * k
+
+        self.source = nn.Sequential(
+            nn.Linear(size, outsize)
+        )
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+        b, s = input.size()
+
+        res = self.source(input).unsqueeze(2).view(b, self.k, 4)
+
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
+        sigmas = sigmas * self.sigma_scale
+
+        if self.fix_values:
+            values = values * 0.0 + 1.0
+
+        return means, sigmas, values
+
+
+def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False):
 
     SHAPE = (size,)
     MARGIN = 0.1
@@ -37,8 +80,8 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     params = None
 
-    gaussian.PROPER_SAMPLING = False
-    model = gaussian.CASHLayer(SHAPE, SHAPE, k=size, additional=additional, poolsize=1, sigma_scale=0.25, has_bias=False)
+    gaussian.PROPER_SAMPLING = True
+    model = SortLayer(size, k=size, additional=additional, sigma_scale=0.1, fix_values=fv)
 
     if cuda:
         model.cuda()
@@ -119,6 +162,10 @@ if __name__ == "__main__":
                         help="Plot every x iterations",
                         default=50, type=int)
 
+    parser.add_argument("-F", "--fix_values", dest="fix_values",
+                        help="Whether to fix the values to 1.",
+                        action="store_true")
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -126,4 +173,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every, size=options.size)
+        lr=options.lr, plot_every=options.plot_every, size=options.size, fv=options.fix_values,)

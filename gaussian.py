@@ -35,6 +35,7 @@ import hyper
 EPSILON = 10e-7
 PROPER_SAMPLING = False # NB: set to true for very small tranformations.
 BATCH_NEIGHBORS = True
+SIGMA_BOOST = 5.0
 
 """
 
@@ -388,7 +389,7 @@ class HyperLayer(nn.Module):
 
         means = means * sm.expand_as(means)
 
-        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1]).squeeze(2) + EPSILON
+        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1] + SIGMA_BOOST).squeeze(2) + EPSILON
         values = res[:, :, w_rank + 1:].squeeze(2)
 
         # values = values * 0.0 + 1.0
@@ -714,7 +715,7 @@ class ParamASHLayer(HyperLayer):
 
         p = torch.randn(k, self.w_rank + 2)
 
-        # p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1] * 0.0 + 1.0
+        # p[:, self.w_rank:self.w_rank + 1] = p[:, self.w_rank:self.w_rank + 1]
 
         self.params = Parameter(p)
 

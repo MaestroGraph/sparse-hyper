@@ -38,7 +38,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
     params = None
 
     gaussian.PROPER_SAMPLING = False
-    model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=0.25, has_bias=False, fix_values=fv)
+    model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=0.1, has_bias=False, fix_values=fv)
 
     if cuda:
         model.cuda()
@@ -110,6 +110,11 @@ if __name__ == "__main__":
                         help="Learning rate",
                         default=0.01, type=float)
 
+    parser.add_argument("-S", "--sigma-scale",
+                        dest="sigma_scale",
+                        help="Sigma scale",
+                        default=0.1, type=float)
+
     parser.add_argument("-p", "--plot-every",
                         dest="plot_every",
                         help="Plot every x iterations",
@@ -122,4 +127,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every, fv=options.fix_values)
+        lr=options.lr, plot_every=options.plot_every, fv=options.fix_values, sigma_scale=options.sigma_scale)

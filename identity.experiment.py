@@ -23,16 +23,17 @@ Simple experiment: learn the identity function from one tensor to another
 w = SummaryWriter()
 
 
-def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False, sigma_scale=0.1):
+def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50,
+       lr=0.01, fv=False, sigma_scale=0.1, seed=0):
 
     SHAPE = (size,)
     MARGIN = 0.1
 
-    torch.manual_seed(0)
+    torch.manual_seed(seed)
 
     nzs = hyper.prod(SHAPE)
 
-    plt.figure(figsize=(5,5))
+    plt.figure(figsize=(7,7))
     util.makedirs('./identity/')
 
     params = None
@@ -82,6 +83,11 @@ if __name__ == "__main__":
     ## Parse the command line options
     parser = ArgumentParser()
 
+    parser.add_argument("-s", "--size",
+                        dest="size",
+                        help="Size (nr of dimensions) of the input.",
+                        default=32, type=int)
+
     parser.add_argument("-b", "--batch-size",
                         dest="batch_size",
                         help="The batch size.",
@@ -120,11 +126,17 @@ if __name__ == "__main__":
                         help="Plot every x iterations",
                         default=50, type=int)
 
+    parser.add_argument("-r", "--random-seed",
+                        dest="seed",
+                        help="Random seed.",
+                        default=32, type=int)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size,
+    go(batch=options.batch_size, size=options.size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every, fv=options.fix_values, sigma_scale=options.sigma_scale)
+        lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
+        sigma_scale=options.sigma_scale, seed=options.seed)

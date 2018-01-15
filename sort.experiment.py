@@ -68,12 +68,12 @@ class SortLayer(HyperLayer):
         return means, sigmas, values
 
 
-def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False):
+def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0):
 
     SHAPE = (size,)
     MARGIN = 0.1
 
-    torch.manual_seed(0)
+    torch.manual_seed(seed)
 
     nzs = hyper.prod(SHAPE)
 
@@ -174,6 +174,11 @@ if __name__ == "__main__":
                         help="Whether to fix the values to 1.",
                         action="store_true")
 
+    parser.add_argument("-r", "--random-seed",
+                        dest="seed",
+                        help="Random seed.",
+                        default=32, type=int)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -181,4 +186,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every, size=options.size, fv=options.fix_values,)
+        lr=options.lr, plot_every=options.plot_every, size=options.size, fv=options.fix_values, seed=options.seed)

@@ -36,7 +36,6 @@ class SortLayer(HyperLayer):
             def forward(self, input):
                 return input
 
-        self.activation = nn.ReLU()
 
         self.k = k
         self.size = size
@@ -45,8 +44,11 @@ class SortLayer(HyperLayer):
 
         outsize = 4 * k
 
+        activation = nn.ReLU()
         self.source = nn.Sequential(
-            nn.Linear(size, outsize)
+            nn.Linear(size, size * 3),
+            activation,
+            nn.Linear(size * 3, outsize),
         )
 
     def hyper(self, input):
@@ -92,7 +94,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     for i in trange(iterations):
 
-        x = torch.rand((batch,) + SHAPE)
+        x = torch.randn((batch,) + SHAPE) * 2
 
         t = x.sort()[0]
 
@@ -114,7 +116,13 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         w.add_scalar('sort/loss', loss.data[0], i*batch)
 
+        if i % 500 == 0:
+            print(t)
+            print(y)
+            print('-------')
+
         if False or i % plot_every == 0:
+
             means, sigmas, values = model.hyper(x)
 
             plt.cla()

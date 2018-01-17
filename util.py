@@ -70,14 +70,14 @@ def plot(means, sigmas, values, shape=None, axes=None):
 
     axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=1, edgecolor='k')
 
-    # if shape is not None:
-    #
-    #     m = max(shape)
-    #     step = 1 if m < 100 else m//25
-    #
-    #     # gray points for the integer index tuples
-    #     x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
-    #     axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.05)
+    if shape is not None:
+
+        m = max(shape)
+        step = 1 if m < 100 else m//25
+
+        # gray points for the integer index tuples
+        x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
+        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.1)
 
     axes.spines['right'].set_visible(False)
     axes.spines['top'].set_visible(False)

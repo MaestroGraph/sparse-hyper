@@ -28,7 +28,7 @@ class SortLayer(HyperLayer):
     """
 
     """
-    def __init__(self, size, k, additional=0, sigma_scale=0.01, fix_values=False):
+    def __init__(self, size, k, additional=0, sigma_scale=0.1, fix_values=False):
 
         super().__init__(in_rank=1, out_shape=(size,), additional=additional, bias_type=gaussian.Bias.NONE, subsample=None)
 
@@ -47,6 +47,8 @@ class SortLayer(HyperLayer):
         activation = nn.ReLU()
         self.source = nn.Sequential(
             nn.Linear(size, size * 3),
+            activation,
+            nn.Linear(size * 3, size * 3),
             activation,
             nn.Linear(size * 3, outsize),
         )
@@ -67,8 +69,16 @@ class SortLayer(HyperLayer):
 
         return means, sigmas, values
 
+    def sigma_loss(self, input):
+        b, s = input.size()
 
-def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0):
+        res = self.source(input).unsqueeze(2).view(b, self.k, 4)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
+
+        return - torch.log(sigmas.sum()/self.k)
+
+
+def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1):
 
     SHAPE = (size,)
     MARGIN = 0.1
@@ -83,7 +93,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
     params = None
 
     gaussian.PROPER_SAMPLING = True
-    model = SortLayer(size, k=size, additional=additional, sigma_scale=0.1, fix_values=fv)
+    model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv)
 
     if cuda:
         model.cuda()
@@ -94,7 +104,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     for i in trange(iterations):
 
-        x = torch.randn((batch,) + SHAPE) * 2
+        x = torch.randn((batch,) + SHAPE)
 
         t = x.sort()[0]
 
@@ -107,7 +117,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         y = model(x)
 
-        loss = criterion(y, t) # compute the loss
+        loss = criterion(y, t) + 0.005 * model.sigma_loss(x) # compute the loss
 
         t0 = time.time()
         loss.backward()        # compute the gradients
@@ -116,9 +126,9 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         w.add_scalar('sort/loss', loss.data[0], i*batch)
 
-        if i % 500 == 0:
-            print(t)
-            print(y)
+        if i % 100 == 0:
+            print(t[0,:])
+            print(y[0,:])
             print('-------')
 
         if False or i % plot_every == 0:
@@ -179,6 +189,11 @@ if __name__ == "__main__":
                         help="Random seed.",
                         default=32, type=int)
 
+    parser.add_argument("-S", "--sigma-scale",
+                        dest="sigma_scale",
+                        help="Sigma scale.",
+                        default=0.1, type=float)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -186,4 +201,5 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every, size=options.size, fv=options.fix_values, seed=options.seed)
+        lr=options.lr, plot_every=options.plot_every, size=options.size, fv=options.fix_values,
+        seed=options.seed, sigma_scale=options.sigma_scale)

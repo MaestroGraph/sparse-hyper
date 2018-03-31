@@ -367,7 +367,7 @@ class HyperLayer(nn.Module):
         """
         sigmas = self.hyper(input)[1]
 
-        return torch.nn.functional.sigmoid( - torch.log(sigmas.sum() / self.k))
+        return  - torch.log(sigmas.sum(dim=1)/ self.k).sum()
 
     def split_out(self, res, input_size, output_size):
         """

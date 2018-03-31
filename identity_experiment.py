@@ -2,6 +2,7 @@ import hyper, gaussian
 import torch, random, sys
 from torch.autograd import Variable
 from torch.nn import Parameter
+from torch.nn.functional import sigmoid
 from torch import nn, optim
 from tqdm import trange
 from tensorboardX import SummaryWriter
@@ -32,7 +33,6 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     nzs = hyper.prod(SHAPE)
 
-    plt.figure(figsize=(7,7))
     util.makedirs('./identity/')
 
     params = None
@@ -58,7 +58,10 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         y = model(x)
 
-        loss = criterion(y, x)  + sigma_penalty * model.sigma_loss(x)# compute the loss
+        mloss = criterion(y, x)
+        sloss = model.sigma_loss(x)# compute the loss
+
+        loss = mloss + sigma_penalty * sloss
 
         t0 = time.time()
         loss.backward()        # compute the gradients
@@ -67,7 +70,11 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         w.add_scalar('identity32/loss', loss.data[0], i*batch)
 
-        if False or i % plot_every == 0:
+        if plot_every > 0 and i % plot_every == 0:
+            plt.figure(figsize=(7, 7))
+
+            print(mloss, sloss)
+
             means, sigmas, values = model.hyper(x)
 
             plt.cla()
@@ -76,6 +83,8 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
             plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
 
             plt.savefig('./identity/means{:04}.png'.format(i))
+
+    return float(mloss.data[0])
 
 if __name__ == "__main__":
 

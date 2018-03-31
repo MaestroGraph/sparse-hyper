@@ -356,6 +356,19 @@ class HyperLayer(nn.Module):
 
         return m * bmult
 
+    def sigma_loss(self, input):
+        """
+        Possible regularization loss term: sigmoid(-log(mean sigma))
+
+        Adding this to the loss will keep the sigmas from converging too quickly (due to undersampling)
+
+        :param input:
+        :return:
+        """
+        sigmas = self.hyper(input)[1]
+
+        return torch.nn.functional.sigmoid( - torch.log(sigmas.sum() / self.k))
+
     def split_out(self, res, input_size, output_size):
         """
         Utility function. res is a B x K x Wrank+2 tensor with range from

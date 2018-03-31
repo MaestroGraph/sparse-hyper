@@ -21,6 +21,7 @@ LOG = logging.getLogger()
 
 """
 Experiment: learn a mapping from a random x, to x sorted.
+
 """
 w = SummaryWriter()
 
@@ -75,7 +76,7 @@ class SortLayer(HyperLayer):
         res = self.source(input).unsqueeze(2).view(b, self.k, 4)
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
 
-        return - torch.log(sigmas.sum()/self.k)
+        return torch.nn.functional.sigmoid( - torch.log(sigmas.sum() / self.k))
 
 
 def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1):
@@ -117,7 +118,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         y = model(x)
 
-        loss = criterion(y, t) + 0.005 * model.sigma_loss(x) # compute the loss
+        loss = criterion(y, t) + 0.5 * model.sigma_loss(x) # compute the loss
 
         t0 = time.time()
         loss.backward()        # compute the gradients

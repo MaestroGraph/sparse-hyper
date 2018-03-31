@@ -22,9 +22,8 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-
 def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50,
-       lr=0.01, fv=False, sigma_scale=0.1, seed=0):
+       lr=0.01, fv=False, sigma_scale=0.1, sigma_penalty=0.1, seed=0):
 
     SHAPE = (size,)
     MARGIN = 0.1
@@ -59,7 +58,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         y = model(x)
 
-        loss = criterion(y, x) # compute the loss
+        loss = criterion(y, x)  + sigma_penalty * model.sigma_loss(x)# compute the loss
 
         t0 = time.time()
         loss.backward()        # compute the gradients
@@ -96,7 +95,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--iterations",
                         dest="iterations",
                         help="The number of iterations (ie. the nr of batches).",
-                        default=30000, type=int)
+                        default=3000, type=int)
 
     parser.add_argument("-a", "--additional",
                         dest="additional",
@@ -121,6 +120,11 @@ if __name__ == "__main__":
                         help="Sigma scale",
                         default=0.1, type=float)
 
+    parser.add_argument("-P", "--sigma-penalty",
+                        dest="sigma_penalty",
+                        help="Sigma penalty",
+                        default=0.1, type=float)
+
     parser.add_argument("-p", "--plot-every",
                         dest="plot_every",
                         help="Plot every x iterations",
@@ -139,4 +143,4 @@ if __name__ == "__main__":
     go(batch=options.batch_size, size=options.size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
-        sigma_scale=options.sigma_scale, seed=options.seed)
+        sigma_scale=options.sigma_scale, sigma_penalty=options.sigma_penalty, seed=options.seed)

@@ -93,12 +93,12 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     params = None
 
-    gaussian.PROPER_SAMPLING = True
+    # !!!!!!!!
+    # gaussian.PROPER_SAMPLING = True
     model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv)
 
     if cuda:
-        model.apply(lambda t: t.cuda())
-        model.cuda()
+       model.cuda()
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)

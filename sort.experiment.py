@@ -70,16 +70,16 @@ class SortLayer(HyperLayer):
 
         return means, sigmas, values
 
-    def sigma_loss(self, input):
-        b, s = input.size()
+    # def sigma_loss(self, input):
+    #     b, s = input.size()
+    #
+    #     res = self.source(input).unsqueeze(2).view(b, self.k, 4)
+    #     means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
+    #
+    #     return torch.nn.functional.sigmoid( - torch.log(sigmas.sum() / self.k))
 
-        res = self.source(input).unsqueeze(2).view(b, self.k, 4)
-        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
 
-        return torch.nn.functional.sigmoid( - torch.log(sigmas.sum() / self.k))
-
-
-def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1):
+def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1, penalty=0.5):
 
     SHAPE = (size,)
     MARGIN = 0.1
@@ -118,7 +118,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         y = model(x)
 
-        loss = criterion(y, t) + 0.5 * model.sigma_loss(x) # compute the loss
+        loss = criterion(y, t) + penalty * model.sigma_loss(x) # compute the loss
 
         t0 = time.time()
         loss.backward()        # compute the gradients
@@ -195,6 +195,11 @@ if __name__ == "__main__":
                         help="Sigma scale.",
                         default=0.1, type=float)
 
+    parser.add_argument("-P", "--penalty",
+                        dest="penalty",
+                        help="Sigma penalty.",
+                        default=0.0, type=float)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -203,4 +208,4 @@ if __name__ == "__main__":
     go(batch=options.batch_size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, size=options.size, fv=options.fix_values,
-        seed=options.seed, sigma_scale=options.sigma_scale)
+        seed=options.seed, sigma_scale=options.sigma_scale, penalty=options.penalty)

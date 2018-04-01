@@ -124,7 +124,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model='baseline', cuda=False
             nn.Conv2d(in_channels=256, out_channels=128, kernel_size=5, stride=1, padding=2),
             nn.MaxPool2d(stride=2, kernel_size=2),
             util.Flatten(),
-            Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
+            # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
             nn.Linear(1152, 328),
             nn.ReLU(),
             nn.Dropout(p=0.5),

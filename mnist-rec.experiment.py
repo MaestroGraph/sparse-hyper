@@ -27,7 +27,7 @@ MNIST experiment
 PLOT = True
 
 def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', cuda=False, seed=1,
-       bias=True, data='./data', lr=0.01, lambd=0.01, subsample=None, deconvs=2):
+       bias=True, data='./data', lr=0.01, lambd=0.01, subsample=None, deconvs=2, penalty=0.0):
 
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
@@ -165,8 +165,9 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
 
             cls_loss = xent(outputs, labels)
             rec_loss = mse(rec1, inputs.detach()) + mse(rec2, inputs.detach())
+            sig_loss = layer1[0].sigma_loss(inputs) + layer2.sigma_loss(inputs)
 
-            loss = cls_loss + lambd * rec_loss
+            loss = cls_loss + lambd * rec_loss + penalty * sig_loss
 
             t0 = time.time()
             loss.backward()  # compute the gradients
@@ -257,7 +258,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--deconvs",
                         dest="deconvs",
                         help="Number of deconvolutions in adaptive model",
-                        default=512, type=int)
+                        default=3, type=int)
 
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
@@ -286,10 +287,15 @@ if __name__ == "__main__":
                         help="Sample a subset of the indices to estimate gradients for",
                         default=None, type=float)
 
+    parser.add_argument("-P", "--penalty",
+                        dest="penalty",
+                        help="Penalty loss term multiplier",
+                        default=0.0, type=float)
+
     options = parser.parse_args()
 
     print('OPTIONS', options)
 
     go(batch=options.batch_size, k=options.k, bias=options.bias, additional=options.additional,
        model_name=options.model, cuda=options.cuda, data=options.data, lr=options.lr,
-       lambd=options.lambd, subsample=options.subsample, deconvs=options.deconvs)
+       lambd=options.lambd, subsample=options.subsample, deconvs=options.deconvs, penalty=options.penalty)

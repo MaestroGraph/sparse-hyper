@@ -165,7 +165,7 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
 
             cls_loss = xent(outputs, labels)
             rec_loss = mse(rec1, inputs.detach()) + mse(rec2, inputs.detach())
-            sig_loss = layer1[0].sigma_loss(inputs) + layer2.sigma_loss(inputs)
+            sig_loss = layer1[0].sigma_loss(inputs) + layer2.sigma_loss(h1)
 
             loss = cls_loss + lambd * rec_loss + penalty * sig_loss
 

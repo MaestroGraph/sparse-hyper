@@ -37,7 +37,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     params = None
 
-    gaussian.PROPER_SAMPLING = True
+    gaussian.PROPER_SAMPLING = False
     model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=sigma_scale, has_bias=False, fix_values=fv)
 
     if cuda:

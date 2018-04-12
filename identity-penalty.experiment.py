@@ -33,7 +33,8 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     plt.figure(figsize=(5,5))
 
-    for penalty in np.linspace(0, 2.0, penalty_steps):
+    for penalty in np.logspace(-8, -1, num=penalty_steps):
+
         losses = []
         for r in range(repeats):
             loss = igo(iterations=iterations, additional=additional,
@@ -44,6 +45,8 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         print(penalty, losses)
         plt.plot([penalty] * repeats, losses, linewidth=0, marker='.')
+
+    plt.gca().set_xscale("log")
 
     plt.savefig('losses.pdf')
 
@@ -84,7 +87,7 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
                         help="Learning rate",
-                        default=0.01, type=float)
+                        default=0.001, type=float)
 
     parser.add_argument("-S", "--sigma-scale",
                         dest="sigma_scale",

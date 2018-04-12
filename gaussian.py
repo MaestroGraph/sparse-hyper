@@ -402,7 +402,7 @@ class HyperLayer(nn.Module):
 
         means = means * sm.expand_as(means)
 
-        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1] + SIGMA_BOOST).squeeze(2) + EPSILON
+        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1] + SIGMA_BOOST).squeeze(2) + EPSILON + 0.1 # !!!!!!!
         values = res[:, :, w_rank + 1:].squeeze(2)
 
         # values = values * 0.0 + 1.0

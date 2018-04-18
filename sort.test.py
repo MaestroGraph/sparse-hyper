@@ -50,6 +50,8 @@ def go(iterations=30000, batch=4, size=32, cuda=False, lr=0.01, seed=0):
     if cuda:
         model.cuda()
 
+    losses = []
+
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -79,6 +81,15 @@ def go(iterations=30000, batch=4, size=32, cuda=False, lr=0.01, seed=0):
         optimizer.step()
 
         w.add_scalar('sort-direct/loss', loss.data[0], i*batch)
+
+        losses.append(float(loss.data[0]))
+
+        if i % 500:
+            plt.clf()
+            plt.figure(figsize=(9, 3))
+            util.clean()
+            plt.plot(losses)
+            plt.savefig('losses.pdf')
 
 if __name__ == "__main__":
 

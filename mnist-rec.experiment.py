@@ -27,7 +27,7 @@ MNIST experiment
 PLOT = True
 
 def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', cuda=False, seed=1,
-       bias=True, data='./data', lr=0.01, lambd=0.01, subsample=None, deconvs=2, penalty=0.0, min_sigma=0.0):
+       bias=True, data='./data', lr=0.01, lambd=0.01, subsample=None, deconvs=2, min_sigma=0.0):
 
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
@@ -165,9 +165,8 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
 
             cls_loss = xent(outputs, labels)
             rec_loss = mse(rec1, inputs.detach()) + mse(rec2, inputs.detach())
-            sig_loss = layer1[0].sigma_loss(inputs) + layer2.sigma_loss(h1)
 
-            loss = cls_loss + lambd * rec_loss + penalty * sig_loss
+            loss = cls_loss + lambd * rec_loss
 
             t0 = time.time()
             loss.backward()  # compute the gradients
@@ -287,11 +286,6 @@ if __name__ == "__main__":
                         help="Sample a subset of the indices to estimate gradients for",
                         default=None, type=float)
 
-    parser.add_argument("-P", "--penalty",
-                        dest="penalty",
-                        help="Penalty loss term multiplier",
-                        default=0.0, type=float)
-
     parser.add_argument("-M", "--min-sigma",
                         dest="min_sigma",
                         help="Minimum value of sigma.",
@@ -303,4 +297,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size, k=options.k, bias=options.bias, additional=options.additional,
        model_name=options.model, cuda=options.cuda, data=options.data, lr=options.lr,
-       lambd=options.lambd, subsample=options.subsample, deconvs=options.deconvs, penalty=options.penalty, min_sigma=options.min_sigma)
+       lambd=options.lambd, subsample=options.subsample, deconvs=options.deconvs, min_sigma=options.min_sigma)

@@ -99,7 +99,6 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     nzs = hyper.prod(SHAPE)
 
-    plt.figure(figsize=(5,5))
     util.makedirs('./sort/')
 
     params = None
@@ -149,6 +148,8 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
         if False or i % plot_every == 0:
 
             means, sigmas, values = model.hyper(x)
+
+            plt.figure(figsize=(5, 5))
 
             plt.cla()
             util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))

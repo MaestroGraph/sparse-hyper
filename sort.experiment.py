@@ -162,6 +162,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
             plt.figure(figsize=(9, 3))
             util.clean()
             plt.plot(losses)
+            plt.xhline()
             plt.savefig('losses.pdf')
 
 if __name__ == "__main__":

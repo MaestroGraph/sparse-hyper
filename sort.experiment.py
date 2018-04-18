@@ -46,12 +46,17 @@ class SortLayer(HyperLayer):
         outsize = 4 * k
 
         activation = nn.ReLU()
-        hidden = size ** size * 2
+        hiddenbig = size ** size * 2
+        hidden = size * 3
 
         self.source = nn.Sequential(
-            nn.Linear(size, hidden),
+            nn.Linear(size, hiddenbig),
             activation,
-            nn.Linear(hidden, hidden),
+            nn.Linear(hiddenbig, hiddenbig),
+            activation,
+            nn.Linear(hiddenbig, hiddenbig),
+            activation,
+            nn.Linear(hiddenbig, hidden),
             activation,
             nn.Linear(hidden, hidden),
             activation,
@@ -109,6 +114,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
+    losses = []
 
     for i in trange(iterations):
 
@@ -126,6 +132,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
         y = model(x)
 
         loss = criterion(y, t) + penalty * model.sigma_loss(x) # compute the loss
+        losses.append(float(loss.data[0]))
 
         t0 = time.time()
         loss.backward()        # compute the gradients
@@ -149,6 +156,13 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
             plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
             plt.savefig('./sort/means{:04}.png'.format(i))
 
+        if i % 1000 == 0:
+            plt.clf()
+            plt.figure(figsize=(9, 3))
+            util.clean()
+            plt.plot(losses)
+            plt.savefig('losses.pdf')
+
 if __name__ == "__main__":
 
     ## Parse the command line options
@@ -157,22 +171,22 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--batch-size",
                         dest="batch_size",
                         help="The batch size.",
-                        default=64, type=int)
+                        default=128, type=int)
 
     parser.add_argument("-s", "--size",
                         dest="size",
                         help="Size of the input",
-                        default=32, type=int)
+                        default=5, type=int)
 
     parser.add_argument("-i", "--iterations",
                         dest="iterations",
                         help="The number of iterations (ie. the nr of batches).",
-                        default=30000, type=int)
+                        default=60000, type=int)
 
     parser.add_argument("-a", "--additional",
                         dest="additional",
                         help="Number of additional points sampled",
-                        default=512, type=int)
+                        default=10, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",

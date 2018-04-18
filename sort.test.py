@@ -84,7 +84,7 @@ def go(iterations=30000, batch=4, size=32, cuda=False, lr=0.01, seed=0):
 
         losses.append(float(loss.data[0]))
 
-        if i % 500:
+        if i % 10000:
             plt.clf()
             plt.figure(figsize=(9, 3))
             util.clean()

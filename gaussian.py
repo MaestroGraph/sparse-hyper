@@ -717,8 +717,8 @@ class ParamASHLayer(HyperLayer):
     Hyperlayer with free sparse parameters, no hypernetwork.
     """
 
-    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False, subsample=None):
-        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample)
+    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False, subsample=None, min_sigma=0.0):
+        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample, sigma_floor=min_sigma)
 
         self.k = k
         self.in_shape = in_shape
@@ -896,7 +896,7 @@ class CASHLayer(HyperLayer):
     """
     def __init__(self, in_shape, out_shape, k,
                  additional=0, poolsize=4, deconvs=2, ksize=2, sigma_scale=0.1, has_bias=True,
-                 has_channels=False, adaptive_bias=False, subsample=None):
+                 has_channels=False, adaptive_bias=False, subsample=None, min_sigma=0.0):
         """
         :param in_shape:
         :param out_shape:
@@ -907,7 +907,7 @@ class CASHLayer(HyperLayer):
            that the input is not downsampled along that dimension.
         :param deconvs: How many deconv layers to use to generate the tuples from the hidden layer
         """
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample)
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample, sigma_floor=min_sigma)
 
         class NoActivation(nn.Module):
             def forward(self, input):

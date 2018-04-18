@@ -27,7 +27,7 @@ MNIST experiment
 PLOT = True
 
 def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', cuda=False, seed=1,
-       bias=True, data='./data', lr=0.01, lambd=0.01, subsample=None, deconvs=2, penalty=0.0):
+       bias=True, data='./data', lr=0.01, lambd=0.01, subsample=None, deconvs=2, penalty=0.0, min_sigma=0.0):
 
     torch.manual_seed(seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
@@ -52,9 +52,9 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
         layer1   = nn.Sequential(gaussian.ParamASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias, subsample=subsample), nn.Sigmoid())
         decoder1 = nn.Sequential(gaussian.ParamASHLayer(shapes[1], shapes[0], k=k, additional=additional, has_bias=bias, subsample=subsample))
 
-        layer2 = gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias, subsample=subsample)
+        layer2 = gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias, subsample=subsample, min_sigma=min_sigma)
         decoder2 = nn.Sequential(
-            gaussian.ParamASHLayer(shapes[2], shapes[1], k=k, additional=additional, has_bias=bias, subsample=subsample),
+            gaussian.ParamASHLayer(shapes[2], shapes[1], k=k, additional=additional, has_bias=bias, subsample=subsample, min_sigma=min_sigma),
             nn.Sigmoid())
 
         to_class = nn.Sequential(
@@ -103,13 +103,13 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
 
         layer1   = nn.Sequential(
-            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma),
             nn.Sigmoid())
-        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k,ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample))
+        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k,ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma))
 
-        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample)
+        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma)
         decoder2 = nn.Sequential(
-            gaussian.CASHLayer(shapes[2], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample),
+            gaussian.CASHLayer(shapes[2], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma),
             nn.Sigmoid())
 
         to_class = nn.Sequential(
@@ -292,10 +292,15 @@ if __name__ == "__main__":
                         help="Penalty loss term multiplier",
                         default=0.0, type=float)
 
+    parser.add_argument("-M", "--min-sigma",
+                        dest="min_sigma",
+                        help="Minimum value of sigma.",
+                        default=None, type=float)
+
     options = parser.parse_args()
 
     print('OPTIONS', options)
 
     go(batch=options.batch_size, k=options.k, bias=options.bias, additional=options.additional,
        model_name=options.model, cuda=options.cuda, data=options.data, lr=options.lr,
-       lambd=options.lambd, subsample=options.subsample, deconvs=options.deconvs, penalty=options.penalty)
+       lambd=options.lambd, subsample=options.subsample, deconvs=options.deconvs, penalty=options.penalty, min_sigma=options.min_sigma)

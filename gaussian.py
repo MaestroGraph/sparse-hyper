@@ -325,7 +325,7 @@ class HyperLayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None):
+    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None, sigma_floor=0.0):
         super().__init__()
 
         self.use_cuda = False
@@ -338,6 +338,7 @@ class HyperLayer(nn.Module):
         self.bias_type = bias_type
         self.sparse_input = sparse_input
         self.subsample = subsample
+        self.sigma_floor = sigma_floor
 
         # create a tensor with all binary sequences of length 'rank' as rows
         lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=self.weights_rank)]
@@ -402,7 +403,7 @@ class HyperLayer(nn.Module):
 
         means = means * sm.expand_as(means)
 
-        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1] + SIGMA_BOOST).squeeze(2) + EPSILON + 1.0 # !!!!!!!
+        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1] + SIGMA_BOOST).squeeze(2) + EPSILON
         values = res[:, :, w_rank + 1:].squeeze(2)
 
         # values = values * 0.0 + 1.0
@@ -600,6 +601,8 @@ class HyperLayer(nn.Module):
 
         if self.sparse_input:
             input = input.dense()
+
+        sigmas = sigmas + self.sigma_floor
 
         # NB: due to batching, real_indices has shape batchsize x K x rank(W)
         #     real_values has shape batchsize x K

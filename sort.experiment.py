@@ -29,9 +29,9 @@ class SortLayer(HyperLayer):
     """
 
     """
-    def __init__(self, size, k, additional=0, sigma_scale=0.1, fix_values=False):
+    def __init__(self, size, k, additional=0, sigma_scale=0.1, fix_values=False, sigma_floor=0.0):
 
-        super().__init__(in_rank=1, out_shape=(size,), additional=additional, bias_type=gaussian.Bias.NONE, subsample=None)
+        super().__init__(in_rank=1, out_shape=(size,), additional=additional, bias_type=gaussian.Bias.NONE, subsample=None, sigma_floor=sigma_floor)
 
         class NoActivation(nn.Module):
             def forward(self, input):
@@ -46,12 +46,18 @@ class SortLayer(HyperLayer):
         outsize = 4 * k
 
         activation = nn.ReLU()
+        hidden = size ** size * 2
+
         self.source = nn.Sequential(
-            nn.Linear(size, size * 3),
+            nn.Linear(size, hidden),
             activation,
-            nn.Linear(size * 3, size * 3),
+            nn.Linear(hidden, hidden),
             activation,
-            nn.Linear(size * 3, outsize),
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, outsize),
         )
 
     def hyper(self, input):

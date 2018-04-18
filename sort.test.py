@@ -24,17 +24,26 @@ Check if the sort function is learnable directly
 """
 w = SummaryWriter()
 
-def go(iterations=30000,batch=4, size=32, cuda=False, lr=0.01, seed=0):
+def go(iterations=30000, batch=4, size=32, cuda=False, lr=0.01, seed=0):
 
-    HIDDEN = size ** 2 * 2
+    HIDDENBIG = size * size ** 2
+    HIDDEN = size * 3
 
     torch.manual_seed(seed)
 
     model = nn.Sequential(
-        nn.Linear(size, HIDDEN),
-        nn.Sigmoid(),
+        nn.Linear(size, HIDDENBIG),
+        nn.ReLU(),
+        nn.Linear(HIDDENBIG, HIDDENBIG),
+        nn.ReLU(),
+        nn.Linear(HIDDENBIG, HIDDENBIG),
+        nn.ReLU(),
+        nn.Linear(HIDDENBIG, HIDDEN),
+        nn.ReLU(),
         nn.Linear(HIDDEN, HIDDEN),
-        nn.Sigmoid(),
+        nn.ReLU(),
+        nn.Linear(HIDDEN, HIDDEN),
+        nn.ReLU(),
         nn.Linear(HIDDEN, size),
     )
 
@@ -48,7 +57,7 @@ def go(iterations=30000,batch=4, size=32, cuda=False, lr=0.01, seed=0):
 
         x = (torch.rand((batch, size)) * 64.0).floor() / 32.0 - 1.0
 
-        t = x.sort()[0].float()
+        t = x.sort()[1].float()
 
         if cuda:
             x, t = x.cuda(), t.cuda()
@@ -62,8 +71,7 @@ def go(iterations=30000,batch=4, size=32, cuda=False, lr=0.01, seed=0):
         loss = criterion(y, t)
 
         if i % 1000 == 0:
-            print(y)
-            print(t)
+            print((y-t)[:10, :])
 
         t0 = time.time()
         loss.backward()        # compute the gradients
@@ -80,17 +88,17 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--batch-size",
                         dest="batch_size",
                         help="The batch size.",
-                        default=64, type=int)
+                        default=512, type=int)
 
     parser.add_argument("-s", "--size",
                         dest="size",
                         help="Size of the input",
-                        default=32, type=int)
+                        default=5, type=int)
 
     parser.add_argument("-i", "--iterations",
                         dest="iterations",
                         help="The number of iterations (ie. the nr of batches).",
-                        default=30000, type=int)
+                        default=100000, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
@@ -99,7 +107,7 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
                         help="Learning rate",
-                        default=0.01, type=float)
+                        default=0.0005, type=float)
 
     parser.add_argument("-r", "--random-seed",
                         dest="seed",

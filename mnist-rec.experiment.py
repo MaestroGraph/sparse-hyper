@@ -149,6 +149,8 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
 
     step = 0
 
+    sigs = []
+
     for epoch in range(epochs):
         for i, data in tqdm(enumerate(trainloader, 0)):
 
@@ -207,6 +209,14 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
                 plt.imshow(np.transpose(torchvision.utils.make_grid(rec2.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                            interpolation='nearest')
                 plt.savefig('rec.{:03d}.layer2.pdf'.format(epoch))
+
+                sigmas = list(layer1.modules())[1].hyper(inputs)[1]
+                sigs.append(sigmas)
+                plt.cla()
+                for i, s in enumerate(sigs):
+                    plt.plot([i] * len(s), s)
+
+                plt.savefig('sigmas.pdf')
 
         total = 0.0
         num = 0
@@ -298,7 +308,7 @@ if __name__ == "__main__":
     parser.add_argument("-M", "--min-sigma",
                         dest="min_sigma",
                         help="Minimum value of sigma.",
-                        default=None, type=float)
+                        default=0.0, type=float)
 
     options = parser.parse_args()
 

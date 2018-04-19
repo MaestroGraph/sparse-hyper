@@ -623,7 +623,10 @@ class HyperLayer(nn.Module):
             b, k, r = means.size()
 
             prop = torch.cuda.FloatTensor([self.subsample]) if self.use_cuda else torch.FloatTensor([self.subsample])
-            selection = torch.bernoulli(prop.expand(k)).byte()
+
+            selection = None
+            while (selection is None) or (float(selection.sum()) < 1):
+                selection = torch.bernoulli(prop.expand(k)).byte()
 
             mselection = selection.unsqueeze(0).unsqueeze(2).expand_as(means)
             sselection = selection.unsqueeze(0).unsqueeze(2).expand_as(sigmas)

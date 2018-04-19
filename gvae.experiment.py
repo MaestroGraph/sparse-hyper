@@ -64,7 +64,7 @@ def generate_er(n=128, m=512, num=64):
 SIZE = 60000
 PLOT = True
 
-def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modelname='baseline', cuda=False, seed=1, bias=True, lr=0.001, lambd=0.01):
+def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modelname='baseline', cuda=False, seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -109,43 +109,43 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
         rec   = [None] * 5
 
         layer[0] = nn.Sequential(
-            gaussian.CASHLayer(shapes[0], shapes[1], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[0], shapes[1], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
         rec[0] = nn.Sequential(
-            gaussian.CASHLayer(shapes[1], shapes[0], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False))
+            gaussian.CASHLayer(shapes[1], shapes[0], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None))
 
         layer[1] = nn.Sequential(
-            gaussian.CASHLayer(shapes[1], shapes[2], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[1], shapes[2], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
         rec[1] = nn.Sequential(
-            gaussian.CASHLayer(shapes[2], shapes[1], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[2], shapes[1], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
 
         layer[2] = nn.Sequential(
-            gaussian.CASHLayer(shapes[2], shapes[3], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[2], shapes[3], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
         rec[2] = nn.Sequential(
-            gaussian.CASHLayer(shapes[3], shapes[2], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[3], shapes[2], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
 
 
 
         layer[3] = nn.Sequential(
-            gaussian.CASHLayer(shapes[4], shapes[5], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[4], shapes[5], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
         rec[3] = nn.Sequential(
-            gaussian.CASHLayer(shapes[5], shapes[4], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[5], shapes[4], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
 
         layer[4] = nn.Sequential(
-            gaussian.CASHLayer(shapes[5], shapes[6], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[5], shapes[6], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
         rec[4] = nn.Sequential(
-            gaussian.CASHLayer(shapes[6], shapes[5], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[6], shapes[5], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
 
         layer[5] = nn.Sequential(
-            gaussian.CASHLayer(shapes[6], shapes[7], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False),
+            gaussian.CASHLayer(shapes[6], shapes[7], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
             nn.Sigmoid())
 
         if cuda:
@@ -362,6 +362,11 @@ if __name__ == "__main__":
                         help="Reconstruction loss weight",
                         default=0.01, type=float)
 
+    parser.add_argument("-S", "--subsample",
+                        dest="subsample",
+                        help="Sample a subset of the indices to estimate gradients for",
+                        default=None, type=float)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -369,4 +374,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, bias=options.bias,
         additional=options.additional, modelname=options.model, cuda=options.cuda,
-        lr=options.lr, lambd=options.lambd)
+        lr=options.lr, lambd=options.lambd, subsample=options.subsample)

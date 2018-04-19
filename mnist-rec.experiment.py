@@ -49,12 +49,17 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
     if model_name == 'non-adaptive':
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
 
-        layer1   = nn.Sequential(gaussian.ParamASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias, subsample=subsample), nn.Sigmoid())
-        decoder1 = nn.Sequential(gaussian.ParamASHLayer(shapes[1], shapes[0], k=k, additional=additional, has_bias=bias, subsample=subsample))
+        layer1   = nn.Sequential(gaussian.ParamASHLayer(shapes[0], shapes[1], k=k, additional=additional,
+                                                        has_bias=bias, subsample=subsample, min_sigma=min_sigma),
+                                 nn.Sigmoid())
+        decoder1 = nn.Sequential(gaussian.ParamASHLayer(shapes[1], shapes[0], k=k, additional=additional,
+                                                        has_bias=bias, subsample=subsample, min_sigma=min_sigma))
 
-        layer2 = gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias, subsample=subsample, min_sigma=min_sigma)
+        layer2 = gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional,
+                                        has_bias=bias, subsample=subsample, min_sigma=min_sigma)
         decoder2 = nn.Sequential(
-            gaussian.ParamASHLayer(shapes[2], shapes[1], k=k, additional=additional, has_bias=bias, subsample=subsample, min_sigma=min_sigma),
+            gaussian.ParamASHLayer(shapes[2], shapes[1], k=k, additional=additional, has_bias=bias,
+                                   subsample=subsample, min_sigma=min_sigma),
             nn.Sigmoid())
 
         to_class = nn.Sequential(
@@ -103,13 +108,17 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
         shapes = [SHAPE, (4, 16, 16), (8, 8, 8)]
 
         layer1   = nn.Sequential(
-            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma),
+            gaussian.CASHLayer(shapes[0], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias,
+                                has_channels=True, subsample=subsample, min_sigma=min_sigma),
             nn.Sigmoid())
-        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k,ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma))
+        decoder1 = nn.Sequential(gaussian.CASHLayer(shapes[1], shapes[0], k=k,ksize=9, deconvs=deconvs, additional=additional,
+                                has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma))
 
-        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma)
+        layer2 = gaussian.CASHLayer(shapes[1], shapes[2], k=k, ksize=9, deconvs=deconvs, additional=additional,
+                                has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma)
         decoder2 = nn.Sequential(
-            gaussian.CASHLayer(shapes[2], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional, has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma),
+            gaussian.CASHLayer(shapes[2], shapes[1], k=k, ksize=9, deconvs=deconvs, additional=additional,
+                               has_bias=bias, has_channels=True, subsample=subsample, min_sigma=min_sigma),
             nn.Sigmoid())
 
         to_class = nn.Sequential(

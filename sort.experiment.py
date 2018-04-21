@@ -46,8 +46,8 @@ class SortLayer(HyperLayer):
         outsize = 4 * k
 
         activation = nn.ReLU()
-        hiddenbig = size ** size * 2
-        hidden = size * 3
+        hiddenbig = size * 6
+        hidden = size * 2
 
         self.source = nn.Sequential(
             nn.Linear(size, hiddenbig),
@@ -162,7 +162,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
             plt.figure(figsize=(9, 3))
             util.clean()
             plt.plot(losses)
-            plt.xhline()
+            plt.axhline()
             plt.savefig('losses.pdf')
 
 if __name__ == "__main__":
@@ -197,7 +197,7 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
                         help="Learning rate",
-                        default=0.01, type=float)
+                        default=0.0001, type=float)
 
     parser.add_argument("-p", "--plot-every",
                         dest="plot_every",

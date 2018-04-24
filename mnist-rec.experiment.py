@@ -210,11 +210,12 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
                            interpolation='nearest')
                 plt.savefig('rec.{:03d}.layer2.pdf'.format(epoch))
 
-                sigmas = list(layer1.modules())[1].hyper(inputs)[1]
-                sigs.append(sigmas)
+                sigmas = list(layer1.modules())[1].last_sigmas[0, :]
+                sigs.append(list(sigmas))
+
                 plt.cla()
-                for i, s in enumerate(sigs):
-                    plt.plot([i] * len(s), s)
+                for j, s in enumerate(sigs):
+                    plt.plot([j] * len(s), s, linewidth=0, marker='.')
 
                 plt.savefig('sigmas.pdf')
 

@@ -46,8 +46,8 @@ class SortLayer(HyperLayer):
         outsize = 4 * k
 
         activation = nn.ReLU()
-        hiddenbig = size * 6
-        hidden = size * 2
+        hiddenbig = size * 9
+        hidden = size * 6
 
         self.source = nn.Sequential(
             nn.Linear(size, hiddenbig),

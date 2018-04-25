@@ -583,11 +583,6 @@ class HyperLayer(nn.Module):
 
     def forward(self, input):
 
-        t0total = time.time()
-
-        batchsize = input.size()[0]
-        rng = tuple(self.out_shape) + tuple(input.size()[1:])
-
         ### Compute and unpack output of hypernetwork
 
         t0 = time.time()
@@ -603,6 +598,16 @@ class HyperLayer(nn.Module):
             input = input.dense()
 
         sigmas = sigmas + self.sigma_floor
+
+        return self.forward_inner(input, means, sigmas, values, bias)
+
+    def forward_inner(self, input, means, sigmas, values, bias):
+
+        t0total = time.time()
+
+        rng = tuple(self.out_shape) + tuple(input.size()[1:])
+
+        batchsize = input.size()[0]
 
         # NB: due to batching, real_indices has shape batchsize x K x rank(W)
         #     real_values has shape batchsize x K
@@ -973,7 +978,7 @@ class CASHLayer(HyperLayer):
                 self.activation
             )
         else:
-            self.bias = Parameter(torch.randn(*out_shape))
+            self.bias = Parameter(torch.zeros(*out_shape))
 
     def hyper(self, input):
         """

@@ -1,7 +1,8 @@
-import hyper, gaussian, util, time, pretrain, os, math
+import hyper, gaussian, util, time, pretrain, os, math, sys
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
+from torch.nn import Parameter
 from tqdm import trange, tqdm
 from tensorboardX import SummaryWriter
 from util import Lambda, Debug
@@ -33,12 +34,79 @@ fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
 """
-Graph isomorphism experiment
+Graph experiment
 
 """
 
+class GraphASHLayer(gaussian.HyperLayer):
+    """
+    A graph-specific ASH layer. Applies a single hypernetwork to each edge in the graph,
+    generating k index tuples for that specific edge.
+
+    """
+
+    def __init__(self, nodes, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False, sigma_floor=0.0, subsample=None):
+
+        super().__init__(in_rank=2, out_shape=out_shape, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample, sigma_floor=sigma_floor)
+
+        self.n = nodes
+
+        self.k = k # the number of index tuples _per edge in the input_
+        self.sigma_scale = sigma_scale
+        self.fix_values = fix_values
+        self.out_shape= out_shape
+
+        outsize = k * (2 + len(out_shape) + 2)
+
+        activation = nn.ReLU()
+
+        hidden = nodes // 4
+
+        self.source = nn.Sequential(
+            nn.Linear(nodes * 2 , hidden), # graph edges in 1-hot encoding
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, outsize),
+        )
+
+        self.bias = Parameter(torch.zeros(*out_shape))
+
+    def forward(self, input):
+        dense, sparse = input
+
+        means, sigmas, values, bias = self.hyper(sparse)
+
+        return self.forward_inner(dense, means, sigmas, values, bias)
+
+    def hyper(self, sparse):
+        """
+        Evaluates hypernetwork.
+        """
+
+        b, num_edges, n2 = sparse.size()
+        sparse = sparse.view(b*num_edges, n2)
+
+        res = self.source(sparse).unsqueeze(2).view(b, self.k * num_edges, 2 + len(self.out_shape) + 2)
+
+        means, sigmas, values = self.split_out(res, (self.n, self.n), self.out_shape)
+        sigmas = sigmas * self.sigma_scale
+
+        if self.fix_values:
+            values = values * 0.0 + 1.0
+
+        return means, sigmas, values, self.bias
+
 def vae_loss(x, x_rec, mu, logvar):
-    b, c, w, h = x.size()
+    b, w, h = x.size()
     total = util.prod(x.size()[1:])
 
     xent = nn.functional.binary_cross_entropy(x_rec.contiguous().view(-1, total), x.contiguous().view(-1, total))
@@ -50,21 +118,25 @@ def vae_loss(x, x_rec, mu, logvar):
 
 def generate_er(n=128, m=512, num=64):
 
-    data = torch.FloatTensor(num, n, n)
-    classes = torch.LongTensor(num)
+    dense = torch.FloatTensor(num, n, n)
+    sparse = torch.zeros(num, m, n*2)
 
     for i in range(num):
         graph = nx.gnm_random_graph(n, m)
         am = nx.to_numpy_matrix(graph)
 
-        data[i, :, :] = torch.from_numpy(am)
+        dense[i, :, :] = torch.from_numpy(am)
 
-    return data
+        for j, (fr, to) in enumerate(graph.edges):
+            sparse[i, j, fr] = 1.0
+            sparse[i, j, n + to] = 1.0
+
+    return dense, sparse
 
 SIZE = 3000
 PLOT = True
 
-def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modelname='baseline', cuda=False, seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None):
+def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False, seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -75,166 +147,64 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
     SHAPE = (1, nodes, nodes)
 
     LOG.info('generating data...')
-    data = generate_er(nodes, links, SIZE)
+    dense, sparse = generate_er(nodes, links, SIZE)
     LOG.info('done.')
 
-    if modelname == 'non-adaptive':
-    #     shapes = [SHAPE, (4, 32, 32), (8, 4, 4)]
-    #     layers = [
-    #         gaussian.ParamASHLayer(shapes[0], shapes[1], k=k, additional=additional, has_bias=bias),
-    #         nn.Sigmoid(),
-    #         gaussian.ParamASHLayer(shapes[1], shapes[2], k=k, additional=additional, has_bias=bias),
-    #         nn.Sigmoid(),
-    #         util.Flatten(),
-    #         nn.Linear(128, 32),
-    #         nn.Sigmoid()]
-    #     pivots = [2, 4]
-    #     decoder_channels = [True, True]
-    #
-    #     pretrain.pretrain(layers, shapes, pivots, pretrain_loader, epochs=pretrain_epochs, k_out=k, out_additional=additional, use_cuda=cuda,
-    #             plot=True, out_has_bias=bias, has_channels=decoder_channels, learn_rate=pretrain_lr)
-    #
-    #     model = nn.Sequential(od(layers))
-    #
-    #     if cuda:
-    #         model.apply(lambda t: t.cuda())
-        pass
-
-    elif modelname == 'free':
+    if modelname == 'basic':
 
         zsize = 256
-        shapes = [SHAPE, (1, zsize * 2), (1, zsize), SHAPE]
 
-        layer = [None] * 2
-        rec   = [None] * 2
+        encoder = GraphASHLayer(nodes, (zsize * 2, ), k=kpe, additional=additional, subsample=subsample)
 
-        layer[0] = nn.Sequential(
-            gaussian.CASHLayer(shapes[0], shapes[1], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None))
-        rec[0] = nn.Sequential(
-            gaussian.CASHLayer(shapes[1], shapes[0], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None))
-
-        layer[1] = nn.Sequential(
-            gaussian.CASHLayer(shapes[2], shapes[3], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None),
-            nn.Sigmoid())
-        rec[1] = nn.Sequential(
-            gaussian.CASHLayer(shapes[3], shapes[2], poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=None))
+        decoder = gaussian.CASHLayer((1, zsize), SHAPE, poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=subsample)
 
         if cuda:
-            for l in layer:
-                l.apply(lambda t: t.cuda())
+            encoder.cuda()
+            decoder.cuda()
+    else:
+        raise Exception('Model name {} not recognized'.format(modelname))
 
-            for r in rec:
-                r.apply(lambda t: t.cuda())
-
-    elif modelname == 'baseline':
-        # model = nn.Sequential(
-        #     # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
-        #     nn.Conv2d(in_channels=1, out_channels=4, kernel_size=4, stride=1, padding=2),
-        #     nn.MaxPool2d(stride=4, kernel_size=4),
-        #     # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))), # (4, 32, 32)
-        #     nn.Conv2d(in_channels=4, out_channels=8, kernel_size=4, stride=1, padding=2),
-        #     nn.MaxPool2d(stride=4, kernel_size=4),
-        #     # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))), # (8, 8, 8)
-        #     # nn.Conv2d(in_channels=8, out_channels=16, kernel_size=4, stride=1, padding=2),
-        #     # nn.MaxPool2d(stride=4, kernel_size=4),
-        #     # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
-        #     util.Flatten(),
-        #     nn.Linear(512, 32),
-        #     nn.Sigmoid())
-        #
-        # if cuda:
-        #     model = model.cuda()
-        pass
-
-    elif modelname == 'baseline-big':
-        # model = nn.Sequential(
-        #     # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))),
-        #     nn.Conv2d(in_channels=1, out_channels=16, kernel_size=4, stride=1, padding=2),
-        #     nn.MaxPool2d(stride=2, kernel_size=2),
-        #     # Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))), # (4, 32, 32)
-        #     nn.Conv2d(in_channels=16, out_channels=32, kernel_size=4, stride=1, padding=2),
-        #     nn.MaxPool2d(stride=2, kernel_size=2),
-        #     nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=1, padding=2),
-        #     nn.MaxPool2d(stride=2, kernel_size=2),
-        #     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=4, stride=1, padding=2),
-        #     nn.MaxPool2d(stride=2, kernel_size=2),
-        #     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=4, stride=1, padding=2),
-        #     nn.MaxPool2d(stride=2, kernel_size=2),
-        #     #Debug(lambda x: print(x.size(), util.prod(x[-1:].size()))), # (64, 8, 8)
-        #
-        #     util.Flatten(),
-        #     nn.Linear(1024, 32),
-        #     nn.Sigmoid())
-        #
-        # if cuda:
-        #     model = model.cuda()
-        pass
-
-
-    xent = nn.CrossEntropyLoss()
-    mse = nn.MSELoss()
-
-    acc = CategoricalAccuracy()
-
-
-    parameters = []
-    for l in layer:
-        parameters.extend(l.parameters())
-    for r in rec:
-        parameters.extend(r.parameters())
-
+    parameters = list(encoder.parameters()) + list(decoder.parameters())
     optimizer = optim.Adam(parameters, lr=lr)
 
     step = 0
     iterations = int(math.ceil(SIZE/batch))
-
 
     for epoch in range(epochs):
         for i in trange(iterations):
 
             # get the inputs
             f, t = i * batch, (i+1)*batch if i < iterations - 1 else SIZE
-            graphs = data[f:t, :, :]
+            batch_dense = dense[f:t, :, :]
+            batch_sparse = sparse[f:t, :, :]
 
             if cuda:
-                graphs = graphs.cuda()
+                batch_dense = batch_dense.cuda()
+                batch_sparse = batch_sparse.cuda()
 
-            graphs = Variable(graphs.unsqueeze(1).contiguous())
+            batch_dense  = Variable(batch_dense)
+            batch_sparse = Variable(batch_sparse)
 
-            # forward + backward + optimize
             optimizer.zero_grad()
 
-            h = [None] * 1
+            h = encoder((batch_dense, batch_sparse))
 
-            h[0] = layer[0](graphs)
-
-            mu, logvar = h[0][:, :, zsize:], h[0][:, :, zsize:]
-            mu, logvar = mu.squeeze(1), logvar.squeeze(1)
-
+            mu, logvar = h[:, zsize:], h[:, zsize:]
             sample = Variable(FT(mu.size()).normal_())
 
             std = logvar.mul(0.5).exp()
             sample = sample.mul(std).add(mu)
 
             sample = sample.unsqueeze(1)
-            sample_target = sample.detach()
 
-            reconstruction = layer[1](sample)
+            reconstruction = nn.functional.sigmoid(decoder(sample))
 
-            r0 = rec[0](h[0])
-
-            r1 = rec[1](reconstruction)
-
-            rec_loss_encoder = mse(r0, graphs)
-            rec_loss_decoder = mse(r1, sample_target)
-
-            vae = vae_loss(graphs, reconstruction, mu, logvar)
-
-            loss = vae + lambd * (rec_loss_encoder + rec_loss_decoder)
+            loss = vae_loss(batch_dense, reconstruction, mu, logvar)
 
             t0 = time.time()
             loss.backward()  # compute the gradients
             logging.info('backward: {} seconds'.format(time.time() - t0))
+
             optimizer.step()
 
             w.add_scalar('graphs/train-loss', loss.data[0], step)
@@ -244,18 +214,9 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, additional=512, modeln
             if PLOT and i == 0:
 
                 plt.cla()
-                plt.imshow(np.transpose(torchvision.utils.make_grid(graphs.data[:16, :]).cpu().numpy(), (1, 2, 0)),
+                plt.imshow(np.transpose(torchvision.utils.make_grid(batch_dense.unsqueeze(1).data[:16, :]).cpu().numpy(), (1, 2, 0)),
                            interpolation='nearest')
                 plt.savefig('g1vae.{:03d}.input.pdf'.format(epoch))
-
-                r0 = r0.clamp(0.0, 1.0)
-
-                plt.cla()
-                plt.imshow(np.transpose(torchvision.utils.make_grid(r0.data[:16, :]).cpu().numpy(), (1, 2, 0)),
-                               interpolation='nearest')
-                plt.savefig('g1vae.{:03d}.r0.pdf'.format(epoch, i))
-
-                reconstruction = reconstruction.clamp(0.0, 1.0)
 
                 plt.cla()
                 plt.imshow(np.transpose(torchvision.utils.make_grid(reconstruction.data[:16, :]).cpu().numpy(), (1, 2, 0)),
@@ -282,16 +243,21 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--model",
                         dest="model",
                         help="Which model to train.",
-                        default='baseline')
+                        default='basic')
 
     parser.add_argument("-b", "--batch-size",
                         dest="batch_size",
                         help="The batch size.",
                         default=64, type=int)
 
+    parser.add_argument("-K", "--num-points-per-edge",
+                        dest="kpe",
+                        help="Number of index tuples per edge in the graph layer ",
+                        default=7, type=int)
+
     parser.add_argument("-k", "--num-points",
                         dest="k",
-                        help="Number of index tuples",
+                        help="Number of index tuples in the decoder layer",
                         default=750, type=int)
 
     parser.add_argument("-a", "--additional",
@@ -331,6 +297,6 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, bias=options.bias,
+    go(batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, kpe=options.kpe, bias=options.bias,
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, lambd=options.lambd, subsample=options.subsample)

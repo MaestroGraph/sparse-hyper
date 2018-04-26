@@ -45,9 +45,9 @@ class GraphASHLayer(gaussian.HyperLayer):
 
     """
 
-    def __init__(self, nodes, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False, sigma_floor=0.0, subsample=None):
+    def __init__(self, nodes, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False, min_sigma=0.0, subsample=None):
 
-        super().__init__(in_rank=2, out_shape=out_shape, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample, sigma_floor=sigma_floor)
+        super().__init__(in_rank=2, out_shape=out_shape, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample, sigma_floor=min_sigma)
 
         self.n = nodes
 
@@ -136,7 +136,8 @@ def generate_er(n=128, m=512, num=64):
 SIZE = 60000
 PLOT = True
 
-def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False, seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False):
+def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False,
+       seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False, min_sigma=0.0):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -154,10 +155,12 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
         zsize = 256
 
-        encoder = GraphASHLayer(nodes, (zsize * 2, ), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values)
+        encoder = GraphASHLayer(nodes, (zsize * 2, ), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
 
-        decoder = gaussian.CASHLayer((1, zsize), SHAPE, poolsize=1, k=k, additional=additional, has_bias=bias,
-                                     has_channels=True, adaptive_bias=False, subsample=subsample, fix_values=fix_values)
+        # decoder = gaussian.CASHLayer((1, zsize), SHAPE, poolsize=1, k=k, additional=additional, has_bias=bias,
+        #                              has_channels=True, adaptive_bias=False, subsample=subsample, fix_values=fix_values,
+        #                              min_sigma=min_sigma)
+        decoder = nn.Linear(zsize, util.prod(SHAPE))
 
         if cuda:
             encoder.cuda()
@@ -198,7 +201,8 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
             sample = sample.unsqueeze(1)
 
-            reconstruction = nn.functional.sigmoid(decoder(sample))
+            reconstruction = decoder(sample).view(-1, *SHAPE)
+            reconstruction = nn.functional.sigmoid(reconstruction)
 
             loss = vae_loss(batch_dense, reconstruction, mu, logvar)
 
@@ -297,6 +301,11 @@ if __name__ == "__main__":
                         help="Whather to force the values to be 1",
                         action="store_true")
 
+    parser.add_argument("-W", "--min-sigma",
+                        dest="min_sigma",
+                        help="Minimum value of sigma.",
+                        default=0.0, type=float)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -304,4 +313,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, kpe=options.kpe, bias=options.bias,
         additional=options.additional, modelname=options.model, cuda=options.cuda,
-        lr=options.lr, lambd=options.lambd, subsample=options.subsample, fix_values=options.fix_values)
+        lr=options.lr, lambd=options.lambd, subsample=options.subsample, fix_values=options.fix_values, min_sigma=options.min_sigma)

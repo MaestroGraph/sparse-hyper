@@ -215,9 +215,10 @@ def go(batch=64, epochs=350, k=750, additional=512, model_name='non-adaptive', c
 
                 plt.cla()
                 for j, s in enumerate(sigs):
-                    plt.plot([j] * len(s), s, linewidth=0, marker='.')
+                    plt.plot([j] * len(s), s, linewidth=0, marker='.', alpha=0.2)
 
                 plt.savefig('sigmas.pdf')
+                plt.savefig('sigmas.png')
 
         total = 0.0
         num = 0

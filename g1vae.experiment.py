@@ -136,7 +136,7 @@ def generate_er(n=128, m=512, num=64):
 SIZE = 60000
 PLOT = True
 
-def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False, seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None):
+def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False, seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -154,9 +154,10 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
         zsize = 256
 
-        encoder = GraphASHLayer(nodes, (zsize * 2, ), k=kpe, additional=additional, subsample=subsample)
+        encoder = GraphASHLayer(nodes, (zsize * 2, ), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values)
 
-        decoder = gaussian.CASHLayer((1, zsize), SHAPE, poolsize=1, k=k, additional=additional, has_bias=bias, has_channels=True, adaptive_bias=False, subsample=subsample)
+        decoder = gaussian.CASHLayer((1, zsize), SHAPE, poolsize=1, k=k, additional=additional, has_bias=bias,
+                                     has_channels=True, adaptive_bias=False, subsample=subsample, fix_values=fix_values)
 
         if cuda:
             encoder.cuda()
@@ -292,6 +293,10 @@ if __name__ == "__main__":
                         help="Sample a subset of the indices to estimate gradients for",
                         default=None, type=float)
 
+    parser.add_argument("-F", "--fix-values", dest="fix_values",
+                        help="Whather to force the values to be 1",
+                        action="store_true")
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -299,4 +304,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, kpe=options.kpe, bias=options.bias,
         additional=options.additional, modelname=options.model, cuda=options.cuda,
-        lr=options.lr, lambd=options.lambd, subsample=options.subsample)
+        lr=options.lr, lambd=options.lambd, subsample=options.subsample, fix_values=options.fix_values)

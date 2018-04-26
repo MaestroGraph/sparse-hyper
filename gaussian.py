@@ -904,7 +904,7 @@ class CASHLayer(HyperLayer):
     """
     def __init__(self, in_shape, out_shape, k,
                  additional=0, poolsize=4, deconvs=2, ksize=2, sigma_scale=0.1, has_bias=True,
-                 has_channels=False, adaptive_bias=False, subsample=None, min_sigma=0.0):
+                 has_channels=False, adaptive_bias=False, subsample=None, min_sigma=0.0, fix_values=False):
         """
         :param in_shape:
         :param out_shape:
@@ -930,6 +930,7 @@ class CASHLayer(HyperLayer):
         self.sigma_scale = sigma_scale
         self.has_channels = has_channels
         self.adaptive_bias = adaptive_bias
+        self.fix_values = fix_values
 
         self.w_rank = len(in_shape) + len(out_shape)
 
@@ -1008,6 +1009,9 @@ class CASHLayer(HyperLayer):
 
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
         sigmas = sigmas * self.sigma_scale
+
+        if self.fix_values:
+            values = values * 0.0 + 1.0
 
         if not self.has_bias:
             return means, sigmas, values

@@ -61,22 +61,22 @@ class GraphASHLayer(gaussian.HyperLayer):
 
         activation = nn.ReLU()
 
-        hidden = nodes // 4
+        hidden = 32
 
         self.source = nn.Sequential(
-            nn.Linear(nodes * 2 ,outsize), # graph edges in 1-hot encoding
-            # activation,
+            nn.Linear(nodes * 2 ,hidden), # graph edges in 1-hot encoding
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
             # nn.Linear(hidden, hidden),
             # activation,
-            # nn.Linear(hidden, hidden),
-            # activation,
-            # nn.Linear(hidden, hidden),
-            # activation,
-            # nn.Linear(hidden, hidden),
-            # activation,
-            # nn.Linear(hidden, hidden),
-            # activation,
-            # nn.Linear(hidden, outsize),
+            nn.Linear(hidden, outsize),
         )
 
         self.bias = Parameter(torch.zeros(*out_shape))
@@ -156,21 +156,24 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
         zsize = 1024
 
-        encoder = GraphASHLayer(nodes, (zsize * 2, ), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
+        encoder = GraphASHLayer(nodes, SHAPE, k=kpe, additional=additional, subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
+
+        # encoder = nn.Linear(util.prod(SHAPE), util.prod(SHAPE))
 
         # decoder = gaussian.CASHLayer((1, zsize), SHAPE, poolsize=1, k=k, additional=additional, has_bias=bias,
         #                              has_channels=True, adaptive_bias=False, subsample=subsample, fix_values=fix_values,
         #                              min_sigma=min_sigma)
-        decoder = nn.Linear(zsize, util.prod(SHAPE))
+        # decoder = nn.Linear(zsize, util.prod(SHAPE))
 
         if cuda:
             encoder.cuda()
-            decoder.cuda()
+            # decoder.cuda()
     else:
         raise Exception('Model name {} not recognized'.format(modelname))
 
-    parameters = list(encoder.parameters()) + list(decoder.parameters())
-    optimizer = optim.Adam(parameters, lr=lr)
+
+    # parameters = list(encoder.parameters()) # + list(decoder.parameters())
+    optimizer = optim.Adam(encoder.parameters(), lr=lr)
 
     step = 0
     iterations = int(math.ceil(SIZE/batch))
@@ -192,23 +195,13 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
             optimizer.zero_grad()
 
-            h = encoder((batch_dense, batch_sparse))
+            reconstruction = nn.functional.sigmoid(encoder( (batch_dense, batch_sparse) ))
 
-            mu, logvar = h[:, zsize:], h[:, zsize:]
-            sample = Variable(FT(mu.size()).normal_())
-
-            std = logvar.mul(0.5).exp()
-            sample = sample.mul(std).add(mu)
-
-            sample = sample.unsqueeze(1)
-
-            reconstruction = decoder(sample).view(-1, *SHAPE)
-            reconstruction = nn.functional.sigmoid(reconstruction)
-
-            loss = vae_loss(batch_dense, reconstruction, mu, logvar)
+            loss = nn.functional.binary_cross_entropy(reconstruction, batch_dense)
 
             t0 = time.time()
             loss.backward()  # compute the gradients
+
             logging.info('backward: {} seconds'.format(time.time() - t0))
 
             optimizer.step()
@@ -222,12 +215,12 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
                 plt.cla()
                 plt.imshow(np.transpose(torchvision.utils.make_grid(batch_dense.unsqueeze(1).data[:16, :]).cpu().numpy(), (1, 2, 0)),
                            interpolation='nearest')
-                plt.savefig('g1vae.{:03d}.input.pdf'.format(epoch))
+                plt.savefig('g1identity.{:03d}.input.pdf'.format(epoch))
 
                 plt.cla()
                 plt.imshow(np.transpose(torchvision.utils.make_grid(reconstruction.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                            interpolation='nearest')
-                plt.savefig('g1vae.{:03d}.output.pdf'.format(epoch))
+                plt.savefig('g1identity.{:03d}.output.pdf'.format(epoch))
 
     LOG.info('Finished Training.')
 

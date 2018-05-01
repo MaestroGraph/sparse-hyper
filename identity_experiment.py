@@ -24,7 +24,7 @@ Simple experiment: learn the identity function from one tensor to another
 w = SummaryWriter()
 
 def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50,
-       lr=0.01, fv=False, sigma_scale=0.1, sigma_penalty=0.1, seed=0):
+       lr=0.01, fv=False, sigma_scale=0.1, min_sigma=0.0, seed=0):
 
     SHAPE = (size,)
     MARGIN = 0.1
@@ -38,7 +38,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
     params = None
 
     gaussian.PROPER_SAMPLING = False
-    model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=sigma_scale, has_bias=False, fix_values=fv)
+    model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=sigma_scale, has_bias=False, fix_values=fv, min_sigma=min_sigma)
 
     if cuda:
         model.cuda()
@@ -49,7 +49,8 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     for i in trange(iterations):
 
-        x = torch.rand((batch,) + SHAPE)
+        x = torch.zeros((batch,) + SHAPE) + (1.0/16.0)
+        x = torch.bernoulli(x)
         if cuda:
             x = x.cuda()
         x = Variable(x)
@@ -58,10 +59,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         y = model(x)
 
-        mloss = criterion(y, x)
-        sloss = model.sigma_loss(x)# compute the loss
-
-        loss = mloss + sigma_penalty * sloss
+        loss = criterion(y, x)
 
         t0 = time.time()
         loss.backward()        # compute the gradients
@@ -73,7 +71,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
         if plot_every > 0 and i % plot_every == 0:
             plt.figure(figsize=(7, 7))
 
-            print(mloss, sloss)
+            print(loss)
 
             means, sigmas, values = model.hyper(x)
 
@@ -84,7 +82,7 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
             plt.savefig('./identity/means{:04}.png'.format(i))
 
-    return float(mloss.data[0])
+    return float(loss.data[0])
 
 if __name__ == "__main__":
 
@@ -122,17 +120,17 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
                         help="Learning rate",
-                        default=0.01, type=float)
+                        default=0.005, type=float)
 
     parser.add_argument("-S", "--sigma-scale",
                         dest="sigma_scale",
                         help="Sigma scale",
                         default=0.1, type=float)
 
-    parser.add_argument("-P", "--sigma-penalty",
-                        dest="sigma_penalty",
-                        help="Sigma penalty",
-                        default=0.1, type=float)
+    parser.add_argument("-M", "--min_sigma",
+                        dest="min_sigma",
+                        help="Minimum variance for the components.",
+                        default=0.0, type=float)
 
     parser.add_argument("-p", "--plot-every",
                         dest="plot_every",
@@ -152,4 +150,4 @@ if __name__ == "__main__":
     go(batch=options.batch_size, size=options.size,
         additional=options.additional, iterations=options.iterations, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
-        sigma_scale=options.sigma_scale, sigma_penalty=options.sigma_penalty, seed=options.seed)
+        sigma_scale=options.sigma_scale, min_sigma=options.min_sigma, seed=options.seed)

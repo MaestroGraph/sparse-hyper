@@ -325,7 +325,7 @@ class HyperLayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None, sigma_floor=0.0):
+    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None):
         super().__init__()
 
         self.use_cuda = False
@@ -338,7 +338,6 @@ class HyperLayer(nn.Module):
         self.bias_type = bias_type
         self.sparse_input = sparse_input
         self.subsample = subsample
-        self.sigma_floor = sigma_floor
 
         # create a tensor with all binary sequences of length 'rank' as rows
         lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=self.weights_rank)]
@@ -586,18 +585,21 @@ class HyperLayer(nn.Module):
         ### Compute and unpack output of hypernetwork
 
         t0 = time.time()
+        bias = None
+
         if self.bias_type == Bias.NONE:
             means, sigmas, values = self.hyper(input)
-        if self.bias_type == Bias.DENSE:
+        elif self.bias_type == Bias.DENSE:
             means, sigmas, values, bias = self.hyper(input)
-        if self.bias_type == Bias.SPARSE:
+        elif self.bias_type == Bias.SPARSE:
             means, sigmas, values, bias_means, bias_sigmas, bias_values = self.hyper(input)
+        else:
+            raise Exception('bias type {} not recognized.'.format(self.bias_type))
+
         logging.info('compute hyper: {} seconds'.format(time.time() - t0))
 
         if self.sparse_input:
             input = input.dense()
-
-        sigmas = sigmas + self.sigma_floor
 
         return self.forward_inner(input, means, sigmas, values, bias)
 
@@ -726,7 +728,7 @@ class ParamASHLayer(HyperLayer):
     """
 
     def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False, subsample=None, min_sigma=0.0):
-        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample, sigma_floor=min_sigma)
+        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample)
 
         self.k = k
         self.in_shape = in_shape
@@ -734,6 +736,7 @@ class ParamASHLayer(HyperLayer):
         self.sigma_scale = sigma_scale
         self.fix_values = fix_values
         self.has_bias = has_bias
+        self.min_sigma = min_sigma
 
         self.w_rank = len(in_shape) + len(out_shape)
 
@@ -757,13 +760,14 @@ class ParamASHLayer(HyperLayer):
         res = self.params.unsqueeze(0).expand(batch_size, self.k, self.w_rank+2)
 
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
-        sigmas = sigmas * self.sigma_scale
+        sigmas = sigmas * self.sigma_scale + self.min_sigma
 
         if self.fix_values:
             values = values * 0.0 + 1.0
 
         if self.has_bias:
             return means, sigmas, values, self.bias
+
         return means, sigmas, values
 
     def clone(self):
@@ -915,7 +919,7 @@ class CASHLayer(HyperLayer):
            that the input is not downsampled along that dimension.
         :param deconvs: How many deconv layers to use to generate the tuples from the hidden layer
         """
-        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample, sigma_floor=min_sigma)
+        super().__init__(in_rank=len(in_shape), out_shape=out_shape, additional=additional, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample)
 
         class NoActivation(nn.Module):
             def forward(self, input):
@@ -931,6 +935,7 @@ class CASHLayer(HyperLayer):
         self.has_channels = has_channels
         self.adaptive_bias = adaptive_bias
         self.fix_values = fix_values
+        self.min_sigma = min_sigma
 
         self.w_rank = len(in_shape) + len(out_shape)
 
@@ -1008,7 +1013,7 @@ class CASHLayer(HyperLayer):
         # res has shape batch_size x k x rank+2
 
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
-        sigmas = sigmas * self.sigma_scale
+        sigmas = sigmas * self.sigma_scale + self.min_sigma
 
         if self.fix_values:
             values = values * 0.0 + 1.0

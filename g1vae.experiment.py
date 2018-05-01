@@ -154,14 +154,13 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
     if modelname == 'basic':
 
-        zsize = 1024
+        zsize = 16
 
         encoder = GraphASHLayer(nodes, (zsize * 2, ), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
 
-        # decoder = gaussian.CASHLayer((1, zsize), SHAPE, poolsize=1, k=k, additional=additional, has_bias=bias,
-        #                              has_channels=True, adaptive_bias=False, subsample=subsample, fix_values=fix_values,
-        #                              min_sigma=min_sigma)
-        decoder = nn.Linear(zsize, util.prod(SHAPE))
+        decoder = gaussian.ParamASHLayer((1, zsize), SHAPE, k=k, additional=additional, has_bias=bias,
+                                     subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
+        # decoder = nn.Linear(zsize, util.prod(SHAPE))
 
         if cuda:
             encoder.cuda()
@@ -202,7 +201,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
             sample = sample.unsqueeze(1)
 
-            reconstruction = decoder(sample).view(-1, *SHAPE)
+            reconstruction = decoder(sample)
             reconstruction = nn.functional.sigmoid(reconstruction)
 
             loss = vae_loss(batch_dense, reconstruction, mu, logvar)
@@ -215,7 +214,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
             w.add_scalar('graphs/train-loss', loss.data[0], step)
 
-            step += 1
+            step += t - f
 
             if PLOT and i == 0:
 

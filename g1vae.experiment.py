@@ -38,7 +38,7 @@ Graph experiment
 
 """
 
-class GraphASHLayer(gaussian.HyperLayer):
+class GraphEncoder(gaussian.HyperLayer):
     """
     A graph-specific ASH layer. Applies a single hypernetwork to each edge in the graph,
     generating k index tuples for that specific edge.
@@ -61,22 +61,22 @@ class GraphASHLayer(gaussian.HyperLayer):
 
         activation = nn.ReLU()
 
-        hidden = nodes // 4
+        hidden = nodes
 
         self.source = nn.Sequential(
-            nn.Linear(nodes * 2 ,outsize), # graph edges in 1-hot encoding
+            nn.Linear(nodes * 2, hidden), # graph edges in 1-hot encoding
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
             # activation,
             # nn.Linear(hidden, hidden),
             # activation,
             # nn.Linear(hidden, hidden),
             # activation,
             # nn.Linear(hidden, hidden),
-            # activation,
-            # nn.Linear(hidden, hidden),
-            # activation,
-            # nn.Linear(hidden, hidden),
-            # activation,
-            # nn.Linear(hidden, outsize),
+            activation,
+            nn.Linear(hidden, outsize),
         )
 
         self.bias = Parameter(torch.zeros(*out_shape))
@@ -99,6 +99,61 @@ class GraphASHLayer(gaussian.HyperLayer):
         res = self.source(sparse).unsqueeze(2).view(b, self.k * num_edges, 2 + len(self.out_shape) + 2)
 
         means, sigmas, values = self.split_out(res, (self.n, self.n), self.out_shape)
+        sigmas = sigmas * self.sigma_scale + self.min_sigma
+
+        if self.fix_values:
+            values = values * 0.0 + 1.0
+
+        return means, sigmas, values, self.bias
+
+class GraphDecoder(gaussian.HyperLayer):
+    """
+    Takes a latent vector as input and decodes to a graph output.
+
+    """
+
+    def __init__(self, input, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False, min_sigma=0.0, subsample=None):
+
+        super().__init__(in_rank=2, out_shape=out_shape, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
+
+        self.n = input
+
+        self.k = k # the number of index tuples _per edge in the input_
+        self.sigma_scale = sigma_scale
+        self.fix_values = fix_values
+        self.out_shape= out_shape
+        self.min_sigma = min_sigma
+
+        outsize = k * (1  + len(out_shape) + 2)
+
+        activation = nn.ReLU()
+
+        hidden = input
+
+        self.source = nn.Sequential(
+            nn.Linear(input, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
+            activation,
+            nn.Linear(hidden, outsize),
+        )
+
+        self.bias = Parameter(torch.zeros(*out_shape))
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+
+        b, n = input.size()
+
+        assert(n == self.n)
+
+        res = self.source(input).unsqueeze(2).view(b, self.k, 1 + len(self.out_shape) + 2)
+
+        means, sigmas, values = self.split_out(res, self.n, self.out_shape)
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
         if self.fix_values:
@@ -138,7 +193,7 @@ SIZE = 60000
 PLOT = True
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False,
-       seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False, min_sigma=0.0):
+       seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False, min_sigma=0.0, adaptive_decoder=False):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -156,10 +211,14 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
         zsize = 16
 
-        encoder = GraphASHLayer(nodes, (zsize * 2, ), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
+        encoder = GraphEncoder(nodes, (zsize * 2,), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
 
-        decoder = gaussian.ParamASHLayer((1, zsize), SHAPE, k=k, additional=additional, has_bias=bias,
-                                     subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
+        if adaptive_decoder:
+            decoder = GraphDecoder(zsize, SHAPE, k=k, additional=additional, has_bias=bias,
+                                    subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
+        else:
+            decoder = gaussian.ParamASHLayer((zsize, ), SHAPE, k=k, additional=additional, has_bias=bias,
+                                    subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
         # decoder = nn.Linear(zsize, util.prod(SHAPE))
 
         if cuda:
@@ -199,7 +258,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
             std = logvar.mul(0.5).exp()
             sample = sample.mul(std).add(mu)
 
-            sample = sample.unsqueeze(1)
+            sample = sample
 
             reconstruction = decoder(sample)
             reconstruction = nn.functional.sigmoid(reconstruction)
@@ -298,7 +357,12 @@ if __name__ == "__main__":
                         default=None, type=float)
 
     parser.add_argument("-F", "--fix-values", dest="fix_values",
-                        help="Whather to force the values to be 1",
+                        help="Whether to force the values to be 1",
+                        action="store_true")
+
+    parser.add_argument("-A", "--adaptive-decoder",
+                        dest="adaptive_decoder",
+                        help="Whether to use an adaptive hypernetwork for the decoder.",
                         action="store_true")
 
     parser.add_argument("-W", "--min-sigma",
@@ -313,4 +377,5 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, kpe=options.kpe, bias=options.bias,
         additional=options.additional, modelname=options.model, cuda=options.cuda,
-        lr=options.lr, lambd=options.lambd, subsample=options.subsample, fix_values=options.fix_values, min_sigma=options.min_sigma)
+        lr=options.lr, lambd=options.lambd, subsample=options.subsample,
+       fix_values=options.fix_values, min_sigma=options.min_sigma, adaptive_decoder=options.adaptive_decoder)

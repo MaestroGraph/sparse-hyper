@@ -112,26 +112,26 @@ class GraphDecoder(gaussian.HyperLayer):
 
     """
 
-    def __init__(self, input, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False, min_sigma=0.0, subsample=None):
+    def __init__(self, input_size, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False, min_sigma=0.0, subsample=None):
 
-        super().__init__(in_rank=2, out_shape=out_shape, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
+        super().__init__(in_rank=1, out_shape=out_shape, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
 
-        self.n = input
+        self.n = input_size
 
         self.k = k # the number of index tuples _per edge in the input_
         self.sigma_scale = sigma_scale
         self.fix_values = fix_values
-        self.out_shape= out_shape
+        self.out_shape = out_shape
         self.min_sigma = min_sigma
 
         outsize = k * (1  + len(out_shape) + 2)
 
         activation = nn.ReLU()
 
-        hidden = input
+        hidden = input_size
 
         self.source = nn.Sequential(
-            nn.Linear(input, hidden),
+            nn.Linear(input_size, hidden),
             activation,
             nn.Linear(hidden, hidden),
             activation,
@@ -153,7 +153,7 @@ class GraphDecoder(gaussian.HyperLayer):
 
         res = self.source(input).unsqueeze(2).view(b, self.k, 1 + len(self.out_shape) + 2)
 
-        means, sigmas, values = self.split_out(res, self.n, self.out_shape)
+        means, sigmas, values = self.split_out(res, (self.n,), self.out_shape)
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
         if self.fix_values:

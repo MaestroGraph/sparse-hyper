@@ -214,7 +214,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
         encoder = GraphEncoder(nodes, (zsize * 2,), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
 
         if adaptive_decoder:
-            decoder = GraphDecoder(zsize, SHAPE, k=k, additional=additional, has_bias=bias,
+            decoder = GraphDecoder(zsize, SHAPE, k=k, additional=additional,
                                     subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
         else:
             decoder = gaussian.ParamASHLayer((zsize, ), SHAPE, k=k, additional=additional, has_bias=bias,

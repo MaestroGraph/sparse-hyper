@@ -161,7 +161,7 @@ class GraphDecoder(gaussian.HyperLayer):
 
         return means, sigmas, values, self.bias
 
-def vae_loss(x, x_rec, mu, logvar):
+def vae_loss(x, x_rec, mu, logvar, variational=True):
     b, w, h = x.size()
     total = util.prod(x.size()[1:])
 
@@ -170,7 +170,7 @@ def vae_loss(x, x_rec, mu, logvar):
     kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     kl = kl / (b * total)
 
-    return xent + kl
+    return xent + (kl if variational else 0.0)
 
 def generate_er(n=128, m=512, num=64):
 
@@ -194,7 +194,7 @@ PLOT = True
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False,
        seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False, min_sigma=0.0, adaptive_decoder=False,
-       tb_dir=None):
+       tb_dir=None, variational=True):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -261,7 +261,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
             sample = sample
 
-            reconstruction = decoder(sample)
+            reconstruction = decoder(sample if variational else mu.contiguous())
             reconstruction = nn.functional.sigmoid(reconstruction)
 
             loss = vae_loss(batch_dense, reconstruction, mu, logvar)
@@ -343,6 +343,10 @@ if __name__ == "__main__":
                         help="Whether to give the layers biases.",
                         action="store_false")
 
+    parser.add_argument("-V", "--variational", dest="",
+                        help="Whether to give the layers biases.",
+                        action="store_true")
+
     parser.add_argument("-D", "--data", dest="data",
                         help="Data directory",
                         default='./data')
@@ -389,4 +393,4 @@ if __name__ == "__main__":
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, lambd=options.lambd, subsample=options.subsample,
         fix_values=options.fix_values, min_sigma=options.min_sigma, adaptive_decoder=options.adaptive_decoder,
-        tb_dir=options.tb_dir)
+        tb_dir=options.tb_dir, variational=options.variational)

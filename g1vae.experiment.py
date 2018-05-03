@@ -65,10 +65,10 @@ class GraphEncoder(gaussian.HyperLayer):
 
         self.source = nn.Sequential(
             nn.Linear(nodes * 2, hidden), # graph edges in 1-hot encoding
-            activation,
-            nn.Linear(hidden, hidden),
-            activation,
-            nn.Linear(hidden, hidden),
+            # activation,
+            # nn.Linear(hidden, hidden),
+            # activation,
+            # nn.Linear(hidden, hidden),
             # activation,
             # nn.Linear(hidden, hidden),
             # activation,
@@ -133,10 +133,10 @@ class GraphDecoder(gaussian.HyperLayer):
         self.source = nn.Sequential(
             nn.Linear(input_size, hidden),
             activation,
-            nn.Linear(hidden, hidden),
-            activation,
-            nn.Linear(hidden, hidden),
-            activation,
+            # nn.Linear(hidden, hidden),
+            # activation,
+            # nn.Linear(hidden, hidden),
+            # activation,
             nn.Linear(hidden, outsize),
         )
 
@@ -170,7 +170,7 @@ def vae_loss(x, x_rec, mu, logvar):
     kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     kl = kl / (b * total)
 
-    return xent + kl
+    return xent #+ kl
 
 def generate_er(n=128, m=512, num=64):
 
@@ -193,13 +193,14 @@ SIZE = 60000
 PLOT = True
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False,
-       seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False, min_sigma=0.0, adaptive_decoder=False):
+       seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False, min_sigma=0.0, adaptive_decoder=False,
+       tb_dir=None):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
     torch.manual_seed(seed)
 
-    w = SummaryWriter()
+    w = SummaryWriter(log_dir=tb_dir)
 
     SHAPE = (1, nodes, nodes)
 
@@ -260,7 +261,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
             sample = sample
 
-            reconstruction = decoder(sample)
+            reconstruction = decoder(mu.contiguous())
             reconstruction = nn.functional.sigmoid(reconstruction)
 
             loss = vae_loss(batch_dense, reconstruction, mu, logvar)
@@ -370,6 +371,10 @@ if __name__ == "__main__":
                         help="Minimum value of sigma.",
                         default=0.0, type=float)
 
+    parser.add_argument("-T", "--tb_dir", dest="tb_dir",
+                        help="Data directory",
+                        default=None)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -378,4 +383,5 @@ if __name__ == "__main__":
     go(batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, kpe=options.kpe, bias=options.bias,
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, lambd=options.lambd, subsample=options.subsample,
-       fix_values=options.fix_values, min_sigma=options.min_sigma, adaptive_decoder=options.adaptive_decoder)
+        fix_values=options.fix_values, min_sigma=options.min_sigma, adaptive_decoder=options.adaptive_decoder,
+        tb_dir=options.tb_dir)

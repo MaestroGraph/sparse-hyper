@@ -170,7 +170,7 @@ def vae_loss(x, x_rec, mu, logvar):
     kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     kl = kl / (b * total)
 
-    return xent #+ kl
+    return xent + kl
 
 def generate_er(n=128, m=512, num=64):
 
@@ -261,7 +261,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
             sample = sample
 
-            reconstruction = decoder(mu.contiguous())
+            reconstruction = decoder(sample)
             reconstruction = nn.functional.sigmoid(reconstruction)
 
             loss = vae_loss(batch_dense, reconstruction, mu, logvar)

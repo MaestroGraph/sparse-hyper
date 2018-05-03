@@ -305,6 +305,11 @@ if __name__ == "__main__":
                         help="Number of links in the generated graphs.",
                         default=256, type=int)
 
+    parser.add_argument("-e", "--epochs",
+                        dest="epochs",
+                        help="Number of epochs over thegenerated data.",
+                        default=350, type=int)
+
     parser.add_argument("-m", "--model",
                         dest="model",
                         help="Which model to train.",
@@ -380,7 +385,7 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, kpe=options.kpe, bias=options.bias,
+    go(epochs=options.epochs, batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, kpe=options.kpe, bias=options.bias,
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, lambd=options.lambd, subsample=options.subsample,
         fix_values=options.fix_values, min_sigma=options.min_sigma, adaptive_decoder=options.adaptive_decoder,

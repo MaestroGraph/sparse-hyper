@@ -194,7 +194,7 @@ PLOT = True
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False,
        seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False, min_sigma=0.0, adaptive_decoder=False,
-       tb_dir=None, variational_epoch=0):
+       tb_dir=None, variational_epoch=0, zsize=32):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -209,8 +209,6 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
     LOG.info('done.')
 
     if modelname == 'basic':
-
-        zsize = 16
 
         encoder = GraphEncoder(nodes, (zsize * 2,), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
 
@@ -391,6 +389,11 @@ if __name__ == "__main__":
                         help="Data directory",
                         default=None)
 
+    parser.add_argument("-Z", "--zsize",
+                        dest="zsize",
+                        help="Size of the latent vector.",
+                        default=16, type=int)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -400,4 +403,4 @@ if __name__ == "__main__":
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, lambd=options.lambd, subsample=options.subsample,
         fix_values=options.fix_values, min_sigma=options.min_sigma, adaptive_decoder=options.adaptive_decoder,
-        tb_dir=options.tb_dir, variational_epoch=options.variational)
+        tb_dir=options.tb_dir, variational_epoch=options.variational, zsize=options.zsize)

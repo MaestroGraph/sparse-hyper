@@ -170,7 +170,7 @@ def vae_loss(x, x_rec, mu, logvar, variational=True):
     kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     kl = kl / (b * total)
 
-    return xent + (kl if variational else 0.0)
+    return xent + kl
 
 def generate_er(n=128, m=512, num=64):
 

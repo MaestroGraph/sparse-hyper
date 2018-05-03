@@ -194,7 +194,7 @@ PLOT = True
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False,
        seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False, min_sigma=0.0, adaptive_decoder=False,
-       tb_dir=None, variational=True):
+       tb_dir=None, variational_epoch=0):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -234,7 +234,14 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
     step = 0
     iterations = int(math.ceil(SIZE/batch))
 
+    variational = False
+
+
     for epoch in range(epochs):
+
+        if epoch == variational_epoch:
+            variational = True
+
         for i in trange(iterations):
 
             # get the inputs
@@ -344,8 +351,8 @@ if __name__ == "__main__":
                         action="store_false")
 
     parser.add_argument("-V", "--variational", dest="variational",
-                        help="Whether to give the layers biases.",
-                        action="store_true")
+                        help="The epoch at which to start the variational training",
+                        default=0, type=int)
 
     parser.add_argument("-D", "--data", dest="data",
                         help="Data directory",
@@ -393,4 +400,4 @@ if __name__ == "__main__":
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, lambd=options.lambd, subsample=options.subsample,
         fix_values=options.fix_values, min_sigma=options.min_sigma, adaptive_decoder=options.adaptive_decoder,
-        tb_dir=options.tb_dir, variational=options.variational)
+        tb_dir=options.tb_dir, variational_epoch=options.variational)

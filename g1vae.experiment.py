@@ -343,7 +343,7 @@ if __name__ == "__main__":
                         help="Whether to give the layers biases.",
                         action="store_false")
 
-    parser.add_argument("-V", "--variational", dest="",
+    parser.add_argument("-V", "--variational", dest="variational",
                         help="Whether to give the layers biases.",
                         action="store_true")
 

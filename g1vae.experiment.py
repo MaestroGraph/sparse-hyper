@@ -189,7 +189,7 @@ def generate_er(n=128, m=512, num=64):
 
     return dense, sparse
 
-SIZE = 300
+SIZE = 60000
 PLOT = True
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False,

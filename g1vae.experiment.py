@@ -189,7 +189,7 @@ def generate_er(n=128, m=512, num=64):
 
     return dense, sparse
 
-SIZE = 60000
+SIZE = 300
 PLOT = True
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False,
@@ -234,6 +234,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
     variational = False
 
+    sigs_enc, sigs_dec = [], []
 
     for epoch in range(epochs):
 
@@ -292,6 +293,34 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
                 plt.imshow(np.transpose(torchvision.utils.make_grid(reconstruction.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                            interpolation='nearest')
                 plt.savefig('g1vae.{:03d}.output.pdf'.format(epoch))
+
+                sigmas = list(encoder.last_sigmas[0, :])
+                sigs_enc.append(list(sigmas))
+
+                plt.cla()
+
+                for j, s in enumerate(sigs_enc):
+                    plt.plot([j] * len(s), s, linewidth=0, marker='.', alpha=0.2)
+
+                plt.gca().set_aspect('auto')
+                plt.ylim([0, 2.5])
+                util.clean()
+
+                plt.savefig('sigmas.enc.pdf')
+                plt.savefig('sigmas.enc.png')
+
+                sigmas = list(decoder.last_sigmas[0, :])
+                sigs_dec.append(list(sigmas))
+
+                plt.cla()
+                for j, s in enumerate(sigs_dec):
+                    plt.plot([j] * len(s), s, linewidth=0, marker='.', alpha=0.2)
+                plt.ylim([0, 2.5])
+
+                util.clean()
+
+                plt.savefig('sigmas.dec.pdf')
+                plt.savefig('sigmas.dec.png')
 
     LOG.info('Finished Training.')
 

@@ -110,6 +110,10 @@ class GraphDecoder(gaussian.HyperLayer):
     """
     Takes a latent vector as input and decodes to a graph output.
 
+    For each of the k index tuples, we take the input, concatenate it with a length k one hot encoding of the tuple-index
+    and pass it through an MLP.
+
+
     """
 
     def __init__(self, input_size, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False, min_sigma=0.0, subsample=None):
@@ -124,20 +128,18 @@ class GraphDecoder(gaussian.HyperLayer):
         self.out_shape = out_shape
         self.min_sigma = min_sigma
 
-        outsize = k * (1  + len(out_shape) + 2)
-
         activation = nn.ReLU()
 
         hidden = input_size
 
         self.source = nn.Sequential(
-            nn.Linear(input_size, hidden),
+            nn.Linear(input_size + k, hidden),
+            activation,
+            nn.Linear(hidden, hidden),
             activation,
             # nn.Linear(hidden, hidden),
             # activation,
-            # nn.Linear(hidden, hidden),
-            # activation,
-            nn.Linear(hidden, outsize),
+            nn.Linear(hidden, 1  + len(out_shape) + 2),
         )
 
         self.bias = Parameter(torch.zeros(*out_shape))
@@ -149,9 +151,13 @@ class GraphDecoder(gaussian.HyperLayer):
 
         b, n = input.size()
 
-        assert(n == self.n)
+        input = input.unsqueeze(1).expand_as(b, self.k, n)
+        id = torch.eye(self.k).unsqueeze(0).expand_as(b, self.k, self.k)
 
-        res = self.source(input).unsqueeze(2).view(b, self.k, 1 + len(self.out_shape) + 2)
+        input = torch.cat([input, id], dim=1)
+        input = input.view(b * self.k, n + self.k)
+
+        res = self.source(input).unsqueeze(1).view(b, self.k, 1 + len(self.out_shape) + 2)
 
         means, sigmas, values = self.split_out(res, (self.n,), self.out_shape)
         sigmas = sigmas * self.sigma_scale + self.min_sigma

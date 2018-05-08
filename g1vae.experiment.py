@@ -47,7 +47,7 @@ class GraphEncoder(gaussian.HyperLayer):
 
     """
 
-    def __init__(self, nodes, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False, min_sigma=0.0, subsample=None):
+    def __init__(self, nodes, out_shape, k, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
 
         super().__init__(in_rank=2, out_shape=out_shape, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
 
@@ -55,7 +55,7 @@ class GraphEncoder(gaussian.HyperLayer):
 
         self.k = k # the number of index tuples _per edge in the input_
         self.sigma_scale = sigma_scale
-        self.fix_values = fix_values
+        self.num_values = num_values
         self.out_shape= out_shape
         self.min_sigma = min_sigma
 
@@ -83,6 +83,9 @@ class GraphEncoder(gaussian.HyperLayer):
 
         self.bias = Parameter(torch.zeros(*out_shape))
 
+        if num_values > 0:
+            self.values = Parameter(torch.randn((num_values,)))
+
     def forward(self, input):
         dense, sparse = input
 
@@ -101,10 +104,19 @@ class GraphEncoder(gaussian.HyperLayer):
         res = self.source(sparse).unsqueeze(2).view(b, self.k * num_edges, 2 + len(self.out_shape) + 2)
 
         means, sigmas, values = self.split_out(res, (self.n, self.n), self.out_shape)
+
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
-        if self.fix_values:
-            values = values * 0.0 + 1.0
+        if self.num_values > 0:
+            mult = self.k // self.num_values
+
+            values = self.values.unsqueeze(0).expand(mult, self.num_values)
+            values = values.contiguous().view(-1)[:self.k]
+
+            values = values.unsqueeze(0).unsqueeze(0).expand(b, num_edges, self.k)
+            values = values.contiguous().view(b, self.k*num_edges)
+
+        self.last_values = values.data
 
         return means, sigmas, values, self.bias
 
@@ -118,7 +130,7 @@ class GraphDecoder(gaussian.HyperLayer):
 
     """
 
-    def __init__(self, input_size, out_shape, k, additional=0, sigma_scale=0.1, fix_values=False, min_sigma=0.0, subsample=None):
+    def __init__(self, input_size, out_shape, k, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
 
         super().__init__(in_rank=1, out_shape=out_shape, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
 
@@ -126,7 +138,7 @@ class GraphDecoder(gaussian.HyperLayer):
 
         self.k = k
         self.sigma_scale = sigma_scale
-        self.fix_values = fix_values
+        self.num_values = num_values
         self.out_shape = out_shape
         self.min_sigma = min_sigma
 
@@ -145,6 +157,9 @@ class GraphDecoder(gaussian.HyperLayer):
         )
 
         self.bias = Parameter(torch.zeros(*out_shape))
+
+        if num_values > 0:
+            self.values = Parameter(torch.randn((num_values,)))
 
     def hyper(self, input):
         """
@@ -168,8 +183,14 @@ class GraphDecoder(gaussian.HyperLayer):
         means, sigmas, values = self.split_out(res, (self.n,), self.out_shape)
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
-        if self.fix_values:
-            values = values * 0.0 + 1.0
+        if self.num_values > 0:
+            mult = self.k // self.num_values
+            values = self.values.unsqueeze(0).expand(mult, self.num_values)
+            values = values.contiguous().view(-1)[:self.k]
+
+            values = values.unsqueeze(0).expand(b, self.k)
+
+        self.last_values = values.data
 
         return means, sigmas, values, self.bias
 
@@ -201,11 +222,11 @@ def generate_er(n=128, m=512, num=64):
 
     return dense, sparse
 
-SIZE = 60000
+SIZE = 600
 PLOT = True
 
 def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512, modelname='baseline', cuda=False,
-       seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, fix_values=False, min_sigma=0.0, adaptive_decoder=False,
+       seed=1, bias=True, lr=0.001, lambd=0.01, subsample=None, num_values=-1, min_sigma=0.0, adaptive_decoder=False,
        tb_dir=None, variational_epoch=0, zsize=32):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
@@ -222,14 +243,14 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
 
     if modelname == 'basic':
 
-        encoder = GraphEncoder(nodes, (zsize * 2,), k=kpe, additional=additional, subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
+        encoder = GraphEncoder(nodes, (zsize * 2,), k=kpe, additional=additional, subsample=subsample, num_values=num_values, min_sigma=min_sigma)
 
         if adaptive_decoder:
             decoder = GraphDecoder(zsize, SHAPE, k=k, additional=additional,
-                                    subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
+                                    subsample=subsample, num_values=num_values, min_sigma=min_sigma)
         else:
             decoder = gaussian.ParamASHLayer((zsize, ), SHAPE, k=k, additional=additional, has_bias=bias,
-                                    subsample=subsample, fix_values=fix_values, min_sigma=min_sigma)
+                                    subsample=subsample,  min_sigma=min_sigma)
         # decoder = nn.Linear(zsize, util.prod(SHAPE))
 
         if cuda:
@@ -249,7 +270,6 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
     sigs_enc, sigs_dec = [], []
     vals_enc, vals_dec = [], []
 
-    plt.set_cmap(mpl.cm.RdYlBu)
 
     for epoch in range(epochs):
 
@@ -318,7 +338,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
                 ax = plt.figure().add_subplot(111)
 
                 for j, (s, v) in enumerate(zip(sigs_enc, vals_enc)):
-                    ax.scatter([j] * len(s), s, c=v, linewidth=0,  alpha=0.2)
+                    ax.scatter([j] * len(s), s, c=v, linewidth=0,  alpha=0.2, cmap='RdYlBu', vmin=-1.0, vmax=1.0)
 
                 ax.set_aspect('auto')
                 plt.ylim(ymin=0)
@@ -336,7 +356,7 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
                 ax = plt.figure().add_subplot(111)
                 for j, (s, v) in enumerate(zip(sigs_dec, vals_dec)):
 
-                    ax.scatter([j] * len(s), s, c=v, linewidth=0,  alpha=0.2)
+                    ax.scatter([j] * len(s), s, c=v, linewidth=0, alpha=0.2, cmap='RdYlBu', vmin=-1.0, vmax=1.0)
                 plt.ylim(ymin=0)
 
 
@@ -423,9 +443,9 @@ if __name__ == "__main__":
                         help="Sample a subset of the indices to estimate gradients for",
                         default=None, type=float)
 
-    parser.add_argument("-F", "--fix-values", dest="fix_values",
-                        help="Whether to force the values to be 1",
-                        action="store_true")
+    parser.add_argument("-F", "--num-values", dest="num_values",
+                        help="How many fixed values to allow the network",
+                        default=-1, type=int)
 
     parser.add_argument("-A", "--adaptive-decoder",
                         dest="adaptive_decoder",
@@ -454,5 +474,5 @@ if __name__ == "__main__":
     go(epochs=options.epochs, batch=options.batch_size, nodes=options.nodes, links=options.links, k=options.k, kpe=options.kpe, bias=options.bias,
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, lambd=options.lambd, subsample=options.subsample,
-        fix_values=options.fix_values, min_sigma=options.min_sigma, adaptive_decoder=options.adaptive_decoder,
+        num_values=options.num_values, min_sigma=options.min_sigma, adaptive_decoder=options.adaptive_decoder,
         tb_dir=options.tb_dir, variational_epoch=options.variational, zsize=options.zsize)

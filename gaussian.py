@@ -403,13 +403,13 @@ class HyperLayer(nn.Module):
         means = means * sm.expand_as(means)
 
         sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank + 1] + SIGMA_BOOST).squeeze(2) + EPSILON
+
         values = res[:, :, w_rank + 1:].squeeze(2)
 
         self.last_sigmas = sigmas.data
         self.last_values = values.data
 
         sigmas = sigmas.unsqueeze(2).expand_as(means)
-
         sigmas = sigmas * ss.expand_as(sigmas)
 
         return means, sigmas, values

@@ -160,6 +160,10 @@ class GraphDecoder(gaussian.HyperLayer):
             id.cuda()
         id = Variable(id)
 
+        print(type(input), type(input.data))
+        print(type(id), type(id.data))
+
+
         input = torch.cat([input, id], dim=1)
         input = input.view(b * self.k, n + self.k)
 

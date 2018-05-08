@@ -406,6 +406,7 @@ class HyperLayer(nn.Module):
         values = res[:, :, w_rank + 1:].squeeze(2)
 
         self.last_sigmas = sigmas.data
+        self.last_values = values.data
 
         sigmas = sigmas.unsqueeze(2).expand_as(means)
 

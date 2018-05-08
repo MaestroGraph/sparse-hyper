@@ -24,6 +24,8 @@ import networkx as nx
 
 import logging
 
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -241,6 +243,9 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
     variational = False
 
     sigs_enc, sigs_dec = [], []
+    vals_enc, vals_dec = [], []
+
+    plt.set_cmap(mpl.cm.RdYlBu)
 
     for epoch in range(epochs):
 
@@ -301,27 +306,35 @@ def go(nodes=128, links=512, batch=64, epochs=350, k=750, kpe=7, additional=512,
                 plt.savefig('g1vae.{:03d}.output.pdf'.format(epoch))
 
                 sigmas = list(encoder.last_sigmas[0, :])
-                sigs_enc.append(list(sigmas))
+                values = list(encoder.last_values[0, :])
 
-                plt.cla()
+                sigs_enc.append(sigmas)
+                vals_enc.append(values)
 
-                for j, s in enumerate(sigs_enc):
-                    plt.plot([j] * len(s), s, linewidth=0, marker='.', alpha=0.2)
+                ax = plt.figure().add_subplot(111)
 
-                plt.gca().set_aspect('auto')
-                plt.ylim([0, 2.5])
+                for j, (s, v) in enumerate(zip(sigs_enc, vals_enc)):
+                    ax.scatter([j] * len(s), s, c=v, linewidth=0,  alpha=0.2)
+
+                ax.set_aspect('auto')
+                plt.ylim(ymin=0)
                 util.clean()
 
                 plt.savefig('sigmas.enc.pdf')
                 plt.savefig('sigmas.enc.png')
 
                 sigmas = list(decoder.last_sigmas[0, :])
-                sigs_dec.append(list(sigmas))
+                values = list(decoder.last_values[0, :])
 
-                plt.cla()
-                for j, s in enumerate(sigs_dec):
-                    plt.plot([j] * len(s), s, linewidth=0, marker='.', alpha=0.2)
-                plt.ylim([0, 2.5])
+                sigs_dec.append(sigmas)
+                vals_dec.append(values)
+
+                ax = plt.figure().add_subplot(111)
+                for j, (s, v) in enumerate(zip(sigs_dec, vals_dec)):
+
+                    ax.scatter([j] * len(s), s, c=v, linewidth=0,  alpha=0.2)
+                plt.ylim(ymin=0)
+
 
                 util.clean()
 

@@ -154,7 +154,11 @@ class GraphDecoder(gaussian.HyperLayer):
         b, n = input.size()
 
         input = input.unsqueeze(1).expand(b, self.k, n)
-        id = Variable(torch.eye(self.k).unsqueeze(0).expand(b, self.k, self.k))
+
+        id = torch.eye(self.k).unsqueeze(0).expand(b, self.k, self.k)
+        if input.is_cuda:
+            id.cuda()
+        id = Variable(id)
 
         input = torch.cat([input, id], dim=1)
         input = input.view(b * self.k, n + self.k)

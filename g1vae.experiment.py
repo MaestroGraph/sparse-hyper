@@ -124,7 +124,7 @@ class GraphDecoder(gaussian.HyperLayer):
 
         self.n = input_size
 
-        self.k = k # the number of index tuples _per edge in the input_
+        self.k = k
         self.sigma_scale = sigma_scale
         self.fix_values = fix_values
         self.out_shape = out_shape
@@ -153,8 +153,8 @@ class GraphDecoder(gaussian.HyperLayer):
 
         b, n = input.size()
 
-        input = input.unsqueeze(1).expand_as(b, self.k, n)
-        id = torch.eye(self.k).unsqueeze(0).expand_as(b, self.k, self.k)
+        input = input.unsqueeze(1).expand(b, self.k, n)
+        id = Variable(torch.eye(self.k).unsqueeze(0).expand(b, self.k, self.k))
 
         input = torch.cat([input, id], dim=1)
         input = input.view(b * self.k, n + self.k)

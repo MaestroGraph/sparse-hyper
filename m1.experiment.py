@@ -235,7 +235,7 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
                 plt.xlim((-0.1 * 27, 27 * 1.1))
                 plt.ylim((-0.1 * 27, 27 * 1.1))
 
-                plt.savefig('./mnist1d/means{:04}.png'.format(i))
+                plt.savefig('./mnist1d/means{:04}.png'.format(epoch))
 
                 sigmas = list(hyperlayer.last_sigmas[0, :])
                 values = list(hyperlayer.last_values[0, :])

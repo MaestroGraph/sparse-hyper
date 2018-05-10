@@ -171,6 +171,9 @@ class ConvLayer(gaussian.HyperLayer):
         b, _ = input.size()
         k, _ = self.nasval.size()
 
+        print(type(self.nasind), type(self.nasval), type(self.nassig))
+        print(type(self.nasind.data), type(self.nasval.data), type(self.nassig.data))
+
         nas = torch.cat([self.nasind, self.nasval, self.nassig], dim=1)
         res = nas.unsqueeze(0).expand(b, k, 4)
 

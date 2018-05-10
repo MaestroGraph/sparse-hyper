@@ -57,7 +57,6 @@ class MNISTLayer(gaussian.HyperLayer):
 
         outsize = k * 4
 
-
         if self.adaptive:
             activation = nn.ReLU()
 
@@ -162,8 +161,6 @@ class ConvLayer(gaussian.HyperLayer):
 
         self.nassig = Parameter(torch.ones(3 * 28 - 2, 1))
 
-        self.nas = torch.cat([self.nasind, self.nasval, self.nassig], dim=1)
-
         self.bias = Parameter(torch.zeros(out))
 
     def hyper(self, input):
@@ -174,7 +171,8 @@ class ConvLayer(gaussian.HyperLayer):
         b, _ = input.size()
         k, _ = self.nas.size()
 
-        res = self.nas.unsqueeze(0).expand(b, k, 4)
+        nas = torch.cat([self.nasind, self.nasval, self.nassig], dim=1)
+        res = nas.unsqueeze(0).expand(b, k, 4)
 
         means, sigmas, values = self.split_out(res, (28,), (self.out,))
 

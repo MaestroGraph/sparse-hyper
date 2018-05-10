@@ -33,24 +33,27 @@ fh = logging.FileHandler('ash.log')
 fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
-def inv(i):
-    sc = (i/27) * 0.9999 + 0.00005
+def inv(i, max):
+    sc = (i/max) * 0.99 + 0.005
     return logit(sc)
 
 def sigmoid(x):
   return 1 / (1 + math.exp(-x))
 
-class MNISTLayer(gaussian.HyperLayer):
+class ImageLayer(gaussian.HyperLayer):
     """
     Simple hyperlayer for the 1D MNIST experiment
 
     NB: k is the number of tuples _per hidden node_.
     """
 
-    def __init__(self, k, adaptive=True, out=28, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
+    def __init__(self, in_size, out, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
 
-        super().__init__(in_rank=1, out_shape=(out,), additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
+        super().__init__(in_rank=3, out_shape=(out,), additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
 
+        assert(len(in_size) == 3)
+
+        self.in_size = in_size
         self.k = k
         self.sigma_scale = sigma_scale
         self.num_values = num_values
@@ -58,34 +61,29 @@ class MNISTLayer(gaussian.HyperLayer):
         self.out=out
         self.adaptive = adaptive
 
-        outsize = k * out * 3
+        outsize = k * out * 5
 
-        out_indices =inv(torch.FloatTensor(range(out)).unsqueeze(0).expand(k, out).contiguous().view(-1))
+        out_indices =inv(torch.FloatTensor(range(out)).unsqueeze(0).expand(k, out).contiguous().view(-1), out)
         self.register_buffer('out_indices', out_indices)
 
         if self.adaptive:
             activation = nn.ReLU()
 
-            hidden = 14
+            hidden = 64
 
             self.source = nn.Sequential(
-                nn.Linear(28, hidden), # graph edges in 1-hot encoding
-                # activation,
-                # nn.Linear(hidden, hidden),
-                # activation,
-                # nn.Linear(hidden, hidden),
-                # activation,
-                # nn.Linear(hidden, hidden),
-                # activation,
-                # nn.Linear(hidden, hidden),
-                # activation,
-                # nn.Linear(hidden, hidden),
+                util.Flatten(),
+                nn.Linear(prod(in_size), hidden), # graph edges in 1-hot encoding
+                activation,
+                nn.Linear(hidden, hidden),
+                activation,
+                nn.Linear(hidden, hidden),
                 activation,
                 nn.Linear(hidden, outsize),
             )
 
         else:
-            self.nas = Parameter(torch.randn(self.k * out, 3))
+            self.nas = Parameter(torch.randn(self.k * out, 5))
 
         self.bias = Parameter(torch.zeros(out))
 
@@ -97,19 +95,19 @@ class MNISTLayer(gaussian.HyperLayer):
         Evaluates hypernetwork.
         """
 
-        b, _ = input.size()
+        b, c, w, h = input.size()
         l, = self.out_indices.size()
 
         outs = Variable(self.out_indices.unsqueeze(0).expand(b, l).unsqueeze(2))
 
         if self.adaptive:
-            res = self.source(input).unsqueeze(2).view(b, l , 3)
+            res = self.source(input).unsqueeze(2).view(b, l , 5)
         else:
-            res = self.nas.unsqueeze(0).expand(b, l, 3)
+            res = self.nas.unsqueeze(0).expand(b, l, 5)
 
         res = torch.cat([outs, res], dim=2)
 
-        means, sigmas, values = self.split_out(res, (28,), (self.out,))
+        means, sigmas, values = self.split_out(res, self.in_size, (self.out,))
 
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
@@ -125,74 +123,12 @@ class MNISTLayer(gaussian.HyperLayer):
 
         return means, sigmas, values, self.bias
 
-class ConvLayer(gaussian.HyperLayer):
-    """
-   Simple hyperlayer for the 1D MNIST experiment
-
-    """
-    def __init__(self, kernel_size=3, out=28, additional=0, sigma_scale=0.1, min_sigma=0.0, subsample=None):
-
-        super().__init__(in_rank=1, out_shape=(out,), additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
-
-        # ignored for now
-        self.kernel_size = kernel_size
-
-        self.sigma_scale = sigma_scale
-        self.min_sigma = min_sigma
-        self.out=out
-
-        outsize = (3 * 28 - 2) * 4
-
-        self.nasind = torch.zeros(3 * 28 - 2, 2)
-
-        index = 0
-        for i in range(28):
-            if  i > 0:
-                self.nasind[index, :] = torch.FloatTensor([inv(i), inv(i-1)])
-                index += 1
-
-            self.nasind[index, :]     = torch.FloatTensor([inv(i), inv(i)])
-            index += 1
-
-            if i < 27:
-                self.nasind[index, :] = torch.FloatTensor([inv(i), inv(i+1)])
-                index += 1
-
-        self.nasind = Parameter(self.nasind)
-
-        self.values = Parameter(torch.randn((3,)))
-
-        self.nassig = Parameter(torch.ones(3 * 28 - 2, 1))
-
-        self.bias = Parameter(torch.zeros(out))
-
-    def hyper(self, input):
-        """
-        Evaluates hypernetwork.
-        """
-
-        b, _ = input.size()
-        k, _ = self.nasind.size()
-
-        nasval = self.values.unsqueeze(0).expand(28, 3).contiguous().view(-1, 1)[1:-1, :]
-
-        nas = torch.cat([self.nasind, self.nassig, nasval], dim=1)
-        res = nas.unsqueeze(0).expand(b, k, 4)
-
-        means, sigmas, values = self.split_out(res, (28,), (self.out,))
-
-        sigmas = sigmas * self.sigma_scale + self.min_sigma
-
-        self.last_values = values.data
-
-        return means, sigmas, values, self.bias
-
 PLOT = True
 COLUMN = 13
 
-def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=False,
+def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
-       tb_dir=None, data='./data', hidden=28):
+       tb_dir=None, data='./data', hidden=32, task='mnist'):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -200,11 +136,20 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
 
     w = SummaryWriter(log_dir=tb_dir)
 
-    normalize = transforms.Compose([transforms.ToTensor()])
-    train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
-    trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
-    test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
-    testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
+    if(task=='mnist'):
+
+        normalize = transforms.Compose([transforms.ToTensor()])
+        train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
+        trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
+        test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
+        testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
+
+        shape = (1, 28, 28)
+        num_classes = 10
+
+    else:
+        raise Exception('Task name {} not recognized'.format(task))
+
 
     activation = nn.ReLU()
 
@@ -213,76 +158,32 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
     if modelname == 'baseline':
 
         model = nn.Sequential(
-            nn.Linear(28, hidden),
+            util.Flatten(),
+            nn.Linear(prod(shape), hidden),
             activation,
-            nn.Linear(hidden, 10),
-            nn.Softmax())
-
-    elif modelname == 'baseline-conv':
-
-        model = nn.Sequential(
-            util.Lambda(lambda x : x.unsqueeze(1)),
-            nn.Conv1d(1, 1, kernel_size=3, padding=1),
-            util.Lambda(lambda x : x.squeeze(1)),
-            activation,
-            nn.Linear(hidden, 10),
-            nn.Softmax())
-
-    elif modelname == 'baseline-conv3':
-
-        model = nn.Sequential(
-            util.Lambda(lambda x : x.unsqueeze(1)),
-            nn.Conv1d(1, 1, kernel_size=3, padding=1),
-            nn.Conv1d(1, 1, kernel_size=3, padding=1),
-            util.Lambda(lambda x : x.squeeze(1)),
-            activation,
-            nn.Linear(hidden, 10),
-            nn.Softmax())
-
-    elif modelname == 'conv3':
-
-        hyperlayer = ConvLayer(additional=additional, min_sigma=min_sigma, subsample=subsample)
-
-        model = nn.Sequential(
-            hyperlayer,
-            util.Lambda(lambda x: x.unsqueeze(1)),
-            nn.Conv1d(1, 1, kernel_size=3, padding=1),
-            # nn.Conv1d(1, 1, kernel_size=3, padding=1),
-            util.Lambda(lambda x: x.squeeze(1)),
-            activation,
-            nn.Linear(28, 10),
-            nn.Softmax())
-
-    elif modelname == 'conv':
-
-        hyperlayer = ConvLayer(additional=additional, min_sigma=min_sigma, subsample=subsample)
-
-        model = nn.Sequential(
-            hyperlayer,
-            activation,
-            nn.Linear(28, 10),
+            nn.Linear(hidden, num_classes),
             nn.Softmax())
 
     elif modelname == 'ash':
 
-        hyperlayer = MNISTLayer(k, out=hidden, adaptive=True, additional=additional, num_values=num_values,
+        hyperlayer = ImageLayer(shape, out=hidden, k=k, adaptive=True, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample)
 
         model = nn.Sequential(
             hyperlayer,
             activation,
-            nn.Linear(28, 10),
+            nn.Linear(hidden, num_classes),
             nn.Softmax())
 
     elif modelname == 'nas':
 
-        hyperlayer = MNISTLayer(k, out=hidden, adaptive=False, additional=additional, num_values=num_values,
+        hyperlayer = ImageLayer(shape, out=hidden, k=k,  adaptive=False, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample)
 
         model = nn.Sequential(
             hyperlayer,
             activation,
-            nn.Linear(28, 10),
+            nn.Linear(hidden, num_classes),
             nn.Softmax())
     else:
         raise Exception('Model name {} not recognized'.format(modelname))
@@ -301,14 +202,7 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
 
     sigs, vals = [], []
 
-    normalize = transforms.Compose([transforms.ToTensor()])
-    train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
-    trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
-    test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
-    testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
-
     util.makedirs('./mnist1d/')
-
 
     for epoch in range(epochs):
 
@@ -316,9 +210,6 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
 
             # get the inputs
             inputs, labels = data
-
-            inputs = inputs.squeeze(1) # rm channel dim
-            inputs = inputs[:, :, COLUMN].contiguous()
 
             if cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
@@ -345,16 +236,6 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
             step += inputs.size()[0]
 
             if PLOT and i == 0 and hyperlayer is not None:
-                plt.figure(figsize=(7, 7))
-
-                means, sigmas, values, _ = hyperlayer.hyper(inputs)
-
-                plt.cla()
-                util.plot(means, sigmas, values, shape=(28, hidden))
-                plt.xlim((-0.1 * 27, 27 * 1.1))
-                plt.ylim((-0.1 * 27, 27 * 1.1))
-
-                plt.savefig('./mnist1d/means{:04}.png'.format(epoch))
 
                 sigmas = list(hyperlayer.last_sigmas[0, :])
                 values = list(hyperlayer.last_values[0, :])
@@ -381,9 +262,6 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
 
             # get the inputs
             inputs, labels = data
-
-            inputs = inputs.squeeze(1)  # rm channel dim
-            inputs = inputs[:, :, COLUMN].contiguous()
 
             if cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
@@ -426,7 +304,7 @@ if __name__ == "__main__":
     parser.add_argument("-k", "--num-points",
                         dest="k",
                         help="Number of index tuples in the decoder layer",
-                        default=28, type=int)
+                        default=3, type=int)
 
     parser.add_argument("-a", "--additional",
                         dest="additional",
@@ -464,6 +342,10 @@ if __name__ == "__main__":
                         help="Data directory",
                         default=None)
 
+    parser.add_argument("-t", "--task", dest="task",
+                        help="Task (mnist, cifar10, cifar100)",
+                        default='mnist')
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -473,4 +355,4 @@ if __name__ == "__main__":
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, subsample=options.subsample,
         num_values=options.num_values, min_sigma=options.min_sigma,
-        tb_dir=options.tb_dir, data=options.data)
+        tb_dir=options.tb_dir, data=options.data, task=options.task)

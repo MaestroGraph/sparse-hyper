@@ -388,3 +388,11 @@ def logit(x):
     if type(x) == float:
         return math.log(x / (1 - x))
     return torch.log(x/ (1 - x))
+
+
+def inv(i):
+    sc = (i/27) * 0.9999 + 0.00005
+    return logit(sc)
+
+def sigmoid(x):
+  return 1 / (1 + math.exp(-x))

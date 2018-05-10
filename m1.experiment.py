@@ -157,7 +157,6 @@ class ConvLayer(gaussian.HyperLayer):
         self.nasind = Parameter(self.nasind)
 
         self.values = Parameter(torch.randn((3,)))
-        self.nasval = self.values.unsqueeze(0).expand(28, 3).contiguous().view(-1, 1)[1:-1, :]
 
         self.nassig = Parameter(torch.ones(3 * 28 - 2, 1))
 
@@ -169,12 +168,11 @@ class ConvLayer(gaussian.HyperLayer):
         """
 
         b, _ = input.size()
-        k, _ = self.nasval.size()
+        k, _ = self.nasind.size()
 
-        print(type(self.nasind), type(self.nasval), type(self.nassig))
-        print(type(self.nasind.data), type(self.nasval.data), type(self.nassig.data))
+        nasval = self.values.unsqueeze(0).expand(28, 3).contiguous().view(-1, 1)[1:-1, :]
 
-        nas = torch.cat([self.nasind, self.nasval, self.nassig], dim=1)
+        nas = torch.cat([self.nasind, nasval, self.nassig], dim=1)
         res = nas.unsqueeze(0).expand(b, k, 4)
 
         means, sigmas, values = self.split_out(res, (28,), (self.out,))

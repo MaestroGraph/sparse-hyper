@@ -90,7 +90,7 @@ class MNISTLayer(gaussian.HyperLayer):
             )
 
         else:
-            self.nas = Variable(torch.randn(self.k * out, 3))
+            self.nas = Parameter(torch.randn(self.k * out, 3))
 
         self.bias = Parameter(torch.zeros(out))
 
@@ -106,8 +106,6 @@ class MNISTLayer(gaussian.HyperLayer):
         l, = self.out_indices.size()
 
         outs = Variable(self.out_indices.unsqueeze(0).expand(b, l).unsqueeze(2))
-
-        print(type(outs), type(outs.data))
 
         if self.adaptive:
             res = self.source(input).unsqueeze(2).view(b, l , 3)

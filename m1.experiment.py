@@ -65,8 +65,8 @@ class MNISTLayer(gaussian.HyperLayer):
 
         outsize = k * out * 3
 
-        outs = torch.FloatTensor(range(out)).unsqueeze(0).expand(k, out).contiguous().view(-1)
-        self.out_indices = Variable(inv(outs))
+        out_indices =inv(torch.FloatTensor(range(out)).unsqueeze(0).expand(k, out).contiguous().view(-1))
+        self.register_buffer('out_indices', out_indices)
 
         if self.adaptive:
             activation = nn.ReLU()
@@ -104,7 +104,8 @@ class MNISTLayer(gaussian.HyperLayer):
 
         b, _ = input.size()
         l, = self.out_indices.size()
-        outs = self.out_indices.unsqueeze(0).expand(b, l).unsqueeze(2)
+
+        outs = Variable(self.out_indices.unsqueeze(0).expand(b, l).unsqueeze(2))
 
         if self.adaptive:
             res = self.source(input).unsqueeze(2).view(b, l , 3)

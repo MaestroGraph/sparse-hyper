@@ -384,7 +384,5 @@ def count_params(model):
 
     return sum
 
-
-
-
-
+def logit(x):
+    return math.log(x / (1 - x))

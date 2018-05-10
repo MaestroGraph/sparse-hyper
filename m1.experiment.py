@@ -16,7 +16,7 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 
-from util import od, prod
+from util import od, prod, logit
 
 from argparse import ArgumentParser
 
@@ -115,6 +115,75 @@ class MNISTLayer(gaussian.HyperLayer):
 
         return means, sigmas, values, self.bias
 
+def inv(i):
+    sc = (i/27) * 0.9999 + 0.00005
+    return logit(sc)
+
+def sigmoid(x):
+  return 1 / (1 + math.exp(-x))
+
+class ConvLayer(gaussian.HyperLayer):
+    """
+   Simple hyperlayer for the 1D MNIST experiment
+
+    """
+    def __init__(self, kernel_size=3, out=28, additional=0, sigma_scale=0.1, min_sigma=0.0, subsample=None):
+
+        super().__init__(in_rank=1, out_shape=(out,), additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
+
+        # ignored for now
+        self.kernel_size = kernel_size
+
+        self.sigma_scale = sigma_scale
+        self.min_sigma = min_sigma
+        self.out=out
+
+        outsize = (3 * 28 - 2) * 4
+
+        self.nasind = torch.zeros(3 * 28 - 2, 2)
+
+        index = 0
+        for i in range(28):
+            if  i > 0:
+                self.nasind[index, :] = torch.FloatTensor([inv(i), inv(i-1)])
+                index += 1
+
+            self.nasind[index, :]     = torch.FloatTensor([inv(i), inv(i)])
+            index += 1
+
+            if i < 27:
+                self.nasind[index, :] = torch.FloatTensor([inv(i), inv(i+1)])
+                index += 1
+
+        self.nasind = Parameter(self.nasind)
+
+        self.values = Parameter(torch.randn((3,)))
+        self.nasval = self.values.unsqueeze(0).expand(28, 3).contiguous().view(-1, 1)[1:-1, :]
+
+        self.nassig = Parameter(torch.ones(3 * 28 - 2, 1))
+
+        self.nas = torch.cat([self.nasind, self.nasval, self.nassig], dim=1)
+
+        self.bias = Parameter(torch.zeros(out))
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+
+        b, _ = input.size()
+        k, _ = self.nas.size()
+
+        res = self.nas.unsqueeze(0).expand(b, k, 4)
+
+        means, sigmas, values = self.split_out(res, (28,), (self.out,))
+
+        sigmas = sigmas * self.sigma_scale + self.min_sigma
+
+        self.last_values = values.data
+
+        return means, sigmas, values, self.bias
+
 PLOT = True
 COLUMN = 13
 
@@ -144,6 +213,26 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
             nn.Linear(28, hidden),
             activation,
             nn.Linear(hidden, 10),
+            nn.Softmax())
+
+    elif modelname == 'baseline-conv':
+
+        model = nn.Sequential(
+            util.Lambda(lambda x : x.unsqueeze(1)),
+            nn.Conv1d(1, 1, kernel_size=3, padding=1),
+            util.Lambda(lambda x : x.squeeze(1)),
+            activation,
+            nn.Linear(hidden, 10),
+            nn.Softmax())
+
+    elif modelname == 'conv':
+
+        hyperlayer = ConvLayer(additional=additional, min_sigma=min_sigma, subsample=subsample)
+
+        model = nn.Sequential(
+            hyperlayer,
+            activation,
+            nn.Linear(28, 10),
             nn.Softmax())
 
     elif modelname == 'ash':

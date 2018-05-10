@@ -38,24 +38,35 @@ Graph experiment
 
 """
 
+def inv(i):
+    sc = (i/27) * 0.9999 + 0.00005
+    return logit(sc)
+
+def sigmoid(x):
+  return 1 / (1 + math.exp(-x))
+
 class MNISTLayer(gaussian.HyperLayer):
     """
-   Simple hyperlayer for the 1D MNIST experiment
+    Simple hyperlayer for the 1D MNIST experiment
 
+    NB: k is the number of tuples _per hidden node_.
     """
 
     def __init__(self, k, adaptive=True, out=28, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
 
         super().__init__(in_rank=1, out_shape=(out,), additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
 
-        self.k = k # the number of index tuples _per edge in the input_
+        self.k = k
         self.sigma_scale = sigma_scale
         self.num_values = num_values
         self.min_sigma = min_sigma
         self.out=out
         self.adaptive = adaptive
 
-        outsize = k * 4
+        outsize = k * out * 3
+
+        outs = torch.FloatTensor(range(out)).unsqueeze(0).expand(k, out).contiguous().view(-1)
+        self.out_indices = Variable(inv(outs))
 
         if self.adaptive:
             activation = nn.ReLU()
@@ -79,7 +90,7 @@ class MNISTLayer(gaussian.HyperLayer):
             )
 
         else:
-            self.nas = Parameter(torch.randn(self.k, 4))
+            self.nas = Variable(torch.randn(self.k * out, 3))
 
         self.bias = Parameter(torch.zeros(out))
 
@@ -92,11 +103,15 @@ class MNISTLayer(gaussian.HyperLayer):
         """
 
         b, _ = input.size()
+        l, = self.out_indices.size()
+        outs = self.out_indices.unsqueeze(0).expand(b, l).unsqueeze(2)
 
         if self.adaptive:
-            res = self.source(input).unsqueeze(2).view(b, self.k , 4)
+            res = self.source(input).unsqueeze(2).view(b, l , 3)
         else:
-            res = self.nas.unsqueeze(0).expand(b, self.k, 4)
+            res = self.nas.unsqueeze(0).expand(b, l, 3)
+
+        res = torch.cat([outs, res], dim=2)
 
         means, sigmas, values = self.split_out(res, (28,), (self.out,))
 
@@ -113,13 +128,6 @@ class MNISTLayer(gaussian.HyperLayer):
         self.last_values = values.data
 
         return means, sigmas, values, self.bias
-
-def inv(i):
-    sc = (i/27) * 0.9999 + 0.00005
-    return logit(sc)
-
-def sigmoid(x):
-  return 1 / (1 + math.exp(-x))
 
 class ConvLayer(gaussian.HyperLayer):
     """

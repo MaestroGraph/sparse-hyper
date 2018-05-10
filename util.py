@@ -385,4 +385,6 @@ def count_params(model):
     return sum
 
 def logit(x):
-    return math.log(x / (1 - x))
+    if type(x) == float:
+        return math.log(x / (1 - x))
+    return torch.log(x/ (1 - x))

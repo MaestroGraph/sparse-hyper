@@ -230,7 +230,6 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
             util.Lambda(lambda x : x.unsqueeze(1)),
             nn.Conv1d(1, 1, kernel_size=3, padding=1),
             nn.Conv1d(1, 1, kernel_size=3, padding=1),
-            nn.Conv1d(1, 1, kernel_size=3, padding=1),
             util.Lambda(lambda x : x.squeeze(1)),
             activation,
             nn.Linear(hidden, 10),
@@ -244,7 +243,7 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
             hyperlayer,
             util.Lambda(lambda x: x.unsqueeze(1)),
             nn.Conv1d(1, 1, kernel_size=3, padding=1),
-            nn.Conv1d(1, 1, kernel_size=3, padding=1),
+            # nn.Conv1d(1, 1, kernel_size=3, padding=1),
             util.Lambda(lambda x: x.squeeze(1)),
             activation,
             nn.Linear(28, 10),
@@ -332,6 +331,8 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
             t0 = time.time()
             loss.backward()  # compute the gradients
             logging.info('backward: {} seconds'.format(time.time() - t0))
+
+            # print(hyperlayer.values, hyperlayer.values.grad)
 
             optimizer.step()
 

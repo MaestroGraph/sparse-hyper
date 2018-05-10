@@ -172,7 +172,7 @@ class ConvLayer(gaussian.HyperLayer):
 
         nasval = self.values.unsqueeze(0).expand(28, 3).contiguous().view(-1, 1)[1:-1, :]
 
-        nas = torch.cat([self.nasind, nasval, self.nassig], dim=1)
+        nas = torch.cat([self.nasind, self.nassig, nasval], dim=1)
         res = nas.unsqueeze(0).expand(b, k, 4)
 
         means, sigmas, values = self.split_out(res, (28,), (self.out,))
@@ -442,4 +442,4 @@ if __name__ == "__main__":
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, subsample=options.subsample,
         num_values=options.num_values, min_sigma=options.min_sigma,
-        tb_dir=options.tb_dir, )
+        tb_dir=options.tb_dir, data=options.data)

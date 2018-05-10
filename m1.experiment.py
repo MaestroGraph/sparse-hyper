@@ -107,6 +107,8 @@ class MNISTLayer(gaussian.HyperLayer):
 
         outs = Variable(self.out_indices.unsqueeze(0).expand(b, l).unsqueeze(2))
 
+        print(type(outs), type(outs.data))
+
         if self.adaptive:
             res = self.source(input).unsqueeze(2).view(b, l , 3)
         else:

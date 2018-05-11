@@ -243,6 +243,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             nn.Conv2d(64, 128, kernel_size=5, padding=2), activation,
             nn.MaxPool2d(kernel_size=2),
             util.Flatten(),
+            nn.Dropout(0.5),
             nn.Linear(fin, num_classes),
             nn.Softmax())
 

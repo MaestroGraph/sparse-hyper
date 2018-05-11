@@ -221,16 +221,16 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     if modelname == 'baseline-conv':
 
-        fin = (shape[1]//4) * (shape[2]//4) * 16
+        fin = (shape[1]//16) * (shape[2]//16) * 128
 
         model = nn.Sequential(
-            nn.Conv2d(shape[0], 8, kernel_size=5, padding=2), activation,
-            nn.Conv2d(8, 8, kernel_size=5, padding=2), activation,
-            nn.Conv2d(8, 8, kernel_size=5, padding=2), activation,
+            nn.Conv2d(shape[0], 16, kernel_size=5, padding=2), activation,
             nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(8, 16, kernel_size=5, padding=2), activation,
-            nn.Conv2d(16, 16, kernel_size=5, padding=2), activation,
-            nn.Conv2d(16, 16, kernel_size=5, padding=2), activation,
+            nn.Conv2d(16, 32, kernel_size=5, padding=2), activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(32, 64, kernel_size=5, padding=2), activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(64, 128, kernel_size=5, padding=2), activation,
             nn.MaxPool2d(kernel_size=2),
             util.Flatten(),
             nn.Linear(fin, num_classes),

@@ -66,16 +66,31 @@ class ImageLayer(gaussian.HyperLayer):
 
 
         out_indices = torch.FloatTensor(list(np.ndindex(out_size)))
-        out_indices = inv(out_indices, torch.FloatTensor(out_size).unsqueeze(0).expand_as(out_indices))
 
         out_indices = out_indices.unsqueeze(1).expand(prod(out_size), k, len(out_size))
         out_indices = out_indices.contiguous().view(prod(out_size) * k, len(out_size))
 
-        self.register_buffer('out_indices', out_indices)
-
         print(out_indices.size()[0], ' index tuples')
 
         outsize = k * prod(out_size) * 5
+
+        # one-hot matrix for the inputs to the hypernetwork
+        one_hots = torch.zeros(out_indices.size()[0], sum(out_size) + k)
+        for r in range(out_indices.size()[0]):
+
+            min = 0
+            for i in range(len(out_size)):
+                one_hots[r, min + int(out_indices[r, i])] = 1
+                min += out_size[i]
+
+            one_hots[r, min + r % k] = 1
+            # print(out_indices[r, :], out_size)
+            # print(one_hots[r, :])
+
+        # convert out_indices to float values that return the correct indices when sigmoided.
+        out_indices = inv(out_indices, torch.FloatTensor(out_size).unsqueeze(0).expand_as(out_indices))
+        self.register_buffer('out_indices', out_indices)
+        self.register_buffer('one_hots', one_hots)
 
         if self.adaptive:
             activation = nn.ReLU()
@@ -83,14 +98,13 @@ class ImageLayer(gaussian.HyperLayer):
             hidden = 64
 
             self.source = nn.Sequential(
-                util.Flatten(),
-                nn.Linear(prod(in_size), hidden), # graph edges in 1-hot encoding
+                nn.Linear(prod(in_size) + sum(out_size) + k, hidden), # input + output index (one hots) + k (one hot)
                 activation,
                 nn.Linear(hidden, hidden),
                 activation,
                 nn.Linear(hidden, hidden),
                 activation,
-                nn.Linear(hidden, outsize),
+                nn.Linear(hidden, 5),
             )
 
         else:
@@ -107,12 +121,19 @@ class ImageLayer(gaussian.HyperLayer):
         """
 
         b, c, w, h = input.size()
-        l, d = self.out_indices.size() # prod(out_shape) * k
+        l, d  = self.out_indices.size() # prod(out_shape) * k
+        _, dh = self.one_hots.size()
 
         outs = Variable(self.out_indices.unsqueeze(0).expand(b, l, d))
+        hots = Variable(self.one_hots.unsqueeze(0).expand(b, l, dh))
 
         if self.adaptive:
-            res = self.source(input).unsqueeze(2).view(b, l , 5)
+            input = input.view(b, 1, -1).expand(b, l, c*w*h)
+            input = torch.cat([input, hots], dim=2)
+
+            input = input.view(b*l, -1)
+
+            res = self.source(input).view(b, l , 5)
         else:
             res = self.nas.unsqueeze(0).expand(b, l, 5)
 
@@ -249,7 +270,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     elif modelname == 'ash':
 
-        hyperlayer = ImageLayer(shape, out=hidden, k=k, adaptive=True, additional=additional, num_values=num_values,
+        hyperlayer = ImageLayer(shape, out_size=(hidden,), k=k, adaptive=True, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample)
 
         model = nn.Sequential(
@@ -260,7 +281,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     elif modelname == 'nas':
 
-        hyperlayer = ImageLayer(shape, out=hidden, k=k,  adaptive=False, additional=additional, num_values=num_values,
+        hyperlayer = ImageLayer(shape, out_size=(hidden,), k=k,  adaptive=False, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample)
 
         model = nn.Sequential(

@@ -35,11 +35,13 @@ fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
 def inv(i, max):
-    sc = (i/max) * 0.99 + 0.005
+    sc = (i/max) * 0.999 + 0.0005
     return logit(sc)
 
 def sigmoid(x):
-  return 1 / (1 + math.exp(-x))
+    if type(x) == float:
+        return 1 / (1 + math.exp(-x))
+    return 1 / (1 + torch.exp(-x))
 
 class ImageLayer(gaussian.HyperLayer):
     """
@@ -48,9 +50,9 @@ class ImageLayer(gaussian.HyperLayer):
     NB: k is the number of tuples _per hidden node_.
     """
 
-    def __init__(self, in_size, out, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
+    def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
 
-        super().__init__(in_rank=3, out_shape=(out,), additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
+        super().__init__(in_rank=3, out_shape=out_size, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
 
         assert(len(in_size) == 3)
 
@@ -59,13 +61,21 @@ class ImageLayer(gaussian.HyperLayer):
         self.sigma_scale = sigma_scale
         self.num_values = num_values
         self.min_sigma = min_sigma
-        self.out=out
+        self.out_size = out_size
         self.adaptive = adaptive
 
-        outsize = k * out * 5
 
-        out_indices =inv(torch.FloatTensor(range(out)).unsqueeze(0).expand(k, out).contiguous().view(-1), out)
+        out_indices = torch.FloatTensor(list(np.ndindex(out_size)))
+        out_indices = inv(out_indices, torch.FloatTensor(out_size).unsqueeze(0).expand_as(out_indices))
+
+        out_indices = out_indices.unsqueeze(1).expand(prod(out_size), k, len(out_size))
+        out_indices = out_indices.contiguous().view(prod(out_size) * k, len(out_size))
+
         self.register_buffer('out_indices', out_indices)
+
+        print(out_indices.size()[0], ' index tuples')
+
+        outsize = k * prod(out_size) * 5
 
         if self.adaptive:
             activation = nn.ReLU()
@@ -84,9 +94,9 @@ class ImageLayer(gaussian.HyperLayer):
             )
 
         else:
-            self.nas = Parameter(torch.randn(self.k * out, 5))
+            self.nas = Parameter(torch.randn(self.k * prod(out_size), 5))
 
-        self.bias = Parameter(torch.zeros(out))
+        self.bias = Parameter(torch.zeros(*out_size))
 
         if num_values > 0:
             self.values = Parameter(torch.randn((num_values,)))
@@ -97,9 +107,9 @@ class ImageLayer(gaussian.HyperLayer):
         """
 
         b, c, w, h = input.size()
-        l, = self.out_indices.size()
+        l, d = self.out_indices.size() # prod(out_shape) * k
 
-        outs = Variable(self.out_indices.unsqueeze(0).expand(b, l).unsqueeze(2))
+        outs = Variable(self.out_indices.unsqueeze(0).expand(b, l, d))
 
         if self.adaptive:
             res = self.source(input).unsqueeze(2).view(b, l , 5)
@@ -108,7 +118,7 @@ class ImageLayer(gaussian.HyperLayer):
 
         res = torch.cat([outs, res], dim=2)
 
-        means, sigmas, values = self.split_out(res, self.in_size, (self.out,))
+        means, sigmas, values = self.split_out(res, self.in_size, self.out_size)
 
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
@@ -257,6 +267,37 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             activation,
             nn.Linear(hidden, num_classes),
             nn.Softmax())
+
+    elif modelname == 'nas-conv':
+        ch = 3
+
+        hyperlayer = ImageLayer(shape, out_size=(ch, 4, 4), k=k, adaptive=False, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample)
+
+        model = nn.Sequential(
+            hyperlayer,
+            activation,
+            nn.Conv2d(ch, 128, kernel_size=5, padding=2), activation,
+            nn.MaxPool2d(kernel_size=2),
+            util.Flatten(),
+            nn.Linear(128 * 2 * 2, num_classes),
+            nn.Softmax())
+
+    elif modelname == 'ash-conv':
+        ch = 3
+
+        hyperlayer = ImageLayer(shape, out_size=(ch, 4, 4), k=k, adaptive=False, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample)
+
+        model = nn.Sequential(
+            hyperlayer,
+            activation,
+            nn.Conv2d(ch, 128, kernel_size=5, padding=2), activation,
+            nn.MaxPool2d(kernel_size=2),
+            util.Flatten(),
+            nn.Linear(128 * 2 * 2, num_classes),
+            nn.Softmax())
+
     else:
         raise Exception('Model name {} not recognized'.format(modelname))
 

@@ -330,7 +330,7 @@ class HyperLayer(nn.Module):
 
         self.use_cuda = False
         self.in_rank = in_rank
-        self.out_shape = out_shape # without batch dimension
+        self.out_size = out_shape # without batch dimension
         self.additional = additional
 
         self.weights_rank = in_rank + len(out_shape) # implied rank of W
@@ -608,7 +608,7 @@ class HyperLayer(nn.Module):
 
         t0total = time.time()
 
-        rng = tuple(self.out_shape) + tuple(input.size()[1:])
+        rng = tuple(self.out_size) + tuple(input.size()[1:])
 
         batchsize = input.size()[0]
 
@@ -664,7 +664,7 @@ class HyperLayer(nn.Module):
         t0 = time.time()
 
         # mindices, flat_size = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
-        mindices, flat_size = flatten_indices_mat(indices, input.size()[1:], self.out_shape)
+        mindices, flat_size = flatten_indices_mat(indices, input.size()[1:], self.out_size)
 
         logging.info('flatten: {} seconds'.format(time.time() - t0))
 
@@ -677,7 +677,7 @@ class HyperLayer(nn.Module):
         #    now, we'll do a slow, naive multiplication.
 
         x_flat = input.view(batchsize, -1)
-        ly = prod(self.out_shape)
+        ly = prod(self.out_size)
 
         y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
         y_flat.fill_(0.0)
@@ -709,7 +709,7 @@ class HyperLayer(nn.Module):
         logging.info('sparse mult: {} seconds'.format(time.time() - t0))
 
         y_shape = [batchsize]
-        y_shape.extend(self.out_shape)
+        y_shape.extend(self.out_size)
 
         y = y_flat.view(y_shape) # reshape y into a tensor
 

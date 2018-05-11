@@ -73,7 +73,7 @@ class SortLayer(HyperLayer):
 
         res = self.source(input).unsqueeze(2).view(b, self.k, 4)
 
-        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_size)
         sigmas = sigmas * self.sigma_scale
 
         if self.fix_values:

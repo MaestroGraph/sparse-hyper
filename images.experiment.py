@@ -219,6 +219,23 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             nn.Linear(hidden, num_classes),
             nn.Softmax())
 
+    if modelname == 'baseline-conv':
+
+        fin = (shape[1]//4) * (shape[2]//4) * 16
+
+        model = nn.Sequential(
+            nn.Conv2d(shape[0], 8, kernel_size=5, padding=2), activation,
+            nn.Conv2d(8, 8, kernel_size=5, padding=2), activation,
+            nn.Conv2d(8, 8, kernel_size=5, padding=2), activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(8, 16, kernel_size=5, padding=2), activation,
+            nn.Conv2d(16, 16, kernel_size=5, padding=2), activation,
+            nn.Conv2d(16, 16, kernel_size=5, padding=2), activation,
+            nn.MaxPool2d(kernel_size=2),
+            util.Flatten(),
+            nn.Linear(fin, num_classes),
+            nn.Softmax())
+
     elif modelname == 'ash':
 
         hyperlayer = ImageLayer(shape, out=hidden, k=k, adaptive=True, additional=additional, num_values=num_values,

@@ -95,7 +95,7 @@ class ImageLayer(gaussian.HyperLayer):
         if self.adaptive:
             activation = nn.ReLU()
 
-            hidden = 1024
+            hidden = 2
 
             self.source = nn.Sequential(
                 nn.Linear(prod(in_size) + sum(out_size) + k, hidden), # input + output index (one hots) + k (one hot)

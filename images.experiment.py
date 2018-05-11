@@ -200,6 +200,9 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             trainloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_TRAIN, 0))
             testloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
 
+        shape = (3, 32, 32)
+        num_classes = 100
+
     else:
         raise Exception('Task name {} not recognized'.format(task))
 

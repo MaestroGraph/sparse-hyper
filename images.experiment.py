@@ -15,6 +15,7 @@ import torch.optim as optim
 
 import torchvision
 import torchvision.transforms as transforms
+from torchvision.datasets import MNIST, CIFAR10, CIFAR100
 
 from util import od, prod, logit
 
@@ -128,7 +129,7 @@ COLUMN = 13
 
 def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
-       tb_dir=None, data='./data', hidden=32, task='mnist'):
+       tb_dir=None, data='./data', hidden=32, task='mnist', final=False):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -136,20 +137,71 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     w = SummaryWriter(log_dir=tb_dir)
 
+    normalize = transforms.Compose([transforms.ToTensor()])
+    data = data + os.sep + task
+
     if(task=='mnist'):
 
-        normalize = transforms.Compose([transforms.ToTensor()])
-        train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
-        trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
-        test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
-        testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
+        if final:
+            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
+            trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
+
+            test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
+            testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
+
+        else:
+            NUM_TRAIN = 45000
+            NUM_VAL = 5000
+
+            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
+
+            trainloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_TRAIN, 0))
+            testloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
 
         shape = (1, 28, 28)
         num_classes = 10
 
+    elif(task=='cifar10'):
+
+        if final:
+            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=normalize)
+            trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
+            test = torchvision.datasets.CIFAR10(root=data, train=False, download=True, transform=normalize)
+            testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
+
+        else:
+            NUM_TRAIN = 45000
+            NUM_VAL = 5000
+
+            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=normalize)
+
+            trainloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_TRAIN, 0))
+            testloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+
+
+        shape = (3, 32, 32)
+        num_classes = 10
+
+    elif(task=='cifar100'):
+
+
+        if final:
+            train = torchvision.datasets.CIFAR100(root=data, train=True, download=True, transform=normalize)
+            trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
+            test = torchvision.datasets.CIFAR100(root=data, train=False, download=True, transform=normalize)
+            testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
+
+        else:
+            NUM_TRAIN = 45000
+            NUM_VAL = 5000
+
+            train = torchvision.datasets.CIFAR100(root=data, train=True, download=True, transform=normalize)
+
+            trainloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_TRAIN, 0))
+            testloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+
     else:
         raise Exception('Task name {} not recognized'.format(task))
-
 
     activation = nn.ReLU()
 
@@ -317,7 +369,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-D", "--data", dest="data",
                         help="Data directory",
-                        default='./data')
+                        default='./data/')
 
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
@@ -346,6 +398,10 @@ if __name__ == "__main__":
                         help="Task (mnist, cifar10, cifar100)",
                         default='mnist')
 
+    parser.add_argument("-f", "--final", dest="final",
+                        help="Whether to run on the real test set.",
+                        action="store_true")
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -355,4 +411,4 @@ if __name__ == "__main__":
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, subsample=options.subsample,
         num_values=options.num_values, min_sigma=options.min_sigma,
-        tb_dir=options.tb_dir, data=options.data, task=options.task)
+        tb_dir=options.tb_dir, data=options.data, task=options.task, final=options.final)

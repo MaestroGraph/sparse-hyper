@@ -12,6 +12,7 @@ import torch
 from torch import nn
 from torch import FloatTensor
 from torch.autograd import Variable
+from torch.utils.data import sampler
 
 from collections import OrderedDict
 
@@ -396,3 +397,22 @@ def inv(i):
 
 def sigmoid(x):
   return 1 / (1 + math.exp(-x))
+
+class ChunkSampler(sampler.Sampler):
+    """Samples elements sequentially from some offset.
+
+    source: https://github.com/pytorch/vision/issues/168
+
+    Arguments:
+        num_samples: # of desired datapoints
+        start: offset where we should start selecting from
+    """
+    def __init__(self, num_samples, start = 0):
+        self.num_samples = num_samples
+        self.start = start
+
+    def __iter__(self):
+        return iter(range(self.start, self.start + self.num_samples))
+
+    def __len__(self):
+        return self.num_samples

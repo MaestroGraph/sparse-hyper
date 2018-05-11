@@ -307,7 +307,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
     elif modelname == 'ash-conv':
         ch = 3
 
-        hyperlayer = ImageLayer(shape, out_size=(ch, 4, 4), k=k, adaptive=False, additional=additional, num_values=num_values,
+        hyperlayer = ImageLayer(shape, out_size=(ch, 4, 4), k=k, adaptive=True, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample)
 
         model = nn.Sequential(

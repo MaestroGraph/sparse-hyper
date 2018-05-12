@@ -72,7 +72,7 @@ class ImageLayer(gaussian.HyperLayer):
 
         print(out_indices.size()[0], ' index tuples')
 
-        outsize = k * prod(out_size) * 5
+        # outsize = k * prod(out_size) * 5
 
         # one-hot matrix for the inputs to the hypernetwork
         one_hots = torch.zeros(out_indices.size()[0], sum(out_size) + k)

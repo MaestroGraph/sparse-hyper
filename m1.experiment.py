@@ -47,7 +47,7 @@ class MNISTLayer(gaussian.HyperLayer):
     NB: k is the number of tuples _per hidden node_.
     """
 
-    def __init__(self, k, adaptive=True, out=28, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
+    def __init__(self, k, adaptive=True, pre=28, out=28, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
 
         super().__init__(in_rank=1, out_shape=(out,), additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
 
@@ -57,6 +57,7 @@ class MNISTLayer(gaussian.HyperLayer):
         self.min_sigma = min_sigma
         self.out=out
         self.adaptive = adaptive
+        self.pre = pre
 
         outsize = k * out * 3
 
@@ -64,12 +65,32 @@ class MNISTLayer(gaussian.HyperLayer):
         self.register_buffer('out_indices', out_indices)
 
         if self.adaptive:
+
+            # one-hot matrix for the inputs to the hypernetwork
+            one_hots = torch.zeros(out_indices.size()[0], 28 + k)
+            for r in range(out_indices.size()[0]):
+
+                one_hots[r, int(out_indices[r])] = 1
+
+                one_hots[r, 28 + r % k] = 1
+                # print(out_indices[r, :], out_size)
+                # print(one_hots[r, :])
+
+            # convert out_indices to float values that return the correct indices when sigmoided.
+            out_indices = inv(out_indices)
+            self.register_buffer('one_hots', one_hots)
+
+            if pre > 0:
+                self.preprocess = nn.Sequential(
+                    nn.Linear(28, pre)
+                )
+
             activation = nn.ReLU()
 
-            hidden = 14
+            hidden = 512
 
             self.source = nn.Sequential(
-                nn.Linear(28, hidden), # graph edges in 1-hot encoding
+                nn.Linear(pre + 28 + k, hidden),
                 # activation,
                 # nn.Linear(hidden, hidden),
                 # activation,
@@ -81,7 +102,7 @@ class MNISTLayer(gaussian.HyperLayer):
                 # activation,
                 # nn.Linear(hidden, hidden),
                 activation,
-                nn.Linear(hidden, outsize),
+                nn.Linear(hidden, 3),
             )
 
         else:
@@ -96,13 +117,28 @@ class MNISTLayer(gaussian.HyperLayer):
         """
         Evaluates hypernetwork.
         """
-
-        b, _ = input.size()
+        b, d = input.size()
         l, = self.out_indices.size()
+        l, dh = self.one_hots.size()
 
         outs = Variable(self.out_indices.unsqueeze(0).expand(b, l).unsqueeze(2))
+        hots = Variable(self.one_hots.unsqueeze(0).expand(b, l, dh))
 
         if self.adaptive:
+            if self.pre > 0:
+                input = self.preprocess(input)
+
+            b, d = input.size()
+
+            input = input.view(b, 1, -1).expand(b, l, d)
+
+            if self.pre == 0:
+                input = hots
+            else:
+                input = torch.cat([input, hots], dim=2)
+
+            input = input.contiguous().view(b*l, -1)
+
             res = self.source(input).unsqueeze(2).view(b, l , 3)
         else:
             res = self.nas.unsqueeze(0).expand(b, l, 3)
@@ -265,7 +301,7 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
 
     elif modelname == 'ash':
 
-        hyperlayer = MNISTLayer(k, out=hidden, adaptive=True, additional=additional, num_values=num_values,
+        hyperlayer = MNISTLayer(k, out=hidden, adaptive=True, pre=0, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample)
 
         model = nn.Sequential(
@@ -426,7 +462,7 @@ if __name__ == "__main__":
     parser.add_argument("-k", "--num-points",
                         dest="k",
                         help="Number of index tuples in the decoder layer",
-                        default=28, type=int)
+                        default=3, type=int)
 
     parser.add_argument("-a", "--additional",
                         dest="additional",

@@ -85,22 +85,17 @@ class MNISTLayer(gaussian.HyperLayer):
 
             activation = nn.ReLU()
 
-            hidden = 512
+            hidden = 32
 
             self.source = nn.Sequential(
-                nn.Linear(pre + 28 + k, hidden),
+                nn.Linear(pre + 28 + k, 3),
                 # activation,
                 # nn.Linear(hidden, hidden),
                 # activation,
                 # nn.Linear(hidden, hidden),
-                activation,
-                nn.Linear(hidden, hidden),
-                activation,
-                nn.Linear(hidden, hidden),
-                activation,
-                nn.Linear(hidden, hidden),
-                activation,
-                nn.Linear(hidden, 3),
+                # activation,
+                # nn.Linear(hidden, hidden),
+                # nn.Linear(hidden, 3),
             )
 
         else:

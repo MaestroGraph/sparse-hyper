@@ -59,10 +59,7 @@ class MNISTLayer(gaussian.HyperLayer):
         self.adaptive = adaptive
         self.pre = pre
 
-        outsize = k * out * 3
-
-        out_indices =inv(torch.FloatTensor(range(out)).unsqueeze(0).expand(k, out).contiguous().view(-1))
-        self.register_buffer('out_indices', out_indices)
+        out_indices = torch.FloatTensor(range(out)).unsqueeze(1).expand(out, k).contiguous().view(-1)
 
         if self.adaptive:
 
@@ -73,12 +70,13 @@ class MNISTLayer(gaussian.HyperLayer):
                 one_hots[r, int(out_indices[r])] = 1
 
                 one_hots[r, 28 + r % k] = 1
+
                 # print(out_indices[r, :], out_size)
-                # print(one_hots[r, :])
+                print(one_hots[r, :].view(1, -1))
 
             # convert out_indices to float values that return the correct indices when sigmoided.
-            out_indices = inv(out_indices)
             self.register_buffer('one_hots', one_hots)
+            self.register_buffer('out_indices', inv(out_indices))
 
             if pre > 0:
                 self.preprocess = nn.Sequential(

@@ -78,12 +78,13 @@ class MNISTLayer(gaussian.HyperLayer):
             self.register_buffer('one_hots', one_hots)
             self.register_buffer('out_indices', inv(out_indices))
 
+            activation = nn.ReLU()
+
             if pre > 0:
                 self.preprocess = nn.Sequential(
-                    nn.Linear(28, pre)
+                    nn.Linear(28, pre),
+                    activation
                 )
-
-            activation = nn.ReLU()
 
             hidden = 32
 
@@ -221,7 +222,7 @@ COLUMN = 13
 
 def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
-       tb_dir=None, data='./data', hidden=28):
+       tb_dir=None, data='./data', hidden=28, pre=0):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -294,7 +295,7 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
 
     elif modelname == 'ash':
 
-        hyperlayer = MNISTLayer(k, out=hidden, adaptive=True, pre=0, additional=additional, num_values=num_values,
+        hyperlayer = MNISTLayer(k, out=hidden, adaptive=True, pre=pre, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample)
 
         model = nn.Sequential(
@@ -462,6 +463,11 @@ if __name__ == "__main__":
                         help="Number of additional points sampled",
                         default=64, type=int)
 
+    parser.add_argument("-p", "--pre",
+                        dest="pre",
+                        help="Size of the pre-processing of the input",
+                        default=64, type=int)
+
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
                         action="store_true")
@@ -502,4 +508,4 @@ if __name__ == "__main__":
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, subsample=options.subsample,
         num_values=options.num_values, min_sigma=options.min_sigma,
-        tb_dir=options.tb_dir, data=options.data)
+        tb_dir=options.tb_dir, data=options.data, pre=options.pre)

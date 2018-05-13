@@ -72,7 +72,7 @@ class MNISTLayer(gaussian.HyperLayer):
                 one_hots[r, 28 + r % k] = 1
 
                 # print(out_indices[r, :], out_size)
-                print(one_hots[r, :].view(1, -1))
+                #  print(one_hots[r, :].view(1, -1))
 
             # convert out_indices to float values that return the correct indices when sigmoided.
             self.register_buffer('one_hots', one_hots)

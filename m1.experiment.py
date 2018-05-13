@@ -253,6 +253,16 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
             nn.Linear(hidden, 10),
             nn.Softmax())
 
+    if modelname == 'baseline1':
+
+        layer = nn.Linear(28, 10)
+
+        model = nn.Sequential(
+            layer,
+            nn.Softmax())
+
+        OUT = 10
+
     elif modelname == 'baseline-conv':
 
         model = nn.Sequential(
@@ -401,6 +411,13 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
             w.add_scalar('mnist1d/train-loss', loss.data[0], step)
 
             step += inputs.size()[0]
+
+
+            if PLOT and i == 0 and modelname == 'baseline1':
+                weights = layer.weight.data.cpu().numpy()
+                plt.cla()
+                plt.imshow(weights, cmap='RdYlBu', vmin=-1.0, vmax=1.0)
+                plt.savefig('./mnist1d/baseline1{:04}.png'.format(epoch))
 
             if PLOT and i == 0 and hyperlayer is not None:
                 plt.figure(figsize=(7, 7))

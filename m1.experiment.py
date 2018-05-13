@@ -143,12 +143,12 @@ class MNISTLayer(gaussian.HyperLayer):
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
         if self.num_values > 0:
-            mult = self.k // self.num_values
+            mult = l // self.num_values
 
             values = self.values.unsqueeze(0).expand(mult, self.num_values)
-            values = values.contiguous().view(-1)[:self.k]
+            values = values.contiguous().view(-1)[:l]
 
-            values = values.unsqueeze(0).expand(b, self.k)
+            values = values.unsqueeze(0).expand(b, l)
 
         self.last_values = values.data
 

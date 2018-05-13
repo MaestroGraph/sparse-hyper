@@ -64,7 +64,6 @@ class ImageLayer(gaussian.HyperLayer):
         self.out_size = out_size
         self.adaptive = adaptive
 
-
         out_indices = torch.FloatTensor(list(np.ndindex(out_size)))
 
         out_indices = out_indices.unsqueeze(1).expand(prod(out_size), k, len(out_size))

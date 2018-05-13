@@ -33,8 +33,8 @@ fh = logging.FileHandler('ash.log')
 fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
-def inv(i):
-    sc = (i/27) * 0.9999 + 0.00005
+def inv(i, mx=27):
+    sc = (i/mx) * 0.9999 + 0.00005
     return logit(sc)
 
 def sigmoid(x):
@@ -63,20 +63,19 @@ class MNISTLayer(gaussian.HyperLayer):
 
         if self.adaptive:
 
-            # one-hot matrix for the inputs to the hypernetwork
-            one_hots = torch.zeros(out_indices.size()[0], 28 + k)
+            # one-hot matrix for the outputs to the hypernetwork
+            one_hots = torch.zeros(out_indices.size()[0], out + k)
             for r in range(out_indices.size()[0]):
 
                 one_hots[r, int(out_indices[r])] = 1
 
-                one_hots[r, 28 + r % k] = 1
+                one_hots[r, out + r % k] = 1
 
                 # print(out_indices[r, :], out_size)
                 #  print(one_hots[r, :].view(1, -1))
 
             # convert out_indices to float values that return the correct indices when sigmoided.
             self.register_buffer('one_hots', one_hots)
-            self.register_buffer('out_indices', inv(out_indices))
 
             activation = nn.ReLU()
 
@@ -89,7 +88,7 @@ class MNISTLayer(gaussian.HyperLayer):
             hidden = 32
 
             self.source = nn.Sequential(
-                nn.Linear(pre + 28 + k, 3),
+                nn.Linear(pre + out + k, 3),
                 # activation,
                 # nn.Linear(hidden, hidden),
                 # activation,
@@ -102,6 +101,8 @@ class MNISTLayer(gaussian.HyperLayer):
         else:
             self.nas = Parameter(torch.randn(self.k * out, 3))
 
+        self.register_buffer('out_indices', inv(out_indices, out))
+
         self.bias = Parameter(torch.zeros(out))
 
         if num_values > 0:
@@ -113,12 +114,14 @@ class MNISTLayer(gaussian.HyperLayer):
         """
         b, d = input.size()
         l, = self.out_indices.size()
-        l, dh = self.one_hots.size()
 
         outs = Variable(self.out_indices.unsqueeze(0).expand(b, l).unsqueeze(2))
-        hots = Variable(self.one_hots.unsqueeze(0).expand(b, l, dh))
 
         if self.adaptive:
+
+            l, dh = self.one_hots.size()
+            hots = Variable(self.one_hots.unsqueeze(0).expand(b, l, dh))
+
             if self.pre > 0:
                 input = self.preprocess(input)
 
@@ -224,6 +227,8 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
        tb_dir=None, data='./data', hidden=28, pre=0):
 
+    OUT = 28
+
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
     torch.manual_seed(seed)
@@ -304,6 +309,17 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
             nn.Linear(28, 10),
             nn.Softmax())
 
+    elif modelname == 'ash1':
+
+        hyperlayer = MNISTLayer(k, out=10, adaptive=True, pre=pre, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample)
+
+        model = nn.Sequential(
+            hyperlayer,
+            nn.Softmax())
+
+        OUT = 10
+
     elif modelname == 'nas':
 
         hyperlayer = MNISTLayer(k, out=hidden, adaptive=False, additional=additional, num_values=num_values,
@@ -314,6 +330,18 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
             activation,
             nn.Linear(28, 10),
             nn.Softmax())
+
+    elif modelname == 'nas1':
+
+        hyperlayer = MNISTLayer(k, out=10, adaptive=False, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample)
+
+        model = nn.Sequential(
+            hyperlayer,
+            nn.Softmax())
+
+        OUT = 10
+
     else:
         raise Exception('Model name {} not recognized'.format(modelname))
 
@@ -382,7 +410,7 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
                 plt.cla()
                 util.plot(means, sigmas, values, shape=(28, hidden))
                 plt.xlim((-0.1 * 27, 27 * 1.1))
-                plt.ylim((-0.1 * 27, 27 * 1.1))
+                plt.ylim((-0.1 * 27, (OUT-1) * 1.1))
 
                 plt.savefig('./mnist1d/means{:04}.png'.format(epoch))
 

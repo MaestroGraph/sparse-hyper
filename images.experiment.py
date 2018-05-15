@@ -246,7 +246,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             nn.Linear(hidden, num_classes),
             nn.Softmax())
 
-    if modelname == 'baseline-conv':
+    elif modelname == 'baseline-conv':
 
         fin = (shape[1]//16) * (shape[2]//16) * 128
 

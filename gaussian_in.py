@@ -90,7 +90,7 @@ class HyperLayer(nn.Module):
         lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=len(out_size))]
         self.floor_mask = torch.ByteTensor(lsts)
 
-        self.register_buffer('one_hots', out_indices)
+        self.register_buffer('out_indices', out_indices)
 
     def split_out(self, res, input_size):
         """

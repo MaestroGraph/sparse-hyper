@@ -79,7 +79,6 @@ class HyperLayer(nn.Module):
         self.use_cuda = False
         self.in_rank = in_rank
         self.out_size = out_size # without batch dimension
-        self.out_indices = out_indices
         self.additional = additional
 
         self.bias_type = bias_type
@@ -90,6 +89,8 @@ class HyperLayer(nn.Module):
         # (this will be used to compute the nearby integer-indices of a float-index.
         lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=len(out_size))]
         self.floor_mask = torch.ByteTensor(lsts)
+
+        self.register_buffer('one_hots', out_indices)
 
     def split_out(self, res, input_size):
         """

@@ -107,15 +107,17 @@ class ImageLayer(gaussian_in.HyperLayer):
             )
 
             self.source = nn.Sequential(
-                nn.Linear(pre + sum(out_size) + k, 5), # input + output index (one hots) + k (one hot)
+                nn.Linear(pre + sum(out_size) + k, 4), # input + output index (one hots) + k (one hot)
                 # activation,
                 # nn.Linear(hidden, hidden),
                 # activation,
                 # nn.Linear(hidden, 5),
             )
 
+            self.sigmas = Parameter(torch.randn((1, self.k * prod(out_size), 1)))
+
         else:
-            self.nas = Parameter(torch.randn(self.k * prod(out_size), 5))
+            self.nas = Parameter(torch.randn((self.k * prod(out_size), 5)))
 
         self.bias = Parameter(torch.zeros(*out_size))
 
@@ -146,7 +148,11 @@ class ImageLayer(gaussian_in.HyperLayer):
 
             input = input.view(b*l, -1)
 
-            res = self.source(input).view(b, l , 5)
+            res = self.source(input).view(b, l , 4)
+
+            ss = self.sigmas.expand(b, l, 1)
+
+            res = torch.cat([res[:, :, :-1], ss, res[:, :, -1:]], dim=2)
 
         else:
             res = self.nas.unsqueeze(0).expand(b, l, 5)

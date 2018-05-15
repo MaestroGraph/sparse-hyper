@@ -295,7 +295,6 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
         model = nn.Sequential(
             hyperlayer,
-            activation,
             nn.Linear(hidden, num_classes),
             nn.Softmax())
 
@@ -306,7 +305,6 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
         model = nn.Sequential(
             hyperlayer,
-            activation,
             nn.Linear(hidden, num_classes),
             nn.Softmax())
 

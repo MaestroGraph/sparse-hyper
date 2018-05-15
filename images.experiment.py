@@ -50,7 +50,7 @@ class ImageLayer(gaussian_in.HyperLayer):
     NB: k is the number of tuples _per hidden node_.
     """
 
-    def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
+    def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, pre=0, subsample=None):
 
         out_indices = torch.LongTensor(list(np.ndindex(out_size)))
 
@@ -70,7 +70,7 @@ class ImageLayer(gaussian_in.HyperLayer):
         self.min_sigma = min_sigma
         self.out_size = out_size
         self.adaptive = adaptive
-
+        self.pre = pre
 
         # outsize = k * prod(out_size) * 5
 
@@ -94,14 +94,19 @@ class ImageLayer(gaussian_in.HyperLayer):
         if self.adaptive:
             activation = nn.ReLU()
 
-            hidden = 2
+            assert(pre > 0)
+
+            self.preprocess = nn.Sequential(
+                util.Flatten(),
+                nn.Linear(prod(in_size), pre)
+            )
 
             self.source = nn.Sequential(
-                nn.Linear(prod(in_size) + sum(out_size) + k, hidden), # input + output index (one hots) + k (one hot)
-                activation,
-                nn.Linear(hidden, hidden),
-                activation,
-                nn.Linear(hidden, 5),
+                nn.Linear(pre + sum(out_size) + k, 5), # input + output index (one hots) + k (one hot)
+                # activation,
+                # nn.Linear(hidden, hidden),
+                # activation,
+                # nn.Linear(hidden, 5),
             )
 
         else:
@@ -125,7 +130,13 @@ class ImageLayer(gaussian_in.HyperLayer):
         hots = Variable(self.one_hots.unsqueeze(0).expand(b, l, dh))
 
         if self.adaptive:
-            input = input.view(b, 1, -1).expand(b, l, c*w*h)
+
+            input = self.preprocess(input)
+
+            b, d = input.size()
+            assert(d == self.pre)
+
+            input = input.unsqueeze(1).expand(b, l, d)
             input = torch.cat([input, hots], dim=2)
 
             input = input.view(b*l, -1)
@@ -160,6 +171,8 @@ class ImageLayer(gaussian_in.HyperLayer):
 
         means, sigmas, values, _ = self.hyper(images)
 
+        images = images.data
+
         plt.figure(figsize=(perrow * 3, rows*3))
 
         for i in range(num):
@@ -180,7 +193,7 @@ COLUMN = 13
 
 def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
-       tb_dir=None, data='./data', hidden=32, task='mnist', final=False):
+       tb_dir=None, data='./data', hidden=32, task='mnist', final=False, pre=3):
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -308,6 +321,24 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             nn.Linear(hidden, num_classes),
             nn.Softmax())
 
+    elif modelname == 'ash1':
+
+        hyperlayer = ImageLayer(shape, out_size=(num_classes,), k=k, adaptive=True, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample, pre=pre)
+
+        model = nn.Sequential(
+            hyperlayer,
+            nn.Softmax())
+
+    elif modelname == 'nas1':
+
+        hyperlayer = ImageLayer(shape, out_size=(num_classes,), k=k,  adaptive=False, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample)
+
+        model = nn.Sequential(
+            hyperlayer,
+            nn.Softmax())
+
     elif modelname == 'nas-conv':
         ch = 3
 
@@ -407,7 +438,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
                 plt.savefig('sigmas.pdf')
                 plt.savefig('sigmas.png')
 
-                hyperlayer.plot(inputs[:10, ...].data)
+                hyperlayer.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
 
         total = 0.0
@@ -509,6 +540,10 @@ if __name__ == "__main__":
                         help="Size of the hidden layer.",
                         default=32, type=int)
 
+    parser.add_argument("-p", "--pre", dest="pre",
+                        help="Size of the preprocessed input representation.",
+                        default=32, type=int)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -519,4 +554,4 @@ if __name__ == "__main__":
         lr=options.lr, subsample=options.subsample,
         num_values=options.num_values, min_sigma=options.min_sigma,
         tb_dir=options.tb_dir, data=options.data, task=options.task,
-        final=options.final, hidden=options.hidden)
+        final=options.final, hidden=options.hidden, pre=options.pre)

@@ -507,6 +507,10 @@ if __name__ == "__main__":
                         help="Whether to run on the real test set.",
                         action="store_true")
 
+    parser.add_argument("-H", "--hidden", dest="hidden",
+                        help="Size of the hidden layer.",
+                        default=32, type=int)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -516,4 +520,5 @@ if __name__ == "__main__":
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, subsample=options.subsample,
         num_values=options.num_values, min_sigma=options.min_sigma,
-        tb_dir=options.tb_dir, data=options.data, task=options.task, final=options.final)
+        tb_dir=options.tb_dir, data=options.data, task=options.task,
+        final=options.final, hidden=options.hidden)

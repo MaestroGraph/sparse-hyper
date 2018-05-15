@@ -86,8 +86,8 @@ class HyperLayer(nn.Module):
         self.subsample = subsample
 
         # create a tensor with all binary sequences of length 'out_rank' as rows
-        # (this will be used to compute the nearby integer-indices of a float-index.
-        lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=len(out_size))]
+        # (this will be used to compute the nearby integer-indices of a float-index).
+        lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=in_rank)]
         self.floor_mask = torch.ByteTensor(lsts)
 
         self.register_buffer('out_indices', out_indices)
@@ -165,7 +165,6 @@ class HyperLayer(nn.Module):
             fm = self.floor_mask.unsqueeze(0).unsqueeze(0).expand(batchsize, n, 2 ** rank, rank)
 
             neighbor_ints = means.data.unsqueeze(2).expand(batchsize, n, 2 ** rank, rank).contiguous()
-
 
             neighbor_ints[fm] = neighbor_ints[fm].floor()
             neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
@@ -301,7 +300,7 @@ class HyperLayer(nn.Module):
             # move this to the constructor? Less flexible but faster.
             h, w = self.out_indices.size()
             outs = self.out_indices.unsqueeze(0).unsqueeze(2).expand(b, h, 2**r + self.additional, w)
-            outs = outs.contiguous().view(b, l, r)
+            outs = outs.contiguous().view(b, l, w)
 
             indices = torch.cat([outs, indices], dim=2)
 

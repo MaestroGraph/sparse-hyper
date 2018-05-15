@@ -1,4 +1,4 @@
-import hyper, gaussian, util, time, pretrain, os, math, sys
+import hyper, gaussian_in, util, time, pretrain, os, math, sys
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -43,7 +43,7 @@ def sigmoid(x):
         return 1 / (1 + math.exp(-x))
     return 1 / (1 + torch.exp(-x))
 
-class ImageLayer(gaussian.HyperLayer):
+class ImageLayer(gaussian_in.HyperLayer):
     """
     Simple hyperlayer for the 1D MNIST experiment
 
@@ -52,7 +52,14 @@ class ImageLayer(gaussian.HyperLayer):
 
     def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
 
-        super().__init__(in_rank=3, out_shape=out_size, additional=additional, bias_type=gaussian.Bias.DENSE, subsample=subsample)
+        out_indices = torch.LongTensor(list(np.ndindex(out_size)))
+
+        out_indices = out_indices.unsqueeze(1).expand(prod(out_size), k, len(out_size))
+        out_indices = out_indices.contiguous().view(prod(out_size) * k, len(out_size))
+
+        print(out_indices.size()[0], ' index tuples')
+
+        super().__init__(in_rank=3, out_size=out_size, out_indices=out_indices, additional=additional, subsample=subsample)
 
         assert(len(in_size) == 3)
 
@@ -64,12 +71,6 @@ class ImageLayer(gaussian.HyperLayer):
         self.out_size = out_size
         self.adaptive = adaptive
 
-        out_indices = torch.FloatTensor(list(np.ndindex(out_size)))
-
-        out_indices = out_indices.unsqueeze(1).expand(prod(out_size), k, len(out_size))
-        out_indices = out_indices.contiguous().view(prod(out_size) * k, len(out_size))
-
-        print(out_indices.size()[0], ' index tuples')
 
         # outsize = k * prod(out_size) * 5
 
@@ -87,8 +88,7 @@ class ImageLayer(gaussian.HyperLayer):
             # print(one_hots[r, :])
 
         # convert out_indices to float values that return the correct indices when sigmoided.
-        out_indices = inv(out_indices, torch.FloatTensor(out_size).unsqueeze(0).expand_as(out_indices))
-        self.register_buffer('out_indices', out_indices)
+        # out_indices = inv(out_indices, torch.FloatTensor(out_size).unsqueeze(0).expand_as(out_indices))
         self.register_buffer('one_hots', one_hots)
 
         if self.adaptive:
@@ -118,10 +118,10 @@ class ImageLayer(gaussian.HyperLayer):
         """
 
         b, c, w, h = input.size()
-        l, d  = self.out_indices.size() # prod(out_shape) * k
-        _, dh = self.one_hots.size()
+        # l, d  = self.out_indices.size() # prod(out_shape) * k
+        l, dh = self.one_hots.size()
 
-        outs = Variable(self.out_indices.unsqueeze(0).expand(b, l, d))
+        # outs = Variable(self.out_indices.unsqueeze(0).expand(b, l, d))
         hots = Variable(self.one_hots.unsqueeze(0).expand(b, l, dh))
 
         if self.adaptive:
@@ -135,9 +135,7 @@ class ImageLayer(gaussian.HyperLayer):
         else:
             res = self.nas.unsqueeze(0).expand(b, l, 5)
 
-        res = torch.cat([outs, res], dim=2)
-
-        means, sigmas, values = self.split_out(res, self.in_size, self.out_size)
+        means, sigmas, values = self.split_out(res, self.in_size)
 
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
@@ -184,8 +182,8 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_TRAIN, 0))
-            testloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
+            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
 
         shape = (1, 28, 28)
         num_classes = 10
@@ -204,8 +202,8 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_TRAIN, 0))
-            testloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
+            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
 
 
         shape = (3, 32, 32)
@@ -226,8 +224,8 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             train = torchvision.datasets.CIFAR100(root=data, train=True, download=True, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_TRAIN, 0))
-            testloader = DataLoader(train, batch_size=64, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
+            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
 
         shape = (3, 32, 32)
         num_classes = 100

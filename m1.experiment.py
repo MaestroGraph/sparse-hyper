@@ -67,7 +67,7 @@ class MNISTLayer(gaussian_in.HyperLayer):
             one_hots = torch.zeros(out_indices.size()[0], out + k)
             for r in range(out_indices.size()[0]):
 
-                one_hots[r, int(out_indices[r])] = 1
+                one_hots[r, int(out_indices[r, 0])] = 1
 
                 one_hots[r, out + r % k] = 1
 
@@ -510,7 +510,7 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--pre",
                         dest="pre",
                         help="Size of the pre-processing of the input",
-                        default=64, type=int)
+                        default=1, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",

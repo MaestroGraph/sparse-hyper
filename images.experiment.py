@@ -151,6 +151,30 @@ class ImageLayer(gaussian_in.HyperLayer):
 
         return means, sigmas, values, self.bias
 
+    def plot(self, images):
+        perrow = 5
+
+        num, c, w, h = images.size()
+
+        rows = int(math.ceil(num/perrow))
+
+        means, sigmas, values, _ = self.hyper(images)
+
+        plt.figure(figsize=(perrow * 3, rows*3))
+
+        for i in range(num):
+
+            ax = plt.subplot(rows, perrow, i+1)
+
+            im = np.transpose(images[i, :, :, :].cpu().numpy(), (1, 2, 0))
+            im = np.squeeze(im)
+
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
+
+            util.plot(means[i, :, 1:].unsqueeze(0), sigmas[i, :, 1:].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax)
+
+        plt.gcf()
+
 PLOT = True
 COLUMN = 13
 
@@ -333,7 +357,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     sigs, vals = [], []
 
-    util.makedirs('./mnist1d/')
+    util.makedirs('./mnist/')
 
     for epoch in range(epochs):
 
@@ -361,8 +385,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             # print(hyperlayer.values, hyperlayer.values.grad)
 
             optimizer.step()
-
-            w.add_scalar('mnist1d/train-loss', loss.data[0], step)
+            w.add_scalar('mnist/train-loss', loss.data[0], step)
 
             step += inputs.size()[0]
 
@@ -385,6 +408,9 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
                 plt.savefig('sigmas.pdf')
                 plt.savefig('sigmas.png')
+
+                hyperlayer.plot(inputs[:10, ...].data)
+                plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
 
         total = 0.0
         num = 0

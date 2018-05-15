@@ -96,9 +96,14 @@ class ImageLayer(gaussian_in.HyperLayer):
 
             assert(pre > 0)
 
+            hid = 64
             self.preprocess = nn.Sequential(
                 util.Flatten(),
-                nn.Linear(prod(in_size), pre)
+                nn.Linear(prod(in_size), hid),
+                activation,
+                nn.Linear(hid, hid),
+                activation,
+                nn.Linear(hid, pre)
             )
 
             self.source = nn.Sequential(

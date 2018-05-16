@@ -96,14 +96,20 @@ class ImageLayer(gaussian_in.HyperLayer):
 
             assert(pre > 0)
 
-            hid = 64
+            c , w, h = in_size
+            hid = math.ceil(w/4) * math.ceil(h/4) * 8
+
             self.preprocess = nn.Sequential(
+                nn.MaxPool2d(kernel_size=4),
+                # util.Debug(lambda x: print(x.size())),
+                nn.Conv2d(c, 8, kernel_size=5, padding=2),
+                activation,
+                nn.Conv2d(8, 8, kernel_size=5, padding=2),
+                activation,
+                # util.Debug(lambda x : print(x.size())),
                 util.Flatten(),
-                nn.Linear(prod(in_size), hid),
-                activation,
-                nn.Linear(hid, hid),
-                activation,
-                nn.Linear(hid, pre)
+                nn.Linear(hid, pre),
+                nn.Sigmoid()
             )
 
             self.source = nn.Sequential(

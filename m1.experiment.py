@@ -219,7 +219,7 @@ COLUMN = 13
 
 def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
-       tb_dir=None, data='./data', hidden=28, pre=0):
+       tb_dir=None, data='./data', hidden=28, pre=0, l1=0.0):
 
     OUT = 28
 
@@ -393,6 +393,10 @@ def go(batch=64, epochs=350, k=750, additional=64, modelname='baseline', cuda=Fa
 
             loss = xent(outputs, labels)
 
+            if modelname == 'baseline1' and l1 > 0.0:
+                l1loss = layer.weight.norm(1)
+                loss = loss + l1 * l1loss
+
             t0 = time.time()
             loss.backward()  # compute the gradients
             logging.info('backward: {} seconds'.format(time.time() - t0))
@@ -539,6 +543,11 @@ if __name__ == "__main__":
                         help="Minimum value of sigma.",
                         default=0.0, type=float)
 
+    parser.add_argument("-L", "--l1",
+                        dest="l1",
+                        help="Weight parameters for the L1 loss term",
+                        default=0.0, type=float)
+
     parser.add_argument("-T", "--tb_dir", dest="tb_dir",
                         help="Data directory",
                         default=None)
@@ -552,4 +561,4 @@ if __name__ == "__main__":
         additional=options.additional, modelname=options.model, cuda=options.cuda,
         lr=options.lr, subsample=options.subsample,
         num_values=options.num_values, min_sigma=options.min_sigma,
-        tb_dir=options.tb_dir, data=options.data, pre=options.pre)
+        tb_dir=options.tb_dir, data=options.data, pre=options.pre, l1=options.l1)

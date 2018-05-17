@@ -52,7 +52,7 @@ class ImageLayer(gaussian_in.HyperLayer):
     NB: k is the number of tuples _per hidden node_.
     """
 
-    def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, pre=0, subsample=None):
+    def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, pre=0, subsample=None, mix=True):
 
         out_indices = torch.LongTensor(list(np.ndindex(out_size)))
 
@@ -73,6 +73,11 @@ class ImageLayer(gaussian_in.HyperLayer):
         self.out_size = out_size
         self.adaptive = adaptive
         self.pre = pre
+        self.mix = mix
+
+        if mix:
+            assert(pre == out_size[0])
+            self.alpha = Parameter(torch.randn(1))
 
         # outsize = k * prod(out_size) * 5
 
@@ -156,7 +161,8 @@ class ImageLayer(gaussian_in.HyperLayer):
 
         if self.adaptive:
 
-            input = self.preprocess(input)
+            self.emb = self.preprocess(input)
+            input = self.emb
 
             b, d = input.size()
             assert(d == self.pre)
@@ -190,6 +196,15 @@ class ImageLayer(gaussian_in.HyperLayer):
         self.last_values = values.data
 
         return means, sigmas, values, self.bias
+
+    def forward(self, input):
+        res = super().forward(input)
+
+        if not self.mix:
+            return res
+
+        a = nn.functional.sigmoid(self.alpha)
+        return self.emb * a  + res * (1.0 - a)
 
     def plot(self, images):
         perrow = 5

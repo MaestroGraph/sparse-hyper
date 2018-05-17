@@ -1,4 +1,4 @@
-import hyper, gaussian_in, util, time, pretrain, os, math, sys
+import hyper, gaussian_in, util, time, pretrain, os, math, sys, PIL
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -6,6 +6,7 @@ from torch.nn import Parameter
 from tqdm import trange, tqdm
 from tensorboardX import SummaryWriter
 from util import Lambda, Debug
+from torch.utils.serialization import load_lua
 
 from torch.utils.data import TensorDataset, DataLoader
 
@@ -219,9 +220,9 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
     w = SummaryWriter(log_dir=tb_dir)
 
     normalize = transforms.Compose([transforms.ToTensor()])
-    data = data + os.sep + task
 
     if(task=='mnist'):
+        data = data + os.sep + task
 
         if final:
             train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
@@ -242,7 +243,24 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
         shape = (1, 28, 28)
         num_classes = 10
 
+    elif (task == 'image-folder-bw'):
+
+        if final:
+            raise Exception('not implemented yet')
+        else:
+            NUM_TRAIN = 45000
+            NUM_VAL = 5000
+
+            train = torchvision.datasets.ImageFolder(root=data, transform=normalize)
+
+            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
+            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+
+        shape = (3, 100, 100)
+        num_classes = 10
+
     elif(task=='cifar10'):
+        data = data + os.sep + task
 
         if final:
             train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=normalize)
@@ -265,6 +283,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     elif(task=='cifar100'):
 
+        data = data + os.sep + task
 
         if final:
             train = torchvision.datasets.CIFAR100(root=data, train=True, download=True, transform=normalize)
@@ -560,6 +579,11 @@ if __name__ == "__main__":
     parser.add_argument("-H", "--hidden", dest="hidden",
                         help="Size of the hidden layer.",
                         default=32, type=int)
+
+    parser.add_argument("-L", "--data-location", dest="data_location",
+                        help="Location of the data (if not downloadable).",
+                        default='/Users/Peter/Desktop/mnist-cluttered/mnist/')
+
 
     parser.add_argument("-p", "--pre", dest="pre",
                         help="Size of the preprocessed input representation.",

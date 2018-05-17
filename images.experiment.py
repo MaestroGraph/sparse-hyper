@@ -8,6 +8,7 @@ from tensorboardX import SummaryWriter
 from util import Lambda, Debug
 from torch.utils.serialization import load_lua
 
+from math import *
 from torch.utils.data import TensorDataset, DataLoader
 
 from torchsample.metrics import CategoricalAccuracy
@@ -98,14 +99,24 @@ class ImageLayer(gaussian_in.HyperLayer):
             assert(pre > 0)
 
             c , w, h = in_size
-            hid = math.ceil(w/4) * math.ceil(h/4) * 8
+            hid = floor(floor(w/8)/4) * floor(floor(h/8)/4) * 32
 
             self.preprocess = nn.Sequential(
-                nn.MaxPool2d(kernel_size=4),
+                #nn.MaxPool2d(kernel_size=4),
                 # util.Debug(lambda x: print(x.size())),
-                nn.Conv2d(c, 8, kernel_size=5, padding=2),
+                nn.Conv2d(c, 4, kernel_size=5, padding=2),
                 activation,
-                nn.Conv2d(8, 8, kernel_size=5, padding=2),
+                nn.Conv2d(4, 4, kernel_size=5, padding=2),
+                activation,
+                nn.MaxPool2d(kernel_size=8),
+                nn.Conv2d(4, 16, kernel_size=5, padding=2),
+                activation,
+                nn.Conv2d(16, 16, kernel_size=5, padding=2),
+                activation,
+                nn.MaxPool2d(kernel_size=4),
+                nn.Conv2d(16, 32, kernel_size=5, padding=2),
+                activation,
+                nn.Conv2d(32, 32, kernel_size=5, padding=2),
                 activation,
                 # util.Debug(lambda x : print(x.size())),
                 util.Flatten(),
@@ -237,8 +248,8 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
-            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+            trainloader = DataLoader(train, batch_size=batch, shuffle=True, sampler=util.ChunkSampler(NUM_TRAIN, 0))
+            testloader = DataLoader(train, batch_size=batch, shuffle=True, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
 
         shape = (1, 28, 28)
         num_classes = 10

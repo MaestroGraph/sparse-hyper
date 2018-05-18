@@ -52,7 +52,7 @@ class ImageLayer(gaussian_in.HyperLayer):
     NB: k is the number of tuples _per hidden node_.
     """
 
-    def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, pre=0, subsample=None, mix=True):
+    def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, pre=0, subsample=None, mix=False):
 
         out_indices = torch.LongTensor(list(np.ndindex(out_size)))
 
@@ -263,8 +263,8 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=batch, shuffle=True, sampler=util.ChunkSampler(NUM_TRAIN, 0))
-            testloader = DataLoader(train, batch_size=batch, shuffle=True, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
+            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
 
         shape = (1, 28, 28)
         num_classes = 10
@@ -276,11 +276,12 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
         else:
             NUM_TRAIN = 45000
             NUM_VAL = 5000
+            total = NUM_TRAIN + NUM_VAL
 
             train = torchvision.datasets.ImageFolder(root=data, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
-            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
         shape = (3, 100, 100)
         num_classes = 10

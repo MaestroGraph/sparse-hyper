@@ -440,23 +440,30 @@ def sigmoid(x):
   return 1 / (1 + math.exp(-x))
 
 class ChunkSampler(sampler.Sampler):
-    """Samples elements sequentially from some offset.
+    """Samples elements sequentially from some offset, using a fixed permutation
 
-    source: https://github.com/pytorch/vision/issues/168
+    initial source: https://github.com/pytorch/vision/issues/168
 
     Arguments:
         num_samples: # of desired datapoints
         start: offset where we should start selecting from
     """
-    def __init__(self, num_samples, start = 0):
-        self.num_samples = num_samples
+
+    def __init__(self, total, start, num, seed = 0):
         self.start = start
+        self.num = num
+
+        self.random = random.Random(seed)
+
+        self.l = list(range(total))
+        self.random.shuffle(self.l)
 
     def __iter__(self):
-        return iter(range(self.start, self.start + self.num_samples))
+
+        return iter(self.l[self.start : self.start + self.num])
 
     def __len__(self):
-        return self.num_samples
+        return self.num
 
 def bmult(width, height, num_indices, batchsize, use_cuda):
     """

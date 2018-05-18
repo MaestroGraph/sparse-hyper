@@ -125,7 +125,11 @@ class ImageLayer(gaussian_in.HyperLayer):
                 activation,
                 # util.Debug(lambda x : print(x.size())),
                 util.Flatten(),
-                nn.Linear(hid, pre),
+                nn.Linear(hid, 64),
+                activation,
+                nn.Linear(64, 64),
+                activation,
+                nn.Linear(64, pre),
                 nn.Sigmoid()
             )
 

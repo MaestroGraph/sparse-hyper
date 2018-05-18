@@ -280,6 +280,8 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             train = torchvision.datasets.ImageFolder(root=data, transform=normalize)
 
+            print(train)
+
             trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
             testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
@@ -606,11 +608,6 @@ if __name__ == "__main__":
     parser.add_argument("-H", "--hidden", dest="hidden",
                         help="Size of the hidden layer.",
                         default=32, type=int)
-
-    parser.add_argument("-L", "--data-location", dest="data_location",
-                        help="Location of the data (if not downloadable).",
-                        default='/Users/Peter/Desktop/mnist-cluttered/mnist/')
-
 
     parser.add_argument("-p", "--pre", dest="pre",
                         help="Size of the preprocessed input representation.",

@@ -449,7 +449,7 @@ class ChunkSampler(sampler.Sampler):
         start: offset where we should start selecting from
     """
 
-    def __init__(self, total, start, num, seed = 0):
+    def __init__(self,  start, num, total, seed = 0):
         self.start = start
         self.num = num
 

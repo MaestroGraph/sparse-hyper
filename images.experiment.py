@@ -243,7 +243,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     torch.manual_seed(seed)
 
-    w = SummaryWriter(log_dir=tb_dir)
+    tbw = SummaryWriter(log_dir=tb_dir)
 
     normalize = transforms.Compose([transforms.ToTensor()])
 
@@ -350,21 +350,28 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     elif modelname == 'baseline-conv':
 
-        fin = (shape[1]//16) * (shape[2]//16) * 128
+        c, w, h = shape
+        hid = floor(floor(w / 8) / 4) * floor(floor(h / 8) / 4) * 32
 
         model = nn.Sequential(
-            nn.Conv2d(shape[0], 16, kernel_size=5, padding=2), activation,
-            nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(16, 32, kernel_size=5, padding=2), activation,
-            nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(32, 64, kernel_size=5, padding=2), activation,
-            nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(64, 128, kernel_size=5, padding=2), activation,
-            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(c, 4, kernel_size=5, padding=2),
+            activation,
+            nn.Conv2d(4, 4, kernel_size=5, padding=2),
+            activation,
+            nn.MaxPool2d(kernel_size=8),
+            nn.Conv2d(4, 16, kernel_size=5, padding=2),
+            activation,
+            nn.Conv2d(16, 16, kernel_size=5, padding=2),
+            activation,
+            nn.MaxPool2d(kernel_size=4),
+            nn.Conv2d(16, 32, kernel_size=5, padding=2),
+            activation,
+            nn.Conv2d(32, 32, kernel_size=5, padding=2),
+            activation,
             util.Flatten(),
-            nn.Dropout(0.5),
-            nn.Linear(fin, num_classes),
-            nn.Softmax())
+            nn.Linear(hid, num_classes),
+            nn.Softmax()
+        )
 
     elif modelname == 'ash':
 
@@ -483,7 +490,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             # print(hyperlayer.values, hyperlayer.values.grad)
 
             optimizer.step()
-            w.add_scalar('mnist/train-loss', loss.data[0], step)
+            tbw.add_scalar('mnist/train-loss', loss.data[0], step)
 
             step += inputs.size()[0]
 
@@ -531,7 +538,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
         accuracy = total / num
 
-        w.add_scalar('mnist1d/per-epoch-test-acc', accuracy, epoch)
+        tbw.add_scalar('mnist1d/per-epoch-test-acc', accuracy, epoch)
         print('EPOCH {}: {} accuracy '.format(epoch, accuracy))
 
     LOG.info('Finished Training.')

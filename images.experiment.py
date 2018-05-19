@@ -478,6 +478,8 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     for epoch in range(epochs):
 
+        model.train()
+
         for i, data in tqdm(enumerate(trainloader, 0)):
 
             # get the inputs
@@ -531,6 +533,8 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
         total = 0.0
         num = 0
+
+        model.eval()
 
         for i, data in enumerate(testloader, 0):
 

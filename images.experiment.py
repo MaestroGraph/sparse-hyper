@@ -638,7 +638,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-Q", "--dropout", dest="dropout",
                         help="Dropout of the baseline and hypernetwork.",
-                        default=0.0, type=int)
+                        default=0.0, type=float)
 
     options = parser.parse_args()
 

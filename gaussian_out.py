@@ -40,7 +40,7 @@ BATCH_NEIGHBORS = True
 SIGMA_BOOST = 2.0
 
 """
-Version of the hyperlayer that learns only over the incoming connections. That is, each node in the output layer get k
+Version of the hyperlayer that learns only over the outgoing connections. That is, each node in the input layer gets k
 hardwired connections.
 """
 
@@ -63,7 +63,7 @@ class HyperLayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_rank, out_size, out_indices, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None):
+    def __init__(self, in_size, out_size, in_indices, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None):
         """
 
         :param in_rank:
@@ -77,7 +77,7 @@ class HyperLayer(nn.Module):
         super().__init__()
 
         self.use_cuda = False
-        self.in_rank = in_rank
+        self.in_size = in_size
         self.out_size = out_size # without batch dimension
         self.additional = additional
 
@@ -87,12 +87,12 @@ class HyperLayer(nn.Module):
 
         # create a tensor with all binary sequences of length 'out_rank' as rows
         # (this will be used to compute the nearby integer-indices of a float-index).
-        lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=in_rank)]
+        lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=len(out_size))]
         self.floor_mask = torch.ByteTensor(lsts)
 
-        self.register_buffer('out_indices', out_indices)
+        self.register_buffer('in_indices', in_indices)
 
-    def split_out(self, res, input_size):
+    def split_out(self, res, output_size):
         """
         Utility function. res is a B x K x Wrank+2 tensor with range from
         -inf to inf, this function splits out the means, sigmas and values, and
@@ -115,7 +115,7 @@ class HyperLayer(nn.Module):
 
         # Limits for each of the w_rank indices
         # and scales for the sigmas
-        ws = list(input_size)
+        ws = list(output_size)
         s = torch.cuda.FloatTensor(ws) if self.use_cuda else FloatTensor(ws)
         s = Variable(s.contiguous())
 
@@ -279,7 +279,7 @@ class HyperLayer(nn.Module):
 
         t0total = time.time()
 
-        rng = tuple(input.size()[1:])
+        rng = tuple(self.out_size)
 
         batchsize = input.size()[0]
 
@@ -295,17 +295,17 @@ class HyperLayer(nn.Module):
 
         if self.subsample is None:
             indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+
             b, l, r = indices.size()
 
             # move this to the constructor? Less flexible but faster.
-            h, w = self.out_indices.size()
-            outs = self.out_indices.unsqueeze(0).unsqueeze(2).expand(b, h, 2**r + self.additional, w)
-            outs = outs.contiguous().view(b, l, w)
+            h, w = self.in_indices.size()
+            ins = self.in_indices.unsqueeze(0).unsqueeze(2).expand(b, h, 2**r + self.additional, w)
+            ins = ins.contiguous().view(b, l, w)
 
-            indices = torch.cat([outs, indices], dim=2)
+            indices = torch.cat([indices, ins], dim=2)
 
             values = values * props
-
         else: # select a small proportion of the indices to learn over
             raise Exception('Not supported yet.')
 
@@ -358,7 +358,7 @@ class HyperLayer(nn.Module):
         #    now, we'll do a slow, naive multiplication.
 
         x_flat = input.view(batchsize, -1)
-        ly = prod(self.out_size)
+        ly = prod(self.in_size)
 
         y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
         y_flat.fill_(0.0)

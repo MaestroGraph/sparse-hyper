@@ -1,4 +1,4 @@
-import hyper, gaussian_in, util, time, pretrain, os, math, sys, PIL
+import hyper, gaussian_in, gaussian_out, util, time, pretrain, os, math, sys, PIL
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -105,8 +105,11 @@ class ImageLayer(gaussian_in.HyperLayer):
 
             assert(pre > 0)
 
+            p1 = 4
+            p2 = 2
+
             c , w, h = in_size
-            hid = floor(floor(w/8)/4) * floor(floor(h/8)/4) * 32
+            hid = max(1, floor(floor(w/p1)/p2) * floor(floor(h/p1)/p2)) * 32
 
             self.preprocess = nn.Sequential(
                 #nn.MaxPool2d(kernel_size=4),
@@ -115,12 +118,12 @@ class ImageLayer(gaussian_in.HyperLayer):
                 activation,
                 nn.Conv2d(4, 4, kernel_size=5, padding=2),
                 activation,
-                nn.MaxPool2d(kernel_size=8),
+                nn.MaxPool2d(kernel_size=p1),
                 nn.Conv2d(4, 16, kernel_size=5, padding=2),
                 activation,
                 nn.Conv2d(16, 16, kernel_size=5, padding=2),
                 activation,
-                nn.MaxPool2d(kernel_size=4),
+                nn.MaxPool2d(kernel_size=p2),
                 nn.Conv2d(16, 32, kernel_size=5, padding=2),
                 activation,
                 nn.Conv2d(32, 32, kernel_size=5, padding=2),
@@ -240,12 +243,173 @@ class ImageLayer(gaussian_in.HyperLayer):
 
         plt.gcf()
 
+
+class ToImageLayer(gaussian_out.HyperLayer):
+    """
+    Simple hyperlayer for the 1D MNIST experiment
+
+    NB: k is the number of tuples _per hidden node_.
+    """
+
+    def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, pre=0, subsample=None):
+
+        in_indices = torch.LongTensor(list(np.ndindex(in_size)))
+
+        in_indices = in_indices.unsqueeze(1).expand(prod(in_size), k, len(in_size))
+        in_indices = in_indices.contiguous().view(prod(in_size) * k, len(in_size))
+
+        print(in_indices.size()[0], ' index tuples')
+
+        super().__init__(in_size=in_size, out_size=out_size, in_indices=in_indices, additional=additional, subsample=subsample)
+
+        assert(len(out_size) == 3)
+
+        self.in_size = in_size
+        self.k = k
+        self.sigma_scale = sigma_scale
+        self.num_values = num_values
+        self.min_sigma = min_sigma
+        self.out_size = out_size
+        self.adaptive = adaptive
+        self.pre = pre
+
+        # outsize = k * prod(out_size) * 5
+
+        # one-hot matrix for the inputs to the hypernetwork
+        one_hots = torch.zeros(in_indices.size()[0], sum(in_size) + k)
+        for r in range(in_indices.size()[0]):
+
+            min = 0
+            for i in range(len(in_size)):
+                one_hots[r, min + int(in_indices[r, i])] = 1
+                min += in_size[i]
+
+            one_hots[r, min + r % k] = 1
+            # print(out_indices[r, :], out_size)
+            # print(one_hots[r, :])
+
+        # convert out_indices to float values that return the correct indices when sigmoided.
+        # out_indices = inv(out_indices, torch.FloatTensor(out_size).unsqueeze(0).expand_as(out_indices))
+        self.register_buffer('one_hots', one_hots)
+
+        if self.adaptive:
+            activation = nn.ReLU()
+
+            assert(pre > 0)
+
+            self.preprocess = nn.Sequential(
+                util.Flatten(),
+                nn.Linear(prod(in_size), 64),
+                activation,
+                nn.Linear(64, 64),
+                activation,
+                nn.Linear(64, 64),
+                nn.Dropout(DROPOUT),
+                activation,
+                nn.Linear(64, pre),
+                nn.Sigmoid()
+            )
+
+            self.source = nn.Sequential(
+                nn.Linear(pre + sum(in_size) + k, 4), # input + output index (one hots) + k (one hot)
+                # activation,
+                # nn.Linear(64, 64),
+                # activation,
+                # nn.Linear(hidden, 5),
+            )
+
+            self.sigmas = Parameter(torch.randn((1, self.k * prod(in_size), 1)))
+
+        else:
+            self.nas = Parameter(torch.randn((self.k * prod(in_size), 5)))
+
+        self.bias = Parameter(torch.zeros(*out_size))
+
+        if num_values > 0:
+            self.values = Parameter(torch.randn((num_values,)))
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+
+        b = input.size()[0]
+        l, dh = self.one_hots.size()
+
+        hots = Variable(self.one_hots.unsqueeze(0).expand(b, l, dh))
+
+        if self.adaptive:
+
+            self.emb = self.preprocess(input)
+            input = self.emb
+
+            b, d = input.size()
+            assert(d == self.pre)
+
+            input = input.unsqueeze(1).expand(b, l, d)
+            input = torch.cat([input, hots], dim=2)
+
+            input = input.view(b*l, -1)
+
+            res = self.source(input).view(b, l , 4)
+
+            ss = self.sigmas.expand(b, l, 1)
+
+            res = torch.cat([res[:, :, :-1], ss, res[:, :, -1:]], dim=2)
+
+        else:
+            res = self.nas.unsqueeze(0).expand(b, l, 5)
+
+        means, sigmas, values = self.split_out(res, self.out_size)
+
+        sigmas = sigmas * self.sigma_scale + self.min_sigma
+
+        if self.num_values > 0:
+            mult = l // self.num_values
+
+            values = self.values.unsqueeze(0).expand(mult, self.num_values)
+            values = values.contiguous().view(-1)[:l]
+
+            values = values.unsqueeze(0).expand(b, l)
+
+        self.last_values = values.data
+
+        return means, sigmas, values, self.bias
+
+    def plot(self, input):
+        perrow = 5
+
+        images = self.forward(input)
+        num, c, w, h = images.size()
+
+        rows = int(math.ceil(num/perrow))
+
+        means, sigmas, values, _ = self.hyper(input)
+
+        images = images.data
+
+        plt.figure(figsize=(perrow * 3, rows*3))
+
+        for i in range(num):
+
+            ax = plt.subplot(rows, perrow, i+1)
+
+            im = np.transpose(images[i, :, :, :].cpu().numpy(), (1, 2, 0))
+            im = np.squeeze(im)
+
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
+
+            util.plot(means[i, :, 1:].unsqueeze(0), sigmas[i, :, 1:].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax)
+
+        plt.gcf()
+
 PLOT = True
 COLUMN = 13
 
 def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
-       tb_dir=None, data='./data', hidden=32, task='mnist', final=False, pre=3, dropout=0.0):
+       tb_dir=None, data='./data', hidden=32, task='mnist', final=False, pre=3, dropout=0.0,
+       rec_lambda=None):
 
     DROPOUT = dropout
 
@@ -270,11 +434,12 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
         else:
             NUM_TRAIN = 45000
             NUM_VAL = 5000
+            total = NUM_TRAIN + NUM_VAL
 
             train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
-            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
         shape = (1, 28, 28)
         num_classes = 10
@@ -310,11 +475,12 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
         else:
             NUM_TRAIN = 45000
             NUM_VAL = 5000
+            total = NUM_TRAIN + NUM_VAL
 
             train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
-            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
 
         shape = (3, 32, 32)
@@ -333,11 +499,12 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
         else:
             NUM_TRAIN = 45000
             NUM_VAL = 5000
+            total = NUM_TRAIN + NUM_VAL
 
             train = torchvision.datasets.CIFAR100(root=data, train=True, download=True, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, 0))
-            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_VAL, NUM_TRAIN))
+            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
         shape = (3, 32, 32)
         num_classes = 100
@@ -388,6 +555,9 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
     elif modelname == 'ash':
 
         hyperlayer = ImageLayer(shape, out_size=(hidden,), k=k, adaptive=True, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample, pre=pre)
+
+        reconstruction = ToImageLayer((hidden,), out_size=shape, k=k, adaptive=True, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample, pre=pre)
 
         model = nn.Sequential(
@@ -468,6 +638,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     xent = nn.CrossEntropyLoss()
+    mse = nn.MSELoss()
     acc = CategoricalAccuracy()
 
     step = 0
@@ -496,6 +667,13 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             outputs = model(inputs)
 
             loss = xent(outputs, labels)
+
+            if rec_lambda is not None and reconstruction is not None:
+                rec = reconstruction(hyperlayer(inputs))
+
+                rloss = mse(rec, inputs)
+
+                loss = loss + rec_lambda * rloss
 
             t0 = time.time()
             loss.backward()  # compute the gradients
@@ -530,6 +708,10 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
                 hyperlayer.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
+
+                if reconstruction is not None:
+                    reconstruction.plot(hyperlayer(inputs[:10, ...]))
+                    plt.savefig('mnist/recon.{:03}.pdf'.format(epoch))
 
         total = 0.0
         num = 0
@@ -640,14 +822,19 @@ if __name__ == "__main__":
                         help="Dropout of the baseline and hypernetwork.",
                         default=0.0, type=float)
 
+    parser.add_argument("-R", "--reconstruction-loss", dest="rec_loss",
+                        help="Reconstruction loss parameter.",
+                        default=None, type=float)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
     go(epochs=options.epochs, batch=options.batch_size, k=options.k,
-        additional=options.additional, modelname=options.model, cuda=options.cuda,
-        lr=options.lr, subsample=options.subsample,
-        num_values=options.num_values, min_sigma=options.min_sigma,
-        tb_dir=options.tb_dir, data=options.data, task=options.task,
-        final=options.final, hidden=options.hidden, pre=options.pre, dropout=options.dropout)
+       additional=options.additional, modelname=options.model, cuda=options.cuda,
+       lr=options.lr, subsample=options.subsample,
+       num_values=options.num_values, min_sigma=options.min_sigma,
+       tb_dir=options.tb_dir, data=options.data, task=options.task,
+       final=options.final, hidden=options.hidden, pre=options.pre,
+       dropout=options.dropout, rec_lambda=options.rec_loss)

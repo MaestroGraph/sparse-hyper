@@ -36,6 +36,8 @@ fh = logging.FileHandler('ash.log')
 fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
+DROPOUT = 0.0
+
 def inv(i, max):
     sc = (i/max) * 0.999 + 0.0005
     return logit(sc)
@@ -126,8 +128,10 @@ class ImageLayer(gaussian_in.HyperLayer):
                 # util.Debug(lambda x : print(x.size())),
                 util.Flatten(),
                 nn.Linear(hid, 64),
+                nn.Dropout(DROPOUT),
                 activation,
                 nn.Linear(64, 64),
+                nn.Dropout(DROPOUT),
                 activation,
                 nn.Linear(64, pre),
                 nn.Sigmoid()
@@ -241,7 +245,9 @@ COLUMN = 13
 
 def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
-       tb_dir=None, data='./data', hidden=32, task='mnist', final=False, pre=3):
+       tb_dir=None, data='./data', hidden=32, task='mnist', final=False, pre=3, dropout=0.0):
+
+    DROPOUT = dropout
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -373,7 +379,9 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             nn.Conv2d(32, 32, kernel_size=5, padding=2),
             activation,
             util.Flatten(),
-            nn.Linear(hid, num_classes),
+            nn.Linear(hid, 128),
+            nn.Dropout(dropout),
+            nn.Linear(128, num_classes),
             nn.Softmax()
         )
 
@@ -624,6 +632,10 @@ if __name__ == "__main__":
                         help="Size of the preprocessed input representation.",
                         default=32, type=int)
 
+    parser.add_argument("-Q", "--dropout", dest="dropout",
+                        help="Dropout of the baseline and hypernetwork.",
+                        default=0.0, type=int)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -634,4 +646,4 @@ if __name__ == "__main__":
         lr=options.lr, subsample=options.subsample,
         num_values=options.num_values, min_sigma=options.min_sigma,
         tb_dir=options.tb_dir, data=options.data, task=options.task,
-        final=options.final, hidden=options.hidden, pre=options.pre)
+        final=options.final, hidden=options.hidden, pre=options.pre, dropout=options.dropout)

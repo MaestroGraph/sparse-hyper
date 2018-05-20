@@ -675,12 +675,9 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             if rec_lambda is not None and reconstruction is not None:
 
-                hl = Variable(torch.randn(inputs.size()[0], hidden))
-
-                rec = reconstruction(hl)
+                rec = reconstruction(hyperlayer.last_out)
 
                 rloss = mse(rec, inputs)
-                # rloss.backward()
 
                 loss = mloss + rloss
             else:

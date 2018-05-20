@@ -382,6 +382,7 @@ class HyperLayer(nn.Module):
         bfx = x_flat.view(1, -1).squeeze(0)
 
         # print(vindices.size(), bfvalues.size(), bfsize, bfx.size())
+
         bfy = sparsemult(vindices, bfvalues, bfsize, bfx)
 
         y_flat = bfy.unsqueeze(0).view(batchsize, -1)

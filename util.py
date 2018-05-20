@@ -241,6 +241,8 @@ class SparseMultGPU(torch.autograd.Function):
     @staticmethod
     def forward(ctx, indices, values, size, vector):
 
+        print(type(size), size)
+
         matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(list(size)))
 
         ctx.indices, ctx.matrix, ctx.vector = indices, matrix, vector

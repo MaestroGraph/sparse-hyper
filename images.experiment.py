@@ -61,7 +61,7 @@ class ImageLayer(gaussian_in.HyperLayer):
         out_indices = out_indices.unsqueeze(1).expand(prod(out_size), k, len(out_size))
         out_indices = out_indices.contiguous().view(prod(out_size) * k, len(out_size))
 
-        print(out_indices.size()[0], ' index tuples')
+        print('input ', out_indices.size()[0], ' index tuples')
 
         super().__init__(in_rank=3, out_size=out_size, out_indices=out_indices, additional=additional, subsample=subsample)
 
@@ -172,8 +172,7 @@ class ImageLayer(gaussian_in.HyperLayer):
 
         if self.adaptive:
 
-            self.emb = self.preprocess(input)
-            input = self.emb
+            input = self.preprocess(input)
 
             b, d = input.size()
             assert(d == self.pre)
@@ -209,13 +208,10 @@ class ImageLayer(gaussian_in.HyperLayer):
         return means, sigmas, values, self.bias
 
     def forward(self, input):
-        res = super().forward(input)
 
-        if not self.mix:
-            return res
+        self.last_out = super().forward(input)
 
-        a = nn.functional.sigmoid(self.alpha)
-        return self.emb * a  + res * (1.0 - a)
+        return self.last_out
 
     def plot(self, images):
         perrow = 5
@@ -258,7 +254,7 @@ class ToImageLayer(gaussian_out.HyperLayer):
         in_indices = in_indices.unsqueeze(1).expand(prod(in_size), k, len(in_size))
         in_indices = in_indices.contiguous().view(prod(in_size) * k, len(in_size))
 
-        print(in_indices.size()[0], ' index tuples')
+        print('reconstruction  ',  in_indices.size()[0], ' index tuples')
 
         super().__init__(in_size=in_size, out_size=out_size, in_indices=in_indices, additional=additional, subsample=subsample)
 
@@ -340,8 +336,7 @@ class ToImageLayer(gaussian_out.HyperLayer):
 
         if self.adaptive:
 
-            self.emb = self.preprocess(input)
-            input = self.emb
+            input = self.preprocess(input)
 
             b, d = input.size()
             assert(d == self.pre)
@@ -557,7 +552,8 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
         hyperlayer = ImageLayer(shape, out_size=(hidden,), k=k, adaptive=True, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample, pre=pre)
 
-        reconstruction = ToImageLayer((hidden,), out_size=shape, k=k, adaptive=True, additional=additional, num_values=num_values,
+        if rec_lambda is not None:
+            reconstruction = ToImageLayer((hidden,), out_size=shape, k=k, adaptive=True, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample, pre=pre)
 
         model = nn.Sequential(
@@ -571,6 +567,10 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
         hyperlayer = ImageLayer(shape, out_size=(hidden,), k=k,  adaptive=False, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample)
+
+        if rec_lambda is not None:
+            reconstruction = ToImageLayer((hidden,), out_size=shape, k=k, adaptive=False, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample, pre=pre)
 
         model = nn.Sequential(
             hyperlayer,
@@ -637,7 +637,10 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
         if reconstruction is not None:
             reconstruction.apply(lambda t: t.cuda())
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    if rec_lambda is None:
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+    else:
+        optimizer = optim.Adam(list(model.parameters()) + list(reconstruction.parameters()), lr=lr)
 
     xent = nn.CrossEntropyLoss()
     mse = nn.MSELoss()
@@ -668,14 +671,20 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             outputs = model(inputs)
 
-            loss = xent(outputs, labels)
+            mloss = xent(outputs, labels)
 
             if rec_lambda is not None and reconstruction is not None:
-                rec = reconstruction(hyperlayer(inputs))
+
+                hl = Variable(torch.randn(inputs.size()[0], hidden))
+
+                rec = reconstruction(hl)
 
                 rloss = mse(rec, inputs)
+                # rloss.backward()
 
-                loss = loss + rec_lambda * rloss
+                loss = mloss + rloss
+            else:
+                loss = mloss
 
             t0 = time.time()
             loss.backward()  # compute the gradients
@@ -684,6 +693,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             # print(hyperlayer.values, hyperlayer.values.grad)
 
             optimizer.step()
+
             tbw.add_scalar('mnist/train-loss', loss.data[0], step)
 
             step += inputs.size()[0]
@@ -711,7 +721,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
                 hyperlayer.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
 
-                if reconstruction is not None:
+                if rec_lambda is not None:
                     reconstruction.plot(hyperlayer(inputs[:10, ...]))
                     plt.savefig('mnist/recon.{:03}.pdf'.format(epoch))
 

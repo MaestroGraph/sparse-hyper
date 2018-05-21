@@ -691,7 +691,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             optimizer.step()
 
-            tbw.add_scalar('mnist/train-loss', loss.data[0], step)
+            tbw.add_scalar('mnist/train-loss', float(loss.data[0]), step)
 
             step += inputs.size()[0]
 

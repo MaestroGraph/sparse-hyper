@@ -208,9 +208,9 @@ class SparseMultCPU(torch.autograd.Function):
     @staticmethod
     def forward(ctx, indices, values, size, vector):
 
-        print(type(size), size, list(size))
+        print(type(size), size, list(size), intlist(size))
 
-        matrix = torch.sparse.FloatTensor(indices, values, torch.Size(size))
+        matrix = torch.sparse.FloatTensor(indices, values, torch.Size(intlist(size)))
 
         ctx.indices, ctx.matrix, ctx.vector = indices, matrix, vector
 
@@ -243,9 +243,9 @@ class SparseMultGPU(torch.autograd.Function):
     @staticmethod
     def forward(ctx, indices, values, size, vector):
 
-        print(type(size), size, list(size))
+        print(type(size), size, list(size), intlist(size))
 
-        matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(list(size)))
+        matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(intlist(size)))
 
         ctx.indices, ctx.matrix, ctx.vector = indices, matrix, vector
 
@@ -491,3 +491,25 @@ def bmult(width, height, num_indices, batchsize, use_cuda):
     m     = m.expand(batchsize, num_indices, 2)
 
     return m * bmult
+
+def intlist(tensor):
+    """
+    A slow and stupid way to turn a tensor into an iterable over ints
+    :param tensor:
+    :return:
+    """
+
+    tensor = tensor.squeeze()
+
+    assert len(tensor.size()) == 1
+
+    s = tensor.size()[0]
+
+    l = [None] * s
+    for i in range(len(s)):
+        l[s] = int(tensor[i])
+
+    return l
+
+
+

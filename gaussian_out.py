@@ -181,7 +181,7 @@ class HyperLayer(nn.Module):
         # Sample additional points
         if rng is not None:
             t0 = time.time()
-            total = hyper.prod(rng)
+            total = util.prod(rng)
 
             if PROPER_SAMPLING:
 

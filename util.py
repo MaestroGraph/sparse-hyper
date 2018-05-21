@@ -506,7 +506,7 @@ def intlist(tensor):
     s = tensor.size()[0]
 
     l = [None] * s
-    for i in range(len(s)):
+    for i in range(s):
         l[s] = int(tensor[i])
 
     return l

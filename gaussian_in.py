@@ -15,10 +15,6 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 
-import torchsample as ts
-from torchsample.modules import ModuleTrainer
-
-from torchsample.metrics import *
 from util import *
 import util
 
@@ -28,8 +24,6 @@ import time, random, logging
 from enum import Enum
 
 from tqdm import trange
-
-import hyper
 
 from gaussian import Bias, fi_matrix, flatten_indices_mat, densities, tup, fi
 
@@ -187,7 +181,7 @@ class HyperLayer(nn.Module):
         # Sample additional points
         if rng is not None:
             t0 = time.time()
-            total = hyper.prod(rng)
+            total = util.prod(rng)
 
             if PROPER_SAMPLING:
 

@@ -1,4 +1,4 @@
-import hyper, gaussian_in, gaussian_out, util, time, pretrain, os, math, sys, PIL
+import gaussian_in, gaussian_out, util, time,  os, math, sys, PIL
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -10,8 +10,6 @@ from torch.utils.serialization import load_lua
 
 from math import *
 from torch.utils.data import TensorDataset, DataLoader
-
-from torchsample.metrics import CategoricalAccuracy
 
 import torch.optim as optim
 
@@ -644,7 +642,6 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     xent = nn.CrossEntropyLoss()
     mse = nn.MSELoss()
-    acc = CategoricalAccuracy()
 
     step = 0
 
@@ -691,9 +688,9 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             optimizer.step()
 
-            tbw.add_scalar('mnist/train-loss', float(loss.data[0]), step)
+            tbw.add_scalar('mnist/train-loss', float(loss.data.item()), step)
 
-            step += inputs.size()[0]
+            step += inputs.size(0)
 
             if PLOT and i == 0 and hyperlayer is not None:
 
@@ -706,6 +703,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
                 ax = plt.figure().add_subplot(111)
 
                 for j, (s, v) in enumerate(zip(sigs, vals)):
+                    s = [si.item() for si in s]
                     ax.scatter([j] * len(s), s, c=v, linewidth=0,  alpha=0.2, cmap='RdYlBu', vmin=-1.0, vmax=1.0)
 
                 ax.set_aspect('auto')
@@ -723,7 +721,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
                     plt.savefig('mnist/recon.{:03}.pdf'.format(epoch))
 
         total = 0.0
-        num = 0
+        correct = 0.0
 
         model.eval()
 
@@ -740,10 +738,11 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
             outputs = model(inputs)
 
-            total += acc(outputs, labels)
-            num += 1
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
 
-        accuracy = total / num
+        accuracy = correct/total
 
         tbw.add_scalar('mnist1d/per-epoch-test-acc', accuracy, epoch)
         print('EPOCH {}: {} accuracy '.format(epoch, accuracy))

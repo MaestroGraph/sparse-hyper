@@ -632,7 +632,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
         model.cuda()
         if hyperlayer is not None:
             hyperlayer.apply(lambda t: t.cuda())
-        if reconstruction is not None:
+        if rec_lambda is not None:
             reconstruction.apply(lambda t: t.cuda())
 
     if rec_lambda is None:

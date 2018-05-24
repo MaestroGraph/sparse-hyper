@@ -138,12 +138,15 @@ class ImageLayer(gaussian_in.HyperLayer):
                 nn.Sigmoid()
             )
 
+            hidden = 64
             self.source = nn.Sequential(
-                nn.Linear(pre + sum(out_size) + k, 4), # input + output index (one hots) + k (one hot)
-                # activation,
-                # nn.Linear(hidden, hidden),
-                # activation,
-                # nn.Linear(hidden, 5),
+                nn.Linear(pre + sum(out_size) + k, hidden), # input + output index (one hots) + k (one hot)
+                activation,
+                nn.Linear(hidden, hidden),
+                activation,
+                nn.Linear(hidden, hidden),
+                activation,
+                nn.Linear(hidden, 4),
             )
 
             self.sigmas = Parameter(torch.randn((1, self.k * prod(out_size), 1)))
@@ -305,11 +308,13 @@ class ToImageLayer(gaussian_out.HyperLayer):
             )
 
             self.source = nn.Sequential(
-                nn.Linear(pre + sum(in_size) + k, 4), # input + output index (one hots) + k (one hot)
-                # activation,
-                # nn.Linear(64, 64),
-                # activation,
-                # nn.Linear(hidden, 5),
+                nn.Linear(pre + sum(in_size) + k, 64), # input + output index (one hots) + k (one hot)
+                activation,
+                nn.Linear(64, 64),
+                activation,
+                nn.Linear(64, 64),
+                activation,
+                nn.Linear(64, 4),
             )
 
             self.sigmas = Parameter(torch.randn((1, self.k * prod(in_size), 1)))

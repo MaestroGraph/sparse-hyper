@@ -266,6 +266,7 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
 
         # scale to [0,1] in each dim
         in_indices = in_indices / torch.FloatTensor([1, k, k]).unsqueeze(0).expand_as(in_indices)
+
         self.register_buffer('in_indices', in_indices)
 
         assert(len(in_size) == 3)
@@ -347,10 +348,12 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
 
         in_indices = self.in_indices.unsqueeze(0).expand(b, l, 3)
 
-        range = torch.cat([torch.ones(b, 1), xrange.unsqueeze(1), yrange.unsqueeze(1)], dim=1)
+        ones = torch.ones(b, 1).cuda() if self.use_cuda else torch.ones(b, 1)
+
+        range = torch.cat([ones, xrange.unsqueeze(1), yrange.unsqueeze(1)], dim=1)
         range = range.unsqueeze(1).expand_as(in_indices)
 
-        min = torch.cat([torch.ones(b, 1), xmin.unsqueeze(1), ymin.unsqueeze(1)], dim=1)
+        min = torch.cat([ones, xmin.unsqueeze(1), ymin.unsqueeze(1)], dim=1)
         min = min.unsqueeze(1).expand_as(in_indices)
 
         in_scaled = in_indices * range + min

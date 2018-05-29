@@ -241,6 +241,178 @@ class ImageLayer(gaussian_in.HyperLayer):
         plt.gcf()
 
 
+class SimpleImageLayer(gaussian_in.HyperLayer):
+    """
+    Simple hyperlayer for the 1D MNIST experiment. Defines a regular grid of real-valued hyperparameters on the input
+    image. Only the bounding box of the grid is a parameter.
+
+    NB: k is the number of tuples per input dimension. That is, k = 4 results in a 16 * c grid of inputs evenly spaced
+     across a bounding box
+    """
+
+    def __init__(self, in_size, out_channels, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
+
+        out_size = (out_channels, k, k)
+
+        ci, wi, hi = in_size
+        co, wo, ho = out_size
+
+        num_indices = k * k * ci * out_channels;
+
+        out_indices = torch.LongTensor(list(np.ndindex( (k, k, co, ci) )))[:, (2, 0, 1)]
+        in_indices  = torch.FloatTensor(list(np.ndindex( (k, k, co, ci) )))[:, (3, 0, 1)]
+
+        super().__init__(in_rank=3, out_size=out_size, out_indices=out_indices, additional=additional, subsample=subsample)
+
+        # scale to [0,1] in each dim
+        in_indices = in_indices / torch.FloatTensor([1, k, k]).unsqueeze(0).expand_as(in_indices)
+        self.register_buffer('in_indices', in_indices)
+
+        assert(len(in_size) == 3)
+
+        self.in_size = in_size
+        self.k = k
+        self.sigma_scale = sigma_scale
+        self.num_values = num_values
+        self.min_sigma = min_sigma
+        self.out_size = out_size
+        self.adaptive = adaptive
+
+        if self.adaptive:
+            activation = nn.ReLU()
+
+            p1 = 4
+            p2 = 2
+
+            c , w, h = in_size
+            hid = max(1, floor(floor(w/p1)/p2) * floor(floor(h/p1)/p2)) * 32
+
+            self.preprocess = nn.Sequential(
+                #nn.MaxPool2d(kernel_size=4),
+                # util.Debug(lambda x: print(x.size())),
+                nn.Conv2d(c, 4, kernel_size=5, padding=2),
+                activation,
+                nn.Conv2d(4, 4, kernel_size=5, padding=2),
+                activation,
+                nn.MaxPool2d(kernel_size=p1),
+                nn.Conv2d(4, 16, kernel_size=5, padding=2),
+                activation,
+                nn.Conv2d(16, 16, kernel_size=5, padding=2),
+                activation,
+                nn.MaxPool2d(kernel_size=p2),
+                nn.Conv2d(16, 32, kernel_size=5, padding=2),
+                activation,
+                nn.Conv2d(32, 32, kernel_size=5, padding=2),
+                activation,
+                # util.Debug(lambda x : print(x.size())),
+                util.Flatten(),
+                nn.Linear(hid, 64),
+                nn.Dropout(DROPOUT),
+                activation,
+                nn.Linear(64, 64),
+                nn.Dropout(DROPOUT),
+                activation,
+                nn.Linear(64, 4),
+                nn.Sigmoid()
+            )
+
+        else:
+            self.bound = Parameter(torch.FloatTensor([-1, 1, -1, 1]))
+
+        self.sigmas = Parameter(torch.randn( (out_indices.size(0), ) ))
+
+        if num_values > 0:
+            self.values = Parameter(torch.randn((num_values,)))
+        else:
+            self.values = Parameter(torch.randn( (out_indices.size(0), ) ))
+
+        self.bias = Parameter(torch.zeros(*out_size))
+
+    def hyper(self, input):
+        """
+        Evaluates hypernetwork.
+        """
+
+        b, c, w, h = input.size()
+        l = self.in_indices.size(0)
+
+        if self.adaptive:
+            bbox = self.preprocess(input)
+        else:
+            bbox = self.bound.unsqueeze(0).expand(b, 4)
+
+        xmin, xmax, ymin, ymax = bbox[:, 0], bbox[:, 1], bbox[:, 2], bbox[:, 3]
+
+        xrange, yrange = xmax - xmin, ymax - ymin
+
+        in_indices = self.in_indices.unsqueeze(0).expand(b, l, 3)
+
+        range = torch.cat([torch.ones(b, 1), xrange.unsqueeze(1), yrange.unsqueeze(1)], dim=1)
+        range = range.unsqueeze(1).expand_as(in_indices)
+
+        min = torch.cat([torch.ones(b, 1), xmin.unsqueeze(1), ymin.unsqueeze(1)], dim=1)
+        min = min.unsqueeze(1).expand_as(in_indices)
+
+        in_scaled = in_indices * range + min
+
+        # Expand to batch dim
+        sigmas = self.sigmas.unsqueeze(0).expand(b, l)
+
+        # Unpack the values
+        if self.num_values > 0:
+            mult = l // self.num_values
+
+            values = self.values.unsqueeze(0).expand(mult, self.num_values)
+            values = values.contiguous().view(-1)[:l]
+
+            # Expand to batch dim
+            values = values.unsqueeze(0).expand(b, l)
+        else:
+            values = self.values.unsqueeze(0).expand(b, l)
+
+        res = torch.cat([in_scaled, sigmas.unsqueeze(2), values.unsqueeze(2)], dim=2)
+
+        means, sigmas, values = self.split_out(res, self.in_size)
+
+        sigmas = sigmas * self.sigma_scale + self.min_sigma
+
+        self.last_values = values.data
+
+        return means, sigmas, values, self.bias
+
+    def forward(self, input):
+
+        self.last_out = super().forward(input)
+
+        return self.last_out
+
+    def plot(self, images):
+        perrow = 5
+
+        num, c, w, h = images.size()
+
+        rows = int(math.ceil(num/perrow))
+
+        means, sigmas, values, _ = self.hyper(images)
+
+        images = images.data
+
+        plt.figure(figsize=(perrow * 3, rows*3))
+
+        for i in range(num):
+
+            ax = plt.subplot(rows, perrow, i+1)
+
+            im = np.transpose(images[i, :, :, :].cpu().numpy(), (1, 2, 0))
+            im = np.squeeze(im)
+
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
+
+            util.plot(means[i, :, 1:].unsqueeze(0), sigmas[i, :, 1:].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax)
+
+        plt.gcf()
+
+
 class ToImageLayer(gaussian_out.HyperLayer):
     """
     Simple hyperlayer for the 1D MNIST experiment
@@ -551,33 +723,35 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
         )
 
     elif modelname == 'ash':
-
-        hyperlayer = ImageLayer(shape, out_size=(hidden,), k=k, adaptive=True, additional=additional, num_values=num_values,
-                                min_sigma=min_sigma, subsample=subsample, pre=pre)
+        C = 1
+        hyperlayer = SimpleImageLayer(shape, out_channels=C, k=k, adaptive=True, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample)
 
         if rec_lambda is not None:
-            reconstruction = ToImageLayer((hidden,), out_size=shape, k=k, adaptive=True, additional=additional, num_values=num_values,
+            reconstruction = ToImageLayer((C, k, k), out_size=shape, k=k, adaptive=True, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample, pre=pre)
 
         model = nn.Sequential(
             hyperlayer,
-            nn.Linear(hidden, hidden),
+            util.Flatten(),
+            nn.Linear(k*k*C, hidden),
             activation,
             nn.Linear(hidden, num_classes),
             nn.Softmax())
 
     elif modelname == 'nas':
-
-        hyperlayer = ImageLayer(shape, out_size=(hidden,), k=k,  adaptive=False, additional=additional, num_values=num_values,
+        C = 1
+        hyperlayer = SimpleImageLayer(shape, out_channels=C, k=k, adaptive=False, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample)
 
         if rec_lambda is not None:
-            reconstruction = ToImageLayer((hidden,), out_size=shape, k=k, adaptive=False, additional=additional, num_values=num_values,
+            reconstruction = ToImageLayer((C, k, k), out_size=shape, k=k, adaptive=False, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample, pre=pre)
 
         model = nn.Sequential(
             hyperlayer,
-            nn.Linear(hidden, hidden),
+            util.Flatten(),
+            nn.Linear(k*k*C, hidden),
             activation,
             nn.Linear(hidden, num_classes),
             nn.Softmax())

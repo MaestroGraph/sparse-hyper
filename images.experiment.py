@@ -286,44 +286,47 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
             p2 = 2
 
             c , w, h = in_size
-            hid = max(1, floor(floor(w/p1)/p2) * floor(floor(h/p1)/p2)) * 32
 
-            self.preprocess = nn.Sequential(
-                #nn.MaxPool2d(kernel_size=4),
-                # util.Debug(lambda x: print(x.size())),
-                nn.Conv2d(c, 4, kernel_size=5, padding=2),
-                activation,
-                nn.Conv2d(4, 4, kernel_size=5, padding=2),
-                activation,
-                nn.MaxPool2d(kernel_size=p1),
-                nn.Conv2d(4, 16, kernel_size=5, padding=2),
-                activation,
-                nn.Conv2d(16, 16, kernel_size=5, padding=2),
-                activation,
-                nn.MaxPool2d(kernel_size=p2),
-                nn.Conv2d(16, 32, kernel_size=5, padding=2),
-                activation,
-                nn.Conv2d(32, 32, kernel_size=5, padding=2),
-                activation,
-                # util.Debug(lambda x : print(x.size())),
-                util.Flatten(),
-                nn.Linear(hid, 64),
-                nn.Dropout(DROPOUT),
-                activation,
-                nn.Linear(64, 64),
-                nn.Dropout(DROPOUT),
-                activation,
-                nn.Linear(64, 4),
-            )
+            BIG = True
+            if BIG:
+                hid = max(1, floor(floor(w/p1)/p2) * floor(floor(h/p1)/p2)) * 32
 
-            # hid = max(1, floor(w/5) * floor(h/5) * c)
-            # self.preprocess = nn.Sequential(
-            #      nn.MaxPool2d(kernel_size=5),
-            #     util.Flatten(),
-            #     nn.Linear(hid, 64),
-            #     activation,
-            #     nn.Linear(64, 4)
-            # )
+                self.preprocess = nn.Sequential(
+                    #nn.MaxPool2d(kernel_size=4),
+                    # util.Debug(lambda x: print(x.size())),
+                    nn.Conv2d(c, 4, kernel_size=5, padding=2),
+                    activation,
+                    nn.Conv2d(4, 4, kernel_size=5, padding=2),
+                    activation,
+                    nn.MaxPool2d(kernel_size=p1),
+                    nn.Conv2d(4, 16, kernel_size=5, padding=2),
+                    activation,
+                    nn.Conv2d(16, 16, kernel_size=5, padding=2),
+                    activation,
+                    nn.MaxPool2d(kernel_size=p2),
+                    nn.Conv2d(16, 32, kernel_size=5, padding=2),
+                    activation,
+                    nn.Conv2d(32, 32, kernel_size=5, padding=2),
+                    activation,
+                    # util.Debug(lambda x : print(x.size())),
+                    util.Flatten(),
+                    nn.Linear(hid, 64),
+                    nn.Dropout(DROPOUT),
+                    activation,
+                    nn.Linear(64, 64),
+                    nn.Dropout(DROPOUT),
+                    activation,
+                    nn.Linear(64, 4),
+                )
+            else:
+                hid = max(1, floor(w/5) * floor(h/5) * c)
+                self.preprocess = nn.Sequential(
+                     nn.MaxPool2d(kernel_size=5),
+                    util.Flatten(),
+                    nn.Linear(hid, 16),
+                    activation,
+                    nn.Linear(16, 4)
+                )
 
             self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
 
@@ -424,7 +427,7 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
 
             ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
 
-            util.plot(means[i, :, 1:].unsqueeze(0), sigmas[i, :, 1:].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax)
+            util.plot(means[i, :, 1:].unsqueeze(0), sigmas[i, :, 1:].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax, flip_y=True)
 
         plt.gcf()
 

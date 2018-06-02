@@ -47,7 +47,7 @@ def clean(axes=None):
     # axes.get_yaxis().set_tick_params(which='both', left='off', right='off')
 
 
-def plot(means, sigmas, values, shape=None, axes=None):
+def plot(means, sigmas, values, shape=None, axes=None, flip_y=False):
 
     b, n, d = means.size()
 
@@ -69,7 +69,7 @@ def plot(means, sigmas, values, shape=None, axes=None):
         axes.add_patch(Ellipse((means[i, 1], means[i, 0]), width=sigmas[i,1], height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 
-    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=1, edgecolor='k')
+    axes.scatter(means[:, 1], means[::-1, 0] if flip_y else means[:, 0], c=colors, zorder=100, linewidth=1, edgecolor='k')
 
     if shape is not None:
 

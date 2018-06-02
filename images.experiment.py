@@ -317,6 +317,8 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
                 nn.Sigmoid()
             )
 
+            self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
+
         else:
             self.bound = Parameter(torch.FloatTensor([-1, 1, -1, 1]))
 
@@ -339,6 +341,8 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
 
         if self.adaptive:
             bbox = self.preprocess(input)
+
+            bbox = bbox + self.bbox_offset
         else:
             bbox = self.bound.unsqueeze(0).expand(b, 4)
 

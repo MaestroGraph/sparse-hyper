@@ -250,7 +250,7 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
      across a bounding box
     """
 
-    def __init__(self, in_size, out_channels, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None):
+    def __init__(self, in_size, out_channels, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None, big=True):
 
         out_size = (out_channels, k, k)
 
@@ -287,8 +287,7 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
 
             c , w, h = in_size
 
-            BIG = True
-            if BIG:
+            if big:
                 hid = max(1, floor(floor(w/p1)/p2) * floor(floor(h/p1)/p2)) * 32
 
                 self.preprocess = nn.Sequential(
@@ -598,7 +597,7 @@ COLUMN = 13
 def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
        tb_dir=None, data='./data', hidden=32, task='mnist', final=False, pre=3, dropout=0.0,
-       rec_lambda=None):
+       rec_lambda=None, small=True):
 
     DROPOUT = dropout
 
@@ -744,7 +743,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
     elif modelname == 'ash':
         C = 1
         hyperlayer = SimpleImageLayer(shape, out_channels=C, k=k, adaptive=True, additional=additional, num_values=num_values,
-                                min_sigma=min_sigma, subsample=subsample)
+                                min_sigma=min_sigma, subsample=subsample, big=not small)
 
         if rec_lambda is not None:
             reconstruction = ToImageLayer((C, k, k), out_size=shape, k=k, adaptive=True, additional=additional, num_values=num_values,
@@ -981,6 +980,11 @@ if __name__ == "__main__":
                         help="Whether to use cuda.",
                         action="store_true")
 
+    parser.add_argument("-Z", "--small-hyper",
+                        dest="small",
+                        help="Whether to use a small hypernet.",
+                        action="store_true")
+
     parser.add_argument("-D", "--data", dest="data",
                         help="Data directory",
                         default='./data/')
@@ -1043,4 +1047,5 @@ if __name__ == "__main__":
        num_values=options.num_values, min_sigma=options.min_sigma,
        tb_dir=options.tb_dir, data=options.data, task=options.task,
        final=options.final, hidden=options.hidden, pre=options.pre,
-       dropout=options.dropout, rec_lambda=options.rec_loss)
+       dropout=options.dropout, rec_lambda=options.rec_loss,
+       small=options.small)

@@ -47,7 +47,18 @@ def clean(axes=None):
     # axes.get_yaxis().set_tick_params(which='both', left='off', right='off')
 
 
-def plot(means, sigmas, values, shape=None, axes=None, flip_y=False):
+def plot(means, sigmas, values, shape=None, axes=None, flip_y=None):
+    """
+
+    :param means:
+    :param sigmas:
+    :param values:
+    :param shape:
+    :param axes:
+    :param flip_y: If not None, interpreted as the max y value. y values in the scatterplot are
+            flipped so that the max is equal to zero and vice versa.
+    :return:
+    """
 
     b, n, d = means.size()
 
@@ -69,7 +80,11 @@ def plot(means, sigmas, values, shape=None, axes=None, flip_y=False):
         axes.add_patch(Ellipse((means[i, 1], means[i, 0]), width=sigmas[i,1], height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 
-    axes.scatter(means[:, 1], means[::-1, 0] if flip_y else means[:, 0], c=colors, zorder=100, linewidth=1, edgecolor='k')
+    if flip_y is not None:
+        means[:, 0] = flip_y - means[:, 0]
+
+
+    axes.scatter(means[:, 1], means[:, 0],c=colors, zorder=100, linewidth=1, edgecolor='k')
 
     if shape is not None:
 

@@ -243,9 +243,6 @@ class ImageLayer(gaussian_in.HyperLayer):
 
 class SimpleImageLayer(gaussian_in.HyperLayer):
     """
-    Simple hyperlayer for the 1D MNIST experiment. Defines a regular grid of real-valued hyperparameters on the input
-    image. Only the bounding box of the grid is a parameter.
-
     NB: k is the number of tuples per input dimension. That is, k = 4 results in a 16 * c grid of inputs evenly spaced
      across a bounding box
     """
@@ -320,7 +317,13 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
             else:
                 hid = max(1, floor(w/5) * floor(h/5) * c)
                 self.preprocess = nn.Sequential(
-                     nn.MaxPool2d(kernel_size=5),
+                    nn.Conv2d(c, c, kernel_size=5, padding=2),
+                    activation,
+                    nn.Conv2d(c, c, kernel_size=5, padding=2),
+                    activation,
+                    nn.Conv2d(c, c, kernel_size=5, padding=2),
+                    activation,
+                    nn.MaxPool2d(kernel_size=5),
                     util.Flatten(),
                     nn.Linear(hid, 16),
                     activation,
@@ -426,7 +429,7 @@ class SimpleImageLayer(gaussian_in.HyperLayer):
 
             ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
 
-            util.plot(means[i, :, 1:].unsqueeze(0), sigmas[i, :, 1:].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax, flip_y=True)
+            util.plot(means[i, :, 1:].unsqueeze(0), sigmas[i, :, 1:].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax, flip_y=h)
 
         plt.gcf()
 

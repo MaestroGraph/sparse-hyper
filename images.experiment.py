@@ -749,7 +749,7 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
                                 min_sigma=min_sigma, subsample=subsample, big=not small)
 
         if rec_lambda is not None:
-            reconstruction = ToImageLayer((C, k, k), out_size=shape, k=k, adaptive=True, additional=additional, num_values=num_values,
+            reconstruction = ToImageLayer((C, k, k), out_size=shape, k=1, adaptive=True, additional=additional, num_values=num_values,
                                 min_sigma=min_sigma, subsample=subsample, pre=pre)
 
         model = nn.Sequential(

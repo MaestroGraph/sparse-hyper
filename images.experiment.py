@@ -606,7 +606,11 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
-    torch.manual_seed(seed)
+    if seed < 0:
+        seed = random.randint(0, 1000000)
+        print('random seed: ', seed)
+    else:
+        torch.manual_seed(seed)
 
     tbw = SummaryWriter(log_dir=tb_dir)
 
@@ -1039,6 +1043,12 @@ if __name__ == "__main__":
                         help="Reconstruction loss parameter.",
                         default=None, type=float)
 
+
+    parser.add_argument("-r", "--random-seed",
+                        dest="seed",
+                        help="RNG seed. Negative for random",
+                        default=1, type=int)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -1051,4 +1061,4 @@ if __name__ == "__main__":
        tb_dir=options.tb_dir, data=options.data, task=options.task,
        final=options.final, hidden=options.hidden, pre=options.pre,
        dropout=options.dropout, rec_lambda=options.rec_loss,
-       small=options.small)
+       small=options.small, seed=options.seed)

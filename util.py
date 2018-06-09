@@ -47,7 +47,7 @@ def clean(axes=None):
     # axes.get_yaxis().set_tick_params(which='both', left='off', right='off')
 
 
-def plot(means, sigmas, values, shape=None, axes=None, flip_y=None):
+def plot(means, sigmas, values, shape=None, axes=None, flip_y=None, alpha_global=1.0):
     """
 
     :param means:
@@ -79,11 +79,11 @@ def plot(means, sigmas, values, shape=None, axes=None, flip_y=None):
     colors = []
     for i in range(n):
         color = map.to_rgba(values[i])
-        alpha = max(0.05, ((sigmas[i, 0] * sigmas[i, 0])+1.0)**-2)
+        alpha = max(0.05, ((sigmas[i, 0] * sigmas[i, 0])+1.0)**-2) * alpha_global
         axes.add_patch(Ellipse((means[i, 1], means[i, 0]), width=sigmas[i,1], height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 
-    axes.scatter(means[:, 1], means[:, 0],c=colors, zorder=100, linewidth=1, edgecolor='k')
+    axes.scatter(means[:, 1], means[:, 0],c=colors, zorder=100, linewidth=1, edgecolor='k', alpha=alpha_global)
 
     if shape is not None:
 
@@ -92,7 +92,7 @@ def plot(means, sigmas, values, shape=None, axes=None, flip_y=None):
 
         # gray points for the integer index tuples
         x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
-        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.1)
+        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.1* alpha_global)
 
     axes.spines['right'].set_visible(False)
     axes.spines['top'].set_visible(False)

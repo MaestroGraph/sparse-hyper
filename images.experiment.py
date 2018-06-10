@@ -815,18 +815,29 @@ def go(batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=Fals
             nn.Softmax())
 
     elif modelname == 'ash-conv':
-        ch = 3
-
-        hyperlayer = ImageLayer(shape, out_size=(ch, 4, 4), k=k, adaptive=True, additional=additional, num_values=num_values,
-                                min_sigma=min_sigma, subsample=subsample)
+        C = 1
+        hyperlayer = SimpleImageLayer(shape, out_channels=C, k=k, adaptive=True, additional=additional, num_values=num_values,
+                                min_sigma=min_sigma, subsample=subsample, big=not small)
 
         model = nn.Sequential(
             hyperlayer,
             activation,
-            nn.Conv2d(ch, 128, kernel_size=5, padding=2), activation,
+            nn.Conv2d(C, 16, kernel_size=5, padding=2), activation,
+            nn.Conv2d(16, 16, kernel_size=5, padding=2), activation,
+            nn.Conv2d(16, 16, kernel_size=5, padding=2), activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(16, 32, kernel_size=5, padding=2), activation,
+            nn.Conv2d(32, 32, kernel_size=5, padding=2), activation,
+            nn.Conv2d(32, 32, kernel_size=5, padding=2), activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(32, 64, kernel_size=5, padding=2), activation,
+            nn.Conv2d(64, 64, kernel_size=5, padding=2), activation,
+            nn.Conv2d(64, 64, kernel_size=5, padding=2), activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(64, 128, kernel_size=5, padding=2), activation,
             nn.MaxPool2d(kernel_size=2),
             util.Flatten(),
-            nn.Linear(128 * 2 * 2, num_classes),
+            nn.Linear(128, num_classes),
             nn.Softmax())
 
     else:

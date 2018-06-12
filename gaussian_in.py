@@ -291,6 +291,10 @@ class HyperLayer(nn.Module):
             indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
             b, l, r = indices.size()
 
+            pr = indices.view(-1, r)
+            for i in range(b*l):
+                print(pr[i, :])
+
             # move this to the constructor? Less flexible but faster.
             h, w = self.out_indices.size()
             outs = self.out_indices.unsqueeze(0).unsqueeze(2).expand(b, h, 2**r + self.additional, w)

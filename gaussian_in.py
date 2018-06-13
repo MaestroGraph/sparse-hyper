@@ -292,7 +292,7 @@ class HyperLayer(nn.Module):
             b, l, r = indices.size()
 
             pr = indices.view(-1, r)
-            if torch.sum(pr > FloatTensor(rng).unsqueeze(0).expand_as(pr)) > 0:
+            if torch.sum(pr > torch.cuda.LongTensor(rng).unsqueeze(0).expand_as(pr)) > 0:
                 for i in range(b*l):
                     print(pr[i, :])
 

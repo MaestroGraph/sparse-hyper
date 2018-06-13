@@ -292,8 +292,9 @@ class HyperLayer(nn.Module):
             b, l, r = indices.size()
 
             pr = indices.view(-1, r)
-            for i in range(b*l):
-                print(pr[i, :])
+            if torch.sum(pr > FloatTensor(rng).unsqueeze(0).expand_as(pr)) > 0:
+                for i in range(b*l):
+                    print(pr[i, :])
 
             # move this to the constructor? Less flexible but faster.
             h, w = self.out_indices.size()

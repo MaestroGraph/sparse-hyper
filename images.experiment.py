@@ -777,6 +777,13 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
                 self.lin1 = nn.Linear(k * k * out_channels * glimpses, hidden)
                 self.lin2 = nn.Linear(hidden, num_classes)
 
+            def cuda(self):
+
+                super().cuda()
+
+                for hyper in self.hyperlayers:
+                    hyper.apply(lambda t: t.cuda())
+
             def forward(self, image):
 
                 b = image.size(0)

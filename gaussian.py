@@ -156,7 +156,7 @@ def flatten_indices_mat(indices, in_shape, out_shape):
 
     :param indices: Long tensor
     :param in_rank:
-    :return: A matrix of size N by 2. The size of the matrix as a LongTensor
+    :return: (1) A matrix of size N by 2, (2) the dimensions of M
     """
 
     batchsize, n, rank = indices.size()
@@ -280,7 +280,7 @@ def sample_indices(batchsize, k, num, rng, use_cuda=False):
     :return:
     """
 
-    total = hyper.prod(rng)
+    total = util.prod(rng)
     num_means = batchsize * k
 
     # First, we'll sample some flat indices, and then compute their corresponding index-tuples

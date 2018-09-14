@@ -140,6 +140,46 @@ def plot1d(means, sigmas, values, shape=None, axes=None):
     axes.spines['bottom'].set_visible(False)
     axes.spines['left'].set_visible(False)
 
+def plot1d(means, sigmas, values, shape=None, axes=None):
+
+    h = 0.1
+
+    n, d = means.size()
+
+    means = means.cpu().numpy()
+    sigmas = sigmas.cpu().numpy()
+    values = nn.functional.tanh(values).data.cpu().numpy()
+
+    norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0)
+    cmap = mpl.cm.RdYlBu
+    map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
+
+    if axes is None:
+        axes = plt.gca()
+
+    colors = []
+    for i in range(n):
+        color = map.to_rgba(values[i])
+        alpha = 0.7 # max(0.05, (sigmas[i, 0]+1.0)**-1)
+        axes.add_patch(Rectangle(xy=(means[i, 1]  - sigmas[i, 0]*0.5, means[i, 0] - h*0.5), width=sigmas[i,0] , height=h, color=color, alpha=alpha, linewidth=0))
+        colors.append(color)
+
+    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=1, edgecolor='k')
+
+    if shape is not None:
+
+        m = max(shape)
+        step = 1 if m < 100 else m//25
+
+        # gray points for the integer index tuples
+        x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
+        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.1)
+
+    axes.spines['right'].set_visible(False)
+    axes.spines['top'].set_visible(False)
+    axes.spines['bottom'].set_visible(False)
+    axes.spines['left'].set_visible(False)
+
 def norm(x):
     """
     Normalize a tensor to a tensor with unit norm (treating first dim as batch dim)

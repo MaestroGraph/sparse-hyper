@@ -798,6 +798,32 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
                 return x
 
+            def plot(self, images):
+
+                perrow = 5
+
+                num, c, w, h = images.size()
+
+                rows = int(math.ceil(num / perrow))
+
+                plt.figure(figsize=(perrow * 3, rows * 3))
+
+                for i in range(num):
+                    ax = plt.subplot(rows, perrow, i + 1)
+
+                    im = np.transpose(images.data[i, :, :, :].cpu().numpy(), (1, 2, 0))
+                    im = np.squeeze(im)
+
+                    ax.imshow(im, interpolation='nearest', extent=(-0.5, w - 0.5, -0.5, h - 0.5), cmap='gray_r')
+
+                    for hyper in self.hyperlayers:
+                        means, sigmas, values, _ = hyper.hyper(images)
+
+                        util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
+                            axes=ax, flip_y=h, alpha_global=0.3)
+
+                plt.gcf()
+
         model = ASHModel(k, args.num_glimpses, out_channels=1)
 
         # model = nn.Sequential(
@@ -944,9 +970,10 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
                 hyperlayer.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
 
-                # if rec_lambda is not None:
-                #     reconstruction.plot(hyperlayer(inputs[:10, ...]))
-                #     plt.savefig('mnist/recon.{:03}.pdf'.format(epoch))
+            if PLOT and i == 0 and type(model) is ASHModel:
+
+                model.plot(inputs[:10, ...])
+                plt.savefig('mnist/attention.glimpses.{:03}.pdf'.format(epoch))
 
         total = 0.0
         correct = 0.0

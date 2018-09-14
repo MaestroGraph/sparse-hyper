@@ -83,7 +83,7 @@ def plot(means, sigmas, values, shape=None, axes=None, flip_y=None, alpha_global
         axes.add_patch(Ellipse((means[i, 1], means[i, 0]), width=sigmas[i,1], height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 
-    axes.scatter(means[:, 1], means[:, 0],c=colors, zorder=100, linewidth=1, edgecolor='k', alpha=alpha_global)
+    axes.scatter(means[:, 1], means[:, 0], s=5, c=colors, zorder=100, linewidth=0, edgecolor='k', alpha=alpha_global)
 
     if shape is not None:
 

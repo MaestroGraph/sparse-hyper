@@ -47,6 +47,19 @@ def clean(axes=None):
     # axes.get_yaxis().set_tick_params(which='both', left='off', right='off')
 
 
+def basic(axes=None):
+
+    if axes is None:
+        axes = plt.gca()
+
+    axes.spines["right"].set_visible(False)
+    axes.spines["top"].set_visible(False)
+    axes.spines["bottom"].set_visible(True)
+    axes.spines["left"].set_visible(True)
+
+    axes.get_xaxis().set_tick_params(which='both', top='off', bottom='on', labelbottom='off')
+    axes.get_yaxis().set_tick_params(which='both', left='on', right='off')
+
 def plot(means, sigmas, values, shape=None, axes=None, flip_y=None, alpha_global=1.0):
     """
 

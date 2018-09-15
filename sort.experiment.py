@@ -1,4 +1,4 @@
-import hyper, gaussian
+import gaussian
 import torch, random, sys
 from torch.autograd import Variable
 from torch.nn import Parameter
@@ -9,10 +9,11 @@ from tensorboardX import SummaryWriter
 import matplotlib.pyplot as plt
 import util, logging, time, gc
 import numpy as np
+from scipy.stats import sem
 
 from argparse import ArgumentParser
 
-import psutil, os
+import os
 
 from gaussian import HyperLayer
 
@@ -25,13 +26,17 @@ Experiment: learn a mapping from a random x, to x sorted.
 """
 w = SummaryWriter()
 
+
 class SortLayer(HyperLayer):
     """
 
     """
-    def __init__(self, size, k, additional=0, sigma_scale=0.1, fix_values=False, sigma_floor=0.0):
+    def __init__(self, size, k,  additional=0, sigma_scale=0.1, fix_values=False, sigma_floor=0.0):
 
-        super().__init__(in_rank=1, out_shape=(size,), additional=additional, bias_type=gaussian.Bias.NONE, subsample=None, sigma_floor=sigma_floor)
+        if size < 8:
+            gaussian.PROPER_SAMPLING = True
+
+        super().__init__(in_rank=1, out_shape=(size,), additional=additional, bias_type=gaussian.Bias.NONE, subsample=None)
 
         class NoActivation(nn.Module):
             def forward(self, input):
@@ -90,80 +95,95 @@ class SortLayer(HyperLayer):
     #     return torch.nn.functional.sigmoid( - torch.log(sigmas.sum() / self.k))
 
 
-def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1, penalty=0.5):
+def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1, reps=10, dot_every=100):
 
-    SHAPE = (size,)
     MARGIN = 0.1
 
     torch.manual_seed(seed)
 
-    nzs = hyper.prod(SHAPE)
+    ndots = iterations//dot_every
 
-    util.makedirs('./sort/')
+    results = np.zeros((max_size-3, reps, ndots))
 
-    params = None
+    if os.path.exists('results.np'):
+        results = np.load('results.np')
+    else:
+        for si, size in enumerate(range(3, max_size)):
+            print('Starting size', size)
+            for r in trange(reps):
+                util.makedirs('./sort/{}/{}'.format(size, r))
+                SHAPE = (size,)
 
-    # !!!!!!!!
-    # gaussian.PROPER_SAMPLING = True
-    model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv)
+                additional = size
 
-    if cuda:
-       model.cuda()
+                gaussian.PROPER_SAMPLING =size < 8
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+                model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv)
 
-    losses = []
+                if cuda:
+                   model.cuda()
 
-    for i in trange(iterations):
+                criterion = nn.MSELoss()
+                optimizer = optim.Adam(model.parameters(), lr=lr)
 
-        x = torch.randn((batch,) + SHAPE)
+                losses = []
 
-        t = x.sort()[0]
+                for i in range(iterations):
 
-        if cuda:
-            x, t = x.cuda(), t.cuda()
+                    x = torch.randn((batch,) + SHAPE)
 
-        x, t = Variable(x), Variable(t)
+                    t = x.sort()[0]
 
-        optimizer.zero_grad()
+                    if cuda:
+                        x, t = x.cuda(), t.cuda()
 
-        y = model(x)
+                    x, t = Variable(x), Variable(t)
 
-        loss = criterion(y, t) + penalty * model.sigma_loss(x) # compute the loss
-        losses.append(float(loss.data[0]))
+                    optimizer.zero_grad()
 
-        t0 = time.time()
-        loss.backward()        # compute the gradients
+                    y = model(x)
 
-        optimizer.step()
+                    loss = criterion(y, t) # compute the loss
 
-        w.add_scalar('sort/loss', loss.data[0], i*batch)
+                    t0 = time.time()
+                    loss.backward()        # compute the gradients
 
-        if i % 100 == 0:
-            print(t[0,:])
-            print(y[0,:])
-            print('-------')
+                    optimizer.step()
 
-        if False or i % plot_every == 0:
+                    w.add_scalar('sort/loss/{}/{}'.format(size, r), loss.data.item(), i*batch)
 
-            means, sigmas, values = model.hyper(x)
+                    if i % dot_every == 0:
+                        results[si, r, i//dot_every] = loss.item()
 
-            plt.figure(figsize=(5, 5))
+                    if i % plot_every == 0:
 
-            plt.cla()
-            util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
-            plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-            plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-            plt.savefig('./sort/means{:04}.png'.format(i))
+                        means, sigmas, values = model.hyper(x)
 
-        if i % 1000 == 0:
-            plt.clf()
-            plt.figure(figsize=(9, 3))
-            util.clean()
-            plt.plot(losses)
-            plt.axhline()
-            plt.savefig('losses.pdf')
+                        plt.figure(figsize=(5, 5))
+
+                        plt.cla()
+                        util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
+                        plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+                        plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+                        plt.savefig('./sort/{}/{}/means{:04}'.format(size, r, i))
+
+        print('experiments finished')
+
+
+    np.save('results.np', results)
+
+    plt.figure(figsize=(5, 5))
+    plt.clf()
+
+    for si, size in enumerate(range(3, max_size)):
+        print(sem(results[si, :, :], axis=0))
+        plt.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[si, :, :], axis=0), yerr=sem(results[si, :, :], axis=0), label='{} by {}'.format(size, size))
+        plt.legend()
+
+    util.basic()
+
+    plt.savefig('./sort/results.png')
+    plt.savefig('./sort/results.pdf')
 
 if __name__ == "__main__":
 
@@ -177,7 +197,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-s", "--size",
                         dest="size",
-                        help="Size of the input",
+                        help="Max size of the input",
                         default=5, type=int)
 
     parser.add_argument("-i", "--iterations",
@@ -228,7 +248,6 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size,
-        additional=options.additional, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every, size=options.size, fv=options.fix_values,
-        seed=options.seed, sigma_scale=options.sigma_scale, penalty=options.penalty)
+    go(batch=options.batch_size, iterations=options.iterations, cuda=options.cuda,
+        lr=options.lr, plot_every=options.plot_every, max_size=options.size, fv=options.fix_values,
+        seed=options.seed, sigma_scale=options.sigma_scale)

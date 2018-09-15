@@ -551,8 +551,8 @@ class ASHModel(nn.Module):
                 util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
                     axes=ax, flip_y=h, alpha_global=0.3)
 
-        ax.xaxis.set_visible(False)
-        ax.yaxis.set_visible(False)
+            ax.xaxis.set_visible(False)
+            ax.yaxis.set_visible(False)
 
 
         plt.gcf()

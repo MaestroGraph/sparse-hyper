@@ -250,7 +250,7 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
      across a bounding box
     """
 
-    def __init__(self, in_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None, big=True):
+    def __init__(self, in_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None, preprocess=None):
 
 
         ci, hi, wi = in_size
@@ -296,7 +296,10 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 
             c , w, h = in_size
 
-            if big: # Use a large convnet to select the bounding box
+            if preprocess is not None:
+                self.preprocess = preprocess
+            else:
+                # default preprocess
                 hid = max(1, floor(floor(w/p1)/p2) * floor(floor(h/p1)/p2)) * 32
 
                 self.preprocess = nn.Sequential(
@@ -326,21 +329,22 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
                     activation,
                     nn.Linear(64, 4),
                 )
-            else:  # Use a small convnet to select the bounding box
-                hid = max(1, floor(w/5) * floor(h/5) * c)
-                self.preprocess = nn.Sequential(
-                    nn.Conv2d(c, c, kernel_size=5, padding=2),
-                    activation,
-                    nn.Conv2d(c, c, kernel_size=5, padding=2),
-                    activation,
-                    nn.Conv2d(c, c, kernel_size=5, padding=2),
-                    activation,
-                    nn.MaxPool2d(kernel_size=5),
-                    util.Flatten(),
-                    nn.Linear(hid, 16),
-                    activation,
-                    nn.Linear(16, 4)
-                )
+
+            # else:  # Use a small convnet to select the bounding box
+            #     hid = max(1, floor(w/5) * floor(h/5) * c)
+            #     self.preprocess = nn.Sequential(
+            #         nn.Conv2d(c, c, kernel_size=5, padding=2),
+            #         activation,
+            #         nn.Conv2d(c, c, kernel_size=5, padding=2),
+            #         activation,
+            #         nn.Conv2d(c, c, kernel_size=5, padding=2),
+            #         activation,
+            #         nn.MaxPool2d(kernel_size=5),
+            #         util.Flatten(),
+            #         nn.Linear(hid, 16),
+            #         activation,
+            #         nn.Linear(16, 4)
+            #     )
 
             self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
 
@@ -356,7 +360,7 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 
         self.bias = Parameter(torch.zeros(*self.out_size))
 
-    def hyper(self, input):
+    def hyper(self, input, prep=None):
         """
         Evaluates hypernetwork.
         """
@@ -365,8 +369,13 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
         l = self.pixel_indices.size(0)
 
         if self.adaptive:
-            bbox = self.preprocess(input)
 
+            if prep is None:
+                bbox = self.preprocess(input)
+            else:
+                bbox = prep
+
+            # ensure that the bounding box covers a reasonable area of the image at the start
             bbox = bbox + self.bbox_offset
 
         else:
@@ -412,7 +421,7 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 
         return means, sigmas, values, self.bias
 
-    def forward(self, input):
+    def forward(self, input, prep=None):
 
         self.last_out = super().forward(input)
 
@@ -444,6 +453,109 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 
         plt.gcf()
 
+class ASHModel(nn.Module):
+
+    def __init__(self, shape, k, glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes):
+        super().__init__()
+
+        activation = nn.ReLU()
+
+        p1 = 4
+        p2 = 2
+
+        c, h, w = shape
+        hid = max(1, floor(floor(w / p1) / p2) * floor(floor(h / p1) / p2)) * 32
+
+        self.preprocess = nn.Sequential(
+            # nn.MaxPool2d(kernel_size=4),
+            # util.Debug(lambda x: print(x.size())),
+            nn.Conv2d(c, 4, kernel_size=5, padding=2),
+            activation,
+            nn.Conv2d(4, 4, kernel_size=5, padding=2),
+            activation,
+            nn.MaxPool2d(kernel_size=p1),
+            nn.Conv2d(4, 16, kernel_size=5, padding=2),
+            activation,
+            nn.Conv2d(16, 16, kernel_size=5, padding=2),
+            activation,
+            nn.MaxPool2d(kernel_size=p2),
+            nn.Conv2d(16, 32, kernel_size=5, padding=2),
+            activation,
+            nn.Conv2d(32, 32, kernel_size=5, padding=2),
+            activation,
+            # util.Debug(lambda x : print(x.size())),
+            util.Flatten(),
+            nn.Linear(hid, 64),
+            nn.Dropout(DROPOUT),
+            activation,
+            nn.Linear(64, 64),
+            nn.Dropout(DROPOUT),
+            activation,
+            nn.Linear(64, 4 * glimpses),
+        )
+
+        self.hyperlayers = []
+
+        for _ in range(glimpses):
+            self.hyperlayers.append(SimpleImageLayer(shape, k=k, adaptive=True, additional=additional,
+                                             num_values=num_values,
+                                             min_sigma=min_sigma, subsample=subsample))
+
+        self.lin1 = nn.Linear(k * k * shape[0] * glimpses, hidden)
+        self.lin2 = nn.Linear(hidden, num_classes)
+
+    def cuda(self):
+
+        super().cuda()
+
+        for hyper in self.hyperlayers:
+            hyper.apply(lambda t: t.cuda())
+
+    def forward(self, image):
+
+        prep = self.preprocess(image)
+
+        b = image.size(0)
+
+        glimpses = []
+        for i, hyper in enumerate(self.hyperlayers):
+            glimpses.append(hyper(image, prep[i*4 : (i+1)*4]))
+
+        x = torch.cat(glimpses, dim=1).view(b, -1)
+        x = F.relu(self.lin1(x))
+        x = F.softmax(self.lin2(x), dim=1)
+
+        return x
+
+    def plot(self, images):
+
+        perrow = 5
+
+        num, c, w, h = images.size()
+
+        rows = int(math.ceil(num / perrow))
+
+        plt.figure(figsize=(perrow * 3, rows * 3))
+
+        for i in range(num):
+            ax = plt.subplot(rows, perrow, i + 1)
+
+            im = np.transpose(images.data[i, :, :, :].cpu().numpy(), (1, 2, 0))
+            im = np.squeeze(im)
+
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, w - 0.5, -0.5, h - 0.5), cmap='gray_r')
+
+            for hyper in self.hyperlayers:
+                means, sigmas, values, _ = hyper.hyper(images)
+
+                util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
+                    axes=ax, flip_y=h, alpha_global=0.3)
+
+        ax.xaxis.set_visible(False)
+        ax.yaxis.set_visible(False)
+
+
+        plt.gcf()
 
 # class ToImageLayer(gaussian_out.HyperLayer):
 #     """
@@ -760,71 +872,8 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
         )
 
     elif modelname == 'ash':
-        C = 1
 
-        class ASHModel(nn.Module):
-
-            def __init__(self, k, glimpses, out_channels):
-                super().__init__()
-
-                self.hyperlayers = []
-
-                for _ in range(glimpses):
-                    self.hyperlayers.append(SimpleImageLayer(shape, k=k, adaptive=True, additional=additional,
-                                                     num_values=num_values,
-                                                     min_sigma=min_sigma, subsample=subsample, big=not small))
-
-                self.lin1 = nn.Linear(k * k * out_channels * glimpses, hidden)
-                self.lin2 = nn.Linear(hidden, num_classes)
-
-            def cuda(self):
-
-                super().cuda()
-
-                for hyper in self.hyperlayers:
-                    hyper.apply(lambda t: t.cuda())
-
-            def forward(self, image):
-
-                b = image.size(0)
-
-                glimpses = []
-                for hyper in self.hyperlayers:
-                    glimpses.append(hyper(image))
-
-                x = torch.cat(glimpses, dim=1).view(b, -1)
-                x = F.relu(self.lin1(x))
-                x = F.softmax(self.lin2(x), dim=1)
-
-                return x
-
-            def plot(self, images):
-
-                perrow = 5
-
-                num, c, w, h = images.size()
-
-                rows = int(math.ceil(num / perrow))
-
-                plt.figure(figsize=(perrow * 3, rows * 3))
-
-                for i in range(num):
-                    ax = plt.subplot(rows, perrow, i + 1)
-
-                    im = np.transpose(images.data[i, :, :, :].cpu().numpy(), (1, 2, 0))
-                    im = np.squeeze(im)
-
-                    ax.imshow(im, interpolation='nearest', extent=(-0.5, w - 0.5, -0.5, h - 0.5), cmap='gray_r')
-
-                    for hyper in self.hyperlayers:
-                        means, sigmas, values, _ = hyper.hyper(images)
-
-                        util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
-                            axes=ax, flip_y=h, alpha_global=0.3)
-
-                plt.gcf()
-
-        model = ASHModel(k, args.num_glimpses, out_channels=1)
+        model = ASHModel(shape, k, args.num_glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes)
 
         # model = nn.Sequential(
         #     hyperlayer,

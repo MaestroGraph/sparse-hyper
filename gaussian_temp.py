@@ -255,7 +255,7 @@ class HyperLayer(nn.Module):
 
         return ints, props, val
 
-    def forward(self, input):
+    def forward(self, input, **kwargs):
 
         ### Compute and unpack output of hypernetwork
 
@@ -263,11 +263,11 @@ class HyperLayer(nn.Module):
         bias = None
 
         if self.bias_type == Bias.NONE:
-            means, sigmas, values = self.hyper(input)
+            means, sigmas, values = self.hyper(input, **kwargs)
         elif self.bias_type == Bias.DENSE:
-            means, sigmas, values, bias = self.hyper(input)
+            means, sigmas, values, bias = self.hyper(input, **kwargs)
         elif self.bias_type == Bias.SPARSE:
-            means, sigmas, values, bias_means, bias_sigmas, bias_values = self.hyper(input)
+            means, sigmas, values, bias_means, bias_sigmas, bias_values = self.hyper(input, **kwargs)
         else:
             raise Exception('bias type {} not recognized.'.format(self.bias_type))
 

@@ -347,6 +347,7 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
             #     )
 
             self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
+            # self.register_buffer('bbox_offset', torch.FloatTensor([0, 5, 1, 2]))
 
         else: # if not adaptive
             self.bound = Parameter(torch.FloatTensor([-1, 1, -1, 1]))
@@ -382,17 +383,17 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
         else:
             bbox = self.bound.unsqueeze(0).expand(b, 4)
 
-        xmin, xmax, ymin, ymax = bbox[:, 0], bbox[:, 1], bbox[:, 2], bbox[:, 3]
+        ymin, ymax, xmin, xmax = bbox[:, 0], bbox[:, 1], bbox[:, 2], bbox[:, 3] # y is vert (height), x is hor (width),
 
-        xrange, yrange = xmax - xmin, ymax - ymin
+        yrange, xrange = ymax - ymin, xmax - xmin
 
         pih, piw = self.pixel_indices.size()
         pixel_indices = self.pixel_indices.unsqueeze(0).expand(b, pih, piw)
 
-        range = torch.cat([xrange.unsqueeze(1), yrange.unsqueeze(1)], dim=1).unsqueeze(1)
+        range = torch.cat([yrange.unsqueeze(1), xrange.unsqueeze(1)], dim=1).unsqueeze(1)
         range = range.expand_as(pixel_indices)
 
-        min = torch.cat([xmin.unsqueeze(1), ymin.unsqueeze(1)], dim=1).unsqueeze(1)
+        min = torch.cat([ymin.unsqueeze(1), xmin.unsqueeze(1)], dim=1).unsqueeze(1)
         min = min.expand_as(pixel_indices)
 
         pixel_scaled = pixel_indices * range + min
@@ -465,34 +466,49 @@ class ASHModel(nn.Module):
         p2 = 2
 
         c, h, w = shape
-        hid = max(1, floor(floor(w / p1) / p2) * floor(floor(h / p1) / p2)) * 32
+        # hid = max(1, floor(floor(w / p1) / p2) * floor(floor(h / p1) / p2)) * 32
+        #
+        # self.preprocess = nn.Sequential(
+        #     # nn.MaxPool2d(kernel_size=4),
+        #     # util.Debug(lambda x: print(x.size())),
+        #     nn.Conv2d(c, 4, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.Conv2d(4, 4, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.MaxPool2d(kernel_size=p1),
+        #     nn.Conv2d(4, 16, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.Conv2d(16, 16, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.MaxPool2d(kernel_size=p2),
+        #     nn.Conv2d(16, 32, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.Conv2d(32, 32, kernel_size=5, padding=2),
+        #     activation,
+        #     # util.Debug(lambda x : print(x.size())),
+        #     util.Flatten(),
+        #     nn.Linear(hid, 64),
+        #     nn.Dropout(DROPOUT),
+        #     activation,
+        #     nn.Linear(64, 64),
+        #     nn.Dropout(DROPOUT),
+        #     activation,
+        #     nn.Linear(64, 4 * glimpses),
+        # )
 
+        hid = max(1, floor(w / 5) * floor(h / 5) * c)
         self.preprocess = nn.Sequential(
-            # nn.MaxPool2d(kernel_size=4),
-            # util.Debug(lambda x: print(x.size())),
-            nn.Conv2d(c, 4, kernel_size=5, padding=2),
+            nn.Conv2d(c, c, kernel_size=5, padding=2),
             activation,
-            nn.Conv2d(4, 4, kernel_size=5, padding=2),
+            nn.Conv2d(c, c, kernel_size=5, padding=2),
             activation,
-            nn.MaxPool2d(kernel_size=p1),
-            nn.Conv2d(4, 16, kernel_size=5, padding=2),
+            nn.Conv2d(c, c, kernel_size=5, padding=2),
             activation,
-            nn.Conv2d(16, 16, kernel_size=5, padding=2),
-            activation,
-            nn.MaxPool2d(kernel_size=p2),
-            nn.Conv2d(16, 32, kernel_size=5, padding=2),
-            activation,
-            nn.Conv2d(32, 32, kernel_size=5, padding=2),
-            activation,
-            # util.Debug(lambda x : print(x.size())),
+            nn.MaxPool2d(kernel_size=5),
             util.Flatten(),
-            nn.Linear(hid, 64),
-            nn.Dropout(DROPOUT),
+            nn.Linear(hid, 16),
             activation,
-            nn.Linear(64, 64),
-            nn.Dropout(DROPOUT),
-            activation,
-            nn.Linear(64, 4 * glimpses),
+            nn.Linear(16, 4*glimpses)
         )
 
         self.hyperlayers = []
@@ -549,7 +565,7 @@ class ASHModel(nn.Module):
             im = np.transpose(images.data[i, :, :, :].cpu().numpy(), (1, 2, 0))
             im = np.squeeze(im)
 
-            ax.imshow(im, interpolation='nearest', extent=(-0.5, w - 0.5, -0.5, h - 0.5), cmap='gray_r')
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, w - 0.5, -0.5, h - 0.5), origin='upper', cmap='gray_r')
 
             for i, hyper in enumerate(self.hyperlayers):
                 means, sigmas, values, _ = hyper.hyper( images, prep=prep[:, i*4 : (i+1)*4] )
@@ -557,11 +573,11 @@ class ASHModel(nn.Module):
                 util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
                     axes=ax, flip_y=h, alpha_global=0.3)
 
-            ax.xaxis.set_visible(False)
-            ax.yaxis.set_visible(False)
+            # ax.xaxis.set_visible(False)
+            # ax.yaxis.set_visible(False)
 
             ax.set_xlim(-0.5, w - 0.5)
-            ax.set_ylim(-0.5, h - 0.5)
+            ax.set_ylim(-0.5, h - 0.5) # NB Axis flipped
 
         plt.gcf()
 

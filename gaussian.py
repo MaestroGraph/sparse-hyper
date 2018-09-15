@@ -1,19 +1,12 @@
 import torch
-from numpy.core.multiarray import dtype
-from torch.autograd import Variable
 from torch.nn import Parameter
 from torch import FloatTensor, LongTensor
 
 import abc, itertools, math, types
 from numpy import prod
 
-import torch.nn as nn
 import torch.nn.functional as F
 
-import torch.optim as optim
-
-import torchvision
-import torchvision.transforms as transforms
 
 from util import *
 import util
@@ -55,7 +48,7 @@ def fi_matrix(indices, shape):
 
     batchsize, rows, rank = indices.size()
 
-    prod = LongTensor(rank).fill_(1)
+    prod = torch.LongTensor(rank).fill_(1)
 
     if indices.is_cuda:
         prod = prod.cuda()
@@ -106,7 +99,7 @@ def tup(index, shape, use_cuda=False):
     result = torch.cuda.LongTensor(num, len(shape)) if use_cuda else LongTensor(num, len(shape))
 
     for dim in range(len(shape) - 1):
-        per_inc = hyper.prod(shape[dim+1:])
+        per_inc = util.prod(shape[dim+1:])
         result[:, dim] = index / per_inc
         index = index % per_inc
     result[:, -1] = index
@@ -510,7 +503,7 @@ class HyperLayer(nn.Module):
         # Sample additional points
         if rng is not None:
             t0 = time.time()
-            total = hyper.prod(rng)
+            total = util.prod(rng)
 
             if PROPER_SAMPLING:
 
@@ -717,6 +710,28 @@ class HyperLayer(nn.Module):
 
         return y
 
+    def forward_sample(self, input):
+        """
+        Samples a single sparse matrix, and computes a transformation with that in a non-differentiable manner.
+
+
+        :param input:
+        :return:
+        """
+
+        # Sample k indices
+
+
+
+    def backward_sample(self, batch_loss, q_prob, p_prob):
+        """
+        Computes the gradient by REINFORCE, using the given batch loss, and the probabilities of the sample (as returned by forward_sample)
+        :param bacth_loss:
+        :param q_prob:
+        :param p_prob:
+        :return:
+        """
+
 class ParamASHLayer(HyperLayer):
     """
     Hyperlayer with free sparse parameters, no hypernetwork.
@@ -860,7 +875,7 @@ class ImageCASHLayer(HyperLayer):
         self.conv2d = nn.ConvTranspose2d(in_channels=1, out_channels=1, kernel_size=(2, self.w_rank+2), stride=2)
 
         self.bias = nn.Sequential(
-            nn.Linear(int(k/rep), hyper.prod(out_shape)),
+            nn.Linear(int(k/rep), util.prod(out_shape)),
         )
 
     def hyper(self, input):
@@ -975,7 +990,7 @@ class CASHLayer(HyperLayer):
 
         if self.adaptive_bias:
             self.bias = nn.Sequential(
-                nn.Linear(self.ha * self.hb, hyper.prod(out_shape)),
+                nn.Linear(self.ha * self.hb, util.prod(out_shape)),
                 self.activation
             )
         else:
@@ -1086,7 +1101,7 @@ class WSCASHLayer(HyperLayer):
                 nn.ConvTranspose1d(in_channels=width, out_channels=width, kernel_size=2, stride=2))
 
         self.bias = nn.Sequential(
-            nn.Linear(self.ha * self.hb, hyper.prod(out_shape)),
+            nn.Linear(self.ha * self.hb, util.prod(out_shape)),
             self.activation
         )
 

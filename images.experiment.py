@@ -364,6 +364,7 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
         """
         Evaluates hypernetwork.
         """
+        # print('!!!', prep.size())
 
         b, c, h, w = input.size()
         l = self.pixel_indices.size(0)
@@ -423,7 +424,7 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 
     def forward(self, input, prep=None):
 
-        self.last_out = super().forward(input)
+        self.last_out = super().forward(input, prep=prep)
 
         return self.last_out
 
@@ -519,7 +520,7 @@ class ASHModel(nn.Module):
 
         glimpses = []
         for i, hyper in enumerate(self.hyperlayers):
-            glimpses.append(hyper(image, prep[i*4 : (i+1)*4]))
+            glimpses.append(hyper(image, prep=prep[:, i*4 : (i+1)*4]))
 
         x = torch.cat(glimpses, dim=1).view(b, -1)
         x = F.relu(self.lin1(x))
@@ -527,7 +528,12 @@ class ASHModel(nn.Module):
 
         return x
 
+    def debug(self):
+        print(list(self.preprocess.parameters())[0].grad)
+
     def plot(self, images):
+
+        prep = self.preprocess(images)
 
         perrow = 5
 
@@ -545,8 +551,8 @@ class ASHModel(nn.Module):
 
             ax.imshow(im, interpolation='nearest', extent=(-0.5, w - 0.5, -0.5, h - 0.5), cmap='gray_r')
 
-            for hyper in self.hyperlayers:
-                means, sigmas, values, _ = hyper.hyper(images)
+            for i, hyper in enumerate(self.hyperlayers):
+                means, sigmas, values, _ = hyper.hyper( images, prep=prep[:, i*4 : (i+1)*4] )
 
                 util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
                     axes=ax, flip_y=h, alpha_global=0.3)
@@ -554,6 +560,8 @@ class ASHModel(nn.Module):
             ax.xaxis.set_visible(False)
             ax.yaxis.set_visible(False)
 
+            ax.set_xlim(-0.5, w - 0.5)
+            ax.set_ylim(-0.5, h - 0.5)
 
         plt.gcf()
 
@@ -986,6 +994,8 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
             t0 = time.time()
             loss.backward()  # compute the gradients
             logging.info('backward: {} seconds'.format(time.time() - t0))
+
+            # model.debug()
 
             # print(hyperlayer.values, hyperlayer.values.grad)
 

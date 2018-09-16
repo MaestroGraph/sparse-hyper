@@ -71,6 +71,8 @@ def fi(indices, shape, use_cuda=False):
     :param shape:
     :return:
     """
+    assert indices.is_cuda == use_cuda
+
     batchsize, rank = indices.size()
 
     res = torch.cuda.LongTensor(batchsize).fill_(0) if use_cuda else LongTensor(batchsize).fill_(0)
@@ -80,9 +82,6 @@ def fi(indices, shape, use_cuda=False):
 
         for j in range(i + 1, len(shape)):
             prod *= shape[j]
-
-        print(type(res), type(prod), type(indices))
-        print(res.is_cuda, prod.is_cuda, indices.is_cuda)
 
         res += prod * indices[:, i]
 
@@ -513,6 +512,8 @@ class HyperLayer(nn.Module):
                 ints_flat = LongTensor(batchsize, n, 2 ** rank + additional)
 
                 # flatten
+                if neighbor_ints.is_cuda:
+                    neighbor_ints = neighbor_ints.cpu()
                 neighbor_ints = fi(neighbor_ints.view(-1, rank), rng, use_cuda=False)
                 neighbor_ints = neighbor_ints.unsqueeze(0).view(batchsize, n, 2 ** rank)
 

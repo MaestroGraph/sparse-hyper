@@ -82,6 +82,8 @@ def fi(indices, shape, use_cuda=False):
             prod *= shape[j]
 
         print(type(res), type(prod), type(indices))
+        print(res.is_cuda, prod.is_cuda, indices.is_cuda)
+
         res += prod * indices[:, i]
 
     return res

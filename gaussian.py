@@ -672,7 +672,6 @@ class HyperLayer(nn.Module):
 
         y_flat = torch.cuda.FloatTensor(batchsize, ly) if self.use_cuda else FloatTensor(batchsize, ly)
         y_flat.fill_(0.0)
-        y_flat = Variable(y_flat)
 
         sparsemult = util.sparsemult(self.use_cuda)
 
@@ -695,7 +694,6 @@ class HyperLayer(nn.Module):
         bfy = sparsemult(vindices, bfvalues, bfsize, bfx)
 
         y_flat = bfy.unsqueeze(0).view(batchsize, -1)
-
 
         logging.info('sparse mult: {} seconds'.format(time.time() - t0))
 
@@ -738,7 +736,7 @@ class HyperLayer(nn.Module):
 
 class ParamASHLayer(HyperLayer):
     """
-    Hyperlayer with free sparse parameters, no hypernetwork.
+    Hyperlayer with free sparse parameters, no hypernetwork (not stricly ASH, should rename).
     """
 
     def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False, subsample=None, min_sigma=0.0):

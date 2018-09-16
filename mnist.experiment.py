@@ -6,8 +6,6 @@ from tqdm import trange, tqdm
 from tensorboardX import SummaryWriter
 from util import Lambda, Debug
 
-from torchsample.metrics import CategoricalAccuracy
-
 import torch.optim as optim
 
 import torchvision

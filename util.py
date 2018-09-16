@@ -12,7 +12,9 @@ import torch
 from torch import nn
 from torch import FloatTensor, LongTensor
 from torch.autograd import Variable
-from torch.utils.data import sampler
+from torch.utils.data import sampler, dataloader
+
+import torchvision
 
 from collections import OrderedDict
 
@@ -578,5 +580,35 @@ def intlist(tensor):
 
     return l
 
+def totensor(dataset, batch_size=512, shuffle=True):
+    """
+    Takes a dataset and loads the whole thing into a tensor
+    :param dataset:
+    :return:
+    """
 
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=2)
+
+    index = 0
+    for i, batch in enumerate(loader):
+        batch = batch[0]
+
+        if i == 0:
+            size = list(batch.size())
+            size[0] = len(dataset)
+            result = torch.zeros(*size)
+
+        result[index:index+batch.size(0)] = batch
+
+        index += batch.size(0)
+
+    return result
+
+class Reshape(nn.Module):
+    def __init__(self, shape):
+        super().__init__()
+        self.shape = shape
+
+    def forward(self, input):
+        return input.view( (input.size(0),) + self.shape)
 

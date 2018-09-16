@@ -25,7 +25,7 @@ Simple experiment: learn the identity function from one tensor to another
 w = SummaryWriter()
 
 def go(iterations=30000, batch=4, cuda=False, plot_every=1000,
-       lr=0.01, fv=False, sigma_scale=0.1, min_sigma=0.0, seed=0, reps=3, dot_every=100):
+       lr=0.01, fv=False, sigma_scale=0.1, min_sigma=0.0, seed=0, reps=10, dot_every=100):
 
     sizes = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
     # sizes = [8, 16]

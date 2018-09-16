@@ -81,6 +81,7 @@ def fi(indices, shape, use_cuda=False):
         for j in range(i + 1, len(shape)):
             prod *= shape[j]
 
+        print(type(res), type(prod), type(indices))
         res += prod * indices[:, i]
 
     return res

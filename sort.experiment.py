@@ -165,12 +165,12 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
                         util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
                         plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
                         plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-                        plt.savefig('./sort/{}/{}/means{:04}'.format(size, r, i))
+                        plt.savefig('./sort/{}/{}/means{:04}.pdf'.format(size, r, i))
 
         print('experiments finished')
 
 
-    np.save('results.np', results)
+        np.save('results.np', results)
 
     plt.figure(figsize=(5, 5))
     plt.clf()

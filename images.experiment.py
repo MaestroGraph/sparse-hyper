@@ -468,8 +468,10 @@ class ASHModel(nn.Module):
         ch1, ch2, ch3 = 64, 128, 512
 
         c, h, w = shape
-        hid = max(1, floor(floor(w / p1) / p2) * floor(floor(h / p1) / p2)) * 32
+        hid = max(1, floor(floor(w / p1) / p2) * floor(floor(h / p1) / p2)) * ch3
         hidlin = 512
+
+        print(hid)
 
         self.preprocess = nn.Sequential(
             # nn.MaxPool2d(kernel_size=4),
@@ -488,7 +490,7 @@ class ASHModel(nn.Module):
             activation,
             nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
             activation,
-            # util.Debug(lambda x : print(x.size())),
+            #util.Debug(lambda x : print(x.size())),
             util.Flatten(),
             nn.Linear(hid, hidlin),
             nn.Dropout(DROPOUT),

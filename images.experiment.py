@@ -465,51 +465,54 @@ class ASHModel(nn.Module):
         p1 = 4
         p2 = 2
 
-        c, h, w = shape
-        # hid = max(1, floor(floor(w / p1) / p2) * floor(floor(h / p1) / p2)) * 32
-        #
-        # self.preprocess = nn.Sequential(
-        #     # nn.MaxPool2d(kernel_size=4),
-        #     # util.Debug(lambda x: print(x.size())),
-        #     nn.Conv2d(c, 4, kernel_size=5, padding=2),
-        #     activation,
-        #     nn.Conv2d(4, 4, kernel_size=5, padding=2),
-        #     activation,
-        #     nn.MaxPool2d(kernel_size=p1),
-        #     nn.Conv2d(4, 16, kernel_size=5, padding=2),
-        #     activation,
-        #     nn.Conv2d(16, 16, kernel_size=5, padding=2),
-        #     activation,
-        #     nn.MaxPool2d(kernel_size=p2),
-        #     nn.Conv2d(16, 32, kernel_size=5, padding=2),
-        #     activation,
-        #     nn.Conv2d(32, 32, kernel_size=5, padding=2),
-        #     activation,
-        #     # util.Debug(lambda x : print(x.size())),
-        #     util.Flatten(),
-        #     nn.Linear(hid, 64),
-        #     nn.Dropout(DROPOUT),
-        #     activation,
-        #     nn.Linear(64, 64),
-        #     nn.Dropout(DROPOUT),
-        #     activation,
-        #     nn.Linear(64, 4 * glimpses),
-        # )
+        ch1, ch2, ch3 = 64, 128, 512
 
-        hid = max(1, floor(w / 5) * floor(h / 5) * c)
+        c, h, w = shape
+        hid = max(1, floor(floor(w / p1) / p2) * floor(floor(h / p1) / p2)) * 32
+        hidlin = 512
+
         self.preprocess = nn.Sequential(
-            nn.Conv2d(c, c, kernel_size=5, padding=2),
+            # nn.MaxPool2d(kernel_size=4),
+            # util.Debug(lambda x: print(x.size())),
+            nn.Conv2d(c, ch1, kernel_size=3, padding=1),
             activation,
-            nn.Conv2d(c, c, kernel_size=5, padding=2),
+            nn.Conv2d(ch1, ch1, kernel_size=3, padding=1),
             activation,
-            nn.Conv2d(c, c, kernel_size=5, padding=2),
+            nn.MaxPool2d(kernel_size=p1),
+            nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
             activation,
-            nn.MaxPool2d(kernel_size=5),
+            nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=p2),
+            nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
+            activation,
+            nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
+            activation,
+            # util.Debug(lambda x : print(x.size())),
             util.Flatten(),
-            nn.Linear(hid, 16),
+            nn.Linear(hid, hidlin),
+            nn.Dropout(DROPOUT),
             activation,
-            nn.Linear(16, 4*glimpses)
+            nn.Linear(hidlin, hidlin),
+            nn.Dropout(DROPOUT),
+            activation,
+            nn.Linear(hidlin, 4 * glimpses),
         )
+
+        # hid = max(1, floor(w / 5) * floor(h / 5) * c)
+        # self.preprocess = nn.Sequential(
+        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.MaxPool2d(kernel_size=5),
+        #     util.Flatten(),
+        #     nn.Linear(hid, 16),
+        #     activation,
+        #     nn.Linear(16, 4*glimpses)
+        # )
 
         self.hyperlayers = []
 

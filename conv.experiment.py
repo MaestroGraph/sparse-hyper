@@ -423,7 +423,8 @@ class ConvModel(nn.Module):
 
         self.adj = MatrixHyperlayer(n,n, k, additional=additional)
 
-        self.convs = [GraphConvolution(n, emb_size)]
+        self.convs = nn.ModuleList()
+        self.convs.append(GraphConvolution(n, emb_size))
         for _ in range(1, depth):
             self.convs.append(GraphConvolution(emb_size, emb_size))
 

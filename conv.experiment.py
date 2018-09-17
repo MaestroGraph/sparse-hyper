@@ -91,7 +91,7 @@ class SparseMultGPU(torch.autograd.Function):
 
         matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(util.intlist(size)))
 
-        ctx.indices, ctx.matrix, ctx.vector = indices, matrix, xmatrix
+        ctx.indices, ctx.matrix, ctx.xmatrix = indices, matrix, xmatrix
 
         return torch.mm(matrix, xmatrix)
 

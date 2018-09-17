@@ -11,11 +11,17 @@ from tensorboardX import SummaryWriter
 from util import Lambda, Debug
 
 import torch.optim as optim
+import sys
 
 import torchvision
 import torchvision.transforms as transforms
 
 from util import od
+
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+import numpy as np
 
 from argparse import ArgumentParser
 
@@ -30,6 +36,118 @@ import torch
 
 from torch.nn.parameter import Parameter
 from torch.nn.modules.module import Module
+#
+def sparsemult(use_cuda):
+    return SparseMultGPU.apply if use_cuda else SparseMultCPU.apply
+
+class SparseMultCPU(torch.autograd.Function):
+
+    """
+    Sparse matrix multiplication with gradients over the value-vector
+
+    Does not work with batch dim.
+    """
+
+    @staticmethod
+    def forward(ctx, indices, values, size, xmatrix):
+
+        # print(type(size), size, list(size), intlist(size))
+        # print(indices.size(), values.size(), torch.Size(intlist(size)))
+
+        matrix = torch.sparse.FloatTensor(indices, values, torch.Size(util.intlist(size)))
+
+        ctx.indices, ctx.matrix, ctx.xmatrix = indices, matrix, xmatrix
+
+        return torch.mm(matrix, xmatrix)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_output = grad_output.data
+
+        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
+
+        i_ixs = ctx.indices[0,:]
+        j_ixs = ctx.indices[1,:]
+        output_select = grad_output[i_ixs, :]
+        xmatrix_select = ctx.xmatrix[j_ixs, :]
+
+        grad_values = (output_select * xmatrix_select).sum(dim=1)
+
+        grad_xmatrix = torch.mm(ctx.matrix.t(), grad_output)
+        return None, Variable(grad_values), None, Variable(grad_xmatrix)
+
+class SparseMultGPU(torch.autograd.Function):
+
+    """
+    Sparse matrix multiplication with gradients over the value-vector
+
+    Does not work with batch dim.
+    """
+
+    @staticmethod
+    def forward(ctx, indices, values, size, vector):
+        raise Exception("Not implemented")
+
+        # print(type(size), size, list(size), intlist(size))
+
+        matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(util.intlist(size)))
+
+        ctx.indices, ctx.matrix, ctx.vector = indices, matrix, vector
+
+        return torch.mm(matrix, vector)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_output = grad_output.data
+
+        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
+
+        i_ixs = ctx.indices[0,:]
+        j_ixs = ctx.indices[1,:]
+        output_select = grad_output.view(-1)[i_ixs]
+        vector_select = ctx.vector.view(-1)[j_ixs]
+
+        grad_values = output_select *  vector_select
+
+        grad_vector = torch.mm(ctx.matrix.t(), grad_output).t()
+        return None, Variable(grad_values), None, Variable(grad_vector)
+
+def densities(points, means, sigmas):
+    """
+    Compute the unnormalized PDFs of the points under the given MVNs
+
+    (with sigma a diagonal matrix per MVN)
+
+    :param means:
+    :param sigmas:
+    :param points:
+    :return:
+    """
+
+    # n: number of MVNs
+    # d: number of points per MVN
+    # rank: dim of points
+
+    n, d, rank = points.size()
+
+    means = means.unsqueeze(1).expand_as(points)
+
+    sigmas = sigmas.unsqueeze(1).expand_as(points)
+    sigmas_squared = torch.sqrt(1.0/(gaussian.EPSILON+sigmas))
+
+    points = points - means
+    points = points * sigmas_squared
+
+    # Compute dot products for all points
+    points = points.view(-1, 1, rank)
+    # -- dot prod
+    products = torch.bmm(points, points.transpose(1,2))
+    # -- reconstruct shape
+    products = products.view(n, d)
+
+    num = torch.exp(- 0.5 * products)
+
+    return num
 
 class MatrixHyperlayer(nn.Module):
     """
@@ -60,6 +178,9 @@ class MatrixHyperlayer(nn.Module):
         self.floor_mask = torch.ByteTensor(lsts)
 
         self.params = Parameter(torch.randn(k, 4))
+
+    def size(self):
+        return (self.out_num, self.in_num)
 
     def discretize(self, means, sigmas, values, rng=None, additional=16, use_cuda=False):
         """
@@ -123,26 +244,24 @@ class MatrixHyperlayer(nn.Module):
 
         t0 = time.time()
         # compute the proportion of the value each integer index tuple receives
-        props = gaussian.densities(ints_fl, means, sigmas)
-        # props is batchsize x K x 2^rank+a, giving a weight to each neighboring or sampled integer-index-tuple
+        props = densities(ints_fl, means, sigmas)
 
-        # -- normalize the proportions of the neigh points and the
-        sums = torch.sum(props + gaussian.EPSILON, dim=2, keepdim=True).expand_as(props)
+        # -- normalize the proportions for each index tuple
+        sums = torch.sum(props + gaussian.EPSILON, dim=1, keepdim=True).expand_as(props)
         props = props / sums
 
         logging.info('  densities: {} seconds'.format(time.time() - t0))
         t0 = time.time()
 
         # repeat each value 2^rank+A times, so it matches the new indices
-        val = torch.unsqueeze(values, 2).expand_as(props).contiguous()
+        val = values.expand_as(props).contiguous()
 
-        # 'Unroll' the ints tensor into a long list of integer index tuples (ie. a matrix of n*2^rank by rank for each
-        # instance in the batch) ...
-        ints = ints.view(-1, rank, 1).squeeze(3)
+        # 'Unroll' the ints tensor into a long list of integer index tuples (ie. a matrix of (n*(2^rank+add)) by rank)
+        ints = ints.view(-1, rank)
 
         # ... and reshape the proportions and values the same way
-        # props = props.view(batchsize, -1)
-        # val = val.view(batchsize, -1)
+        props = props.view(-1)
+        val = val.view(-1)
 
         logging.info('  reshaping: {} seconds'.format(time.time() - t0))
 
@@ -186,15 +305,17 @@ class MatrixHyperlayer(nn.Module):
 
         ### Create the sparse weight tensor
 
-        sparsemult = util.sparsemult(self.use_cuda)
-
         t0 = time.time()
 
         # Prevent segfault
         assert not util.contains_nan(values.data)
 
         # print(vindices.size(), bfvalues.size(), bfsize, bfx.size())
-        output = sparsemult(indices, values, rng, input)
+        vindices = Variable(indices.t())
+        sz = Variable(torch.tensor(rng))
+
+        spmm = sparsemult(self.use_cuda)
+        output = spmm(vindices, values, sz, input)
 
         logging.info('sparse mult: {} seconds'.format(time.time() - t0))
 
@@ -202,7 +323,7 @@ class MatrixHyperlayer(nn.Module):
 
         return output
 
-    def hyper(self, input):
+    def hyper(self, input=None):
         """
         Evaluates hypernetwork.
         """
@@ -310,9 +431,9 @@ class ConvModel(nn.Module):
     def forward(self):
 
         x = self.convs[0](input=None, adj=self.adj) # identity matrix input
-        for _ in range(1, len(self.convs)):
+        for i in range(1, len(self.convs)):
             x = F.sigmoid(x)
-            x = self.conv2(input=x, adj=self.adj)
+            x = self.convs[i](input=x, adj=self.adj)
 
         return self.decoder(x)
 
@@ -320,11 +441,16 @@ class ConvModel(nn.Module):
 
         super().cuda()
 
-        for hyper in self.hyperlayers:
-            hyper.apply(lambda t: t.cuda())
+        self.adj.apply(lambda t: t.cuda())
+
+    def debug(self):
+        print(self.adj.params.grad)
+        print(self.convs[0].weight)
 
 def go(arg):
 
+    MARGIN = 0.1
+    util.makedirs('./conv/')
     torch.manual_seed(arg.seed)
     logging.basicConfig(filename='run.log',level=logging.INFO)
 
@@ -353,7 +479,6 @@ def go(arg):
 
     for epoch in trange(arg.epochs):
 
-
         optimizer.zero_grad()
 
         outputs = model()
@@ -368,11 +493,121 @@ def go(arg):
 
         print(epoch, loss.item())
 
+        plt.cla()
+        plt.imshow(np.transpose(torchvision.utils.make_grid(data.data[:16, :]).cpu().numpy(), (1, 2, 0)),
+                   interpolation='nearest')
+        plt.savefig('./conv/rec.{:03d}.input.pdf'.format(epoch))
+
+        plt.cla()
+        plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16, :]).cpu().numpy(), (1, 2, 0)),
+                   interpolation='nearest')
+        plt.savefig('./conv/rec.{:03d}.pdf'.format(epoch))
+
+        plt.figure(figsize=(7, 7))
+
+        means, sigmas, values = model.adj.hyper()
+
+        plt.cla()
+
+        s = model.adj.size()
+        util.plot(means.unsqueeze(0), sigmas.unsqueeze(0), values.unsqueeze(0).squeeze(2), shape=s)
+        plt.xlim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
+        plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
+
+        plt.savefig('./conv/means{:03}.pdf'.format(epoch))
+
     print('Finished Training.')
+
+    print(model.hyper.params)
+
+def test():
+    """
+    Poor man's unit test
+    """
+
+    indices = Variable(torch.tensor([[0,1],[1,0],[2,1]]), requires_grad=True)
+    values = Variable(torch.tensor([1.0, 2.0, 3.0]), requires_grad=True)
+    size = Variable(torch.tensor([3, 2]))
+
+    wsparse = torch.sparse.FloatTensor(indices.t(), values, (3,2))
+    wdense  = Variable(torch.tensor([[0.0,1.0],[2.0,0.0],[0.0, 3.0]]), requires_grad=True)
+    x = Variable(torch.randn(2, 4), requires_grad=True)
+    #
+    # print(wsparse)
+    # print(wdense)
+    # print(x)
+
+    # dense version
+    mul = torch.mm(wdense, x)
+    loss = mul.norm()
+    loss.backward()
+
+    print('dw', wdense.grad)
+    print('dx', x.grad)
+
+    del loss
+
+    # spmm version
+    # mul = torch.mm(wsparse, x)
+    # loss = mul.norm()
+    # loss.backward()
+    #
+    # print('dw', values.grad)
+    # print('dx', x.grad)
+
+    x.grad = None
+    values.grad = None
+
+    mul = SparseMultCPU.apply(indices.t(), values, size, x)
+    loss = mul.norm()
+    loss.backward()
+
+    print('dw', values.grad)
+    print('dx', x.grad)
+
+    # Finite elements approach for w
+    for h in [1e-4, 1e-5, 1e-6]:
+        grad = torch.zeros(values.size(0))
+        for i in range(values.size(0)):
+            nvalues = values.clone()
+            nvalues[i] = nvalues[i] + h
+
+            mul = SparseMultCPU.apply(indices.t(), values, size, x)
+            loss0 = mul.norm()
+
+            mul = SparseMultCPU.apply(indices.t(), nvalues, size, x)
+            loss1 = mul.norm()
+
+            grad[i] = (loss1-loss0)/h
+
+        print('hw', h, grad)
+
+    # Finite elements approach for x
+    for h in [1e-4, 1e-5, 1e-6]:
+        grad = torch.zeros(x.size())
+        for i in range(x.size(0)):
+            for j in range(x.size(1)):
+                nx = x.clone()
+                nx[i, j] = x[i, j] + h
+
+                mul = SparseMultCPU.apply(indices.t(), values, size, x)
+                loss0 = mul.norm()
+
+                mul = SparseMultCPU.apply(indices.t(), values, size, nx)
+                loss1 = mul.norm()
+
+                grad[i, j] = (loss1-loss0)/h
+
+        print('hx', h, grad)
+
 
 if __name__ == "__main__":
 
     parser = ArgumentParser()
+
+    parser.add_argument("--test", dest="test",
+                        help="Run the unit tests.",
+                        action="store_true")
 
     parser.add_argument("-e", "--epochs",
                         dest="epochs",
@@ -423,6 +658,11 @@ if __name__ == "__main__":
                         default='./data')
 
     args = parser.parse_args()
+
+    if args.test:
+        test()
+        print('Tests completed succesfully.')
+        sys.exit()
 
     print('OPTIONS', args)
 

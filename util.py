@@ -64,7 +64,6 @@ def basic(axes=None):
 
 def plot(means, sigmas, values, shape=None, axes=None, flip_y=None, alpha_global=1.0):
     """
-
     :param means:
     :param sigmas:
     :param values:
@@ -94,6 +93,7 @@ def plot(means, sigmas, values, shape=None, axes=None, flip_y=None, alpha_global
     colors = []
     for i in range(n):
         color = map.to_rgba(values[i])
+
         alpha = max(0.05, ((sigmas[i, 0] * sigmas[i, 0])+1.0)**-2) * alpha_global
         axes.add_patch(Ellipse((means[i, 1], means[i, 0]), width=sigmas[i,1], height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
         colors.append(color)
@@ -278,6 +278,7 @@ class SparseMultCPU(torch.autograd.Function):
     def forward(ctx, indices, values, size, vector):
 
         # print(type(size), size, list(size), intlist(size))
+        # print(indices.size(), values.size(), torch.Size(intlist(size)))
 
         matrix = torch.sparse.FloatTensor(indices, values, torch.Size(intlist(size)))
 
@@ -567,6 +568,8 @@ def intlist(tensor):
     :param tensor:
     :return:
     """
+    if type(tensor) is list:
+        return tensor
 
     tensor = tensor.squeeze()
 

@@ -85,16 +85,15 @@ class SparseMultGPU(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, indices, values, size, vector):
-        raise Exception("Not implemented")
+    def forward(ctx, indices, values, size, xmatrix):
 
         # print(type(size), size, list(size), intlist(size))
 
         matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(util.intlist(size)))
 
-        ctx.indices, ctx.matrix, ctx.vector = indices, matrix, vector
+        ctx.indices, ctx.matrix, ctx.vector = indices, matrix, xmatrix
 
-        return torch.mm(matrix, vector)
+        return torch.mm(matrix, xmatrix)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -104,13 +103,13 @@ class SparseMultGPU(torch.autograd.Function):
 
         i_ixs = ctx.indices[0,:]
         j_ixs = ctx.indices[1,:]
-        output_select = grad_output.view(-1)[i_ixs]
-        vector_select = ctx.vector.view(-1)[j_ixs]
+        output_select = grad_output[i_ixs]
+        xmatrix_select = ctx.xmatrix[j_ixs]
 
-        grad_values = output_select *  vector_select
+        grad_values = (output_select *  xmatrix_select).sum(dim=1)
 
-        grad_vector = torch.mm(ctx.matrix.t(), grad_output).t()
-        return None, Variable(grad_values), None, Variable(grad_vector)
+        grad_xmatrix = torch.mm(ctx.matrix.t(), grad_output)
+        return None, Variable(grad_values), None, Variable(grad_xmatrix)
 
 def densities(points, means, sigmas):
     """

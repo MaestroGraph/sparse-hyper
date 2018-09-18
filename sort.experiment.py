@@ -169,7 +169,6 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
 
         print('experiments finished')
 
-
         np.save('results.np', results)
 
     plt.figure(figsize=(5, 5))
@@ -233,10 +232,20 @@ if __name__ == "__main__":
                         help="Random seed.",
                         default=32, type=int)
 
+    parser.add_argument("-d", "--dot-every",
+                        dest="dot_every",
+                        help="How many iterations per dot in the loss curves.",
+                        default=1000, type=int)
+
     parser.add_argument("-S", "--sigma-scale",
                         dest="sigma_scale",
                         help="Sigma scale.",
                         default=0.1, type=float)
+
+    parser.add_argument("-R", "--repeats",
+                        dest="reps",
+                        help="Number of repeats.",
+                        default=10, type=int)
 
     parser.add_argument("-P", "--penalty",
                         dest="penalty",
@@ -250,4 +259,4 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size, iterations=options.iterations, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, max_size=options.size, fv=options.fix_values,
-        seed=options.seed, sigma_scale=options.sigma_scale)
+        seed=options.seed, sigma_scale=options.sigma_scale, reps=options.reps, dot_every=options.dot_every)

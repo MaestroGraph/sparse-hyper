@@ -46,6 +46,7 @@ class SortLayer(HyperLayer):
         self.k = k
         self.size = size
         self.sigma_scale = sigma_scale
+        self.sigma_floor = sigma_floor
         self.fix_values = fix_values
 
         outsize = 4 * k
@@ -79,7 +80,7 @@ class SortLayer(HyperLayer):
         res = self.source(input).unsqueeze(2).view(b, self.k, 4)
 
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_size)
-        sigmas = sigmas * self.sigma_scale
+        sigmas = sigmas * self.sigma_scale + self.sigma_floor
 
         if self.fix_values:
             values = values * 0.0 + 1.0
@@ -95,7 +96,7 @@ class SortLayer(HyperLayer):
     #     return torch.nn.functional.sigmoid( - torch.log(sigmas.sum() / self.k))
 
 
-def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1, reps=10, dot_every=100):
+def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1, reps=10, dot_every=100, sigma_floor=0.0):
 
     MARGIN = 0.1
 
@@ -118,7 +119,7 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
 
                 gaussian.PROPER_SAMPLING =size < 8
 
-                model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv)
+                model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv, sigma_floor=sigma_floor)
 
                 if cuda:
                    model.cuda()
@@ -252,6 +253,11 @@ if __name__ == "__main__":
                         help="Sigma penalty.",
                         default=0.0, type=float)
 
+    parser.add_argument("-Q", "--sigma-floor",
+                        dest="sigma_floor",
+                        help="Sigma floor (minimum sigma value).",
+                        default=0.0, type=float)
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
@@ -259,4 +265,5 @@ if __name__ == "__main__":
 
     go(batch=options.batch_size, iterations=options.iterations, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, max_size=options.size, fv=options.fix_values,
-        seed=options.seed, sigma_scale=options.sigma_scale, reps=options.reps, dot_every=options.dot_every)
+        seed=options.seed, sigma_scale=options.sigma_scale, reps=options.reps,
+       dot_every=options.dot_every, sigma_floor=options.sigma_floor)

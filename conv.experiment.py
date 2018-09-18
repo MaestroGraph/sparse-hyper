@@ -353,7 +353,7 @@ class MatrixHyperlayer(nn.Module):
         sigmas = sigmas * ss.expand_as(sigmas)
         sigmas = sigmas * self.sigma_scale # + self.min_sigma
 
-        return means, sigmas, values
+        return means, sigmas, F.sigmoid(values)
 
 
 class GraphConvolution(Module):
@@ -527,8 +527,6 @@ def go(arg):
             plt.savefig('./conv/means{:03}.pdf'.format(epoch))
 
     print('Finished Training.')
-
-    print(model.hyper.params)
 
 def test():
     """

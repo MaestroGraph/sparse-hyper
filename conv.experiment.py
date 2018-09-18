@@ -508,7 +508,7 @@ def go(arg):
             plt.cla()
             plt.imshow(np.transpose(torchvision.utils.make_grid(data.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                        interpolation='nearest')
-            plt.savefig('./conv/rec.{:03d}.input.pdf'.format(epoch))
+            plt.savefig('./conv/inp.{:03d}.pdf'.format(epoch))
 
             plt.cla()
             plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16, :]).cpu().numpy(), (1, 2, 0)),
@@ -568,13 +568,7 @@ def go(arg):
             ax.set_xlim(xmin-MARGIN, xmax+MARGIN)
             ax.set_ylim(ymin-MARGIN, ymax+MARGIN)
 
-            ax.spines["right"].set_visible(False)
-            ax.spines["top"].set_visible(False)
-            ax.spines["bottom"].set_visible(True)
-            ax.spines["left"].set_visible(True)
-
-            ax.get_xaxis().set_tick_params(which='both', top='off', bottom='off', labelbottom='off')
-            ax.get_yaxis().set_tick_params(which='both', left='off', right='off')
+            plt.axis('off')
 
             plt.savefig('./conv/graph{:03}.pdf'.format(epoch), dpi=300)
 

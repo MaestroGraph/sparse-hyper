@@ -404,21 +404,27 @@ class ConvModel(nn.Module):
         n, c, h, w = data_size
 
         ch1, ch2, ch3 = 128, 64, 32
-        # decoder from embedding to images
-        self.decoder= nn.Sequential(
-            nn.Linear(emb_size, 4 * 4 * ch1), nn.ReLU(),
-            util.Reshape((ch1, 4, 4)),
-            nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
-            nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
-            nn.ConvTranspose2d(ch1, ch2, (5, 5), padding=2), nn.ReLU(),
-            nn.Upsample(scale_factor=3, mode='bilinear'),
-            nn.ConvTranspose2d(ch2, ch2, (5, 5), padding=2), nn.ReLU(),
-            nn.ConvTranspose2d(ch2, ch2, (5, 5), padding=2), nn.ReLU(),
-            nn.ConvTranspose2d(ch2, ch1, (5, 5), padding=2), nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
-            nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
-            nn.ConvTranspose2d(ch1, 1, (5, 5), padding=0), nn.Sigmoid()
+        # # decoder from embedding to images
+        # self.decoder= nn.Sequential(
+        #     nn.Linear(emb_size, 4 * 4 * ch1), nn.ReLU(),
+        #     util.Reshape((ch1, 4, 4)),
+        #     nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
+        #     nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
+        #     nn.ConvTranspose2d(ch1, ch2, (5, 5), padding=2), nn.ReLU(),
+        #     nn.Upsample(scale_factor=3, mode='bilinear'),
+        #     nn.ConvTranspose2d(ch2, ch2, (5, 5), padding=2), nn.ReLU(),
+        #     nn.ConvTranspose2d(ch2, ch2, (5, 5), padding=2), nn.ReLU(),
+        #     nn.ConvTranspose2d(ch2, ch1, (5, 5), padding=2), nn.ReLU(),
+        #     nn.Upsample(scale_factor=2, mode='bilinear'),
+        #     nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
+        #     nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
+        #     nn.ConvTranspose2d(ch1, 1, (5, 5), padding=0), nn.Sigmoid()
+        # )
+
+        self.decoder = nn.Sequential(
+            nn.Linear(emb_size, 256),
+            nn.Linear(256, 28*28), nn.ReLU(),
+            util.Reshape((1, 28, 28)), nn.Sigmoid()
         )
 
         self.adj = MatrixHyperlayer(n,n, k, additional=additional)
@@ -491,7 +497,8 @@ def go(arg):
 
         w.add_scalar('mnist/train-loss', loss.item(), epoch)
 
-        print(epoch, loss.item())
+        print('{:03} '.format(epoch), loss.item())
+        print('    ', model.adj.params.grad.mean().item())
 
         plt.cla()
         plt.imshow(np.transpose(torchvision.utils.make_grid(data.data[:16, :]).cpu().numpy(), (1, 2, 0)),

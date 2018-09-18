@@ -27,7 +27,7 @@ w = SummaryWriter()
 def go(iterations=30000, batch=4, cuda=False, plot_every=1000,
        lr=0.01, fv=False, sigma_scale=0.1, min_sigma=0.0, seed=0, reps=10, dot_every=100):
 
-    sizes = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
+    sizes = [4, 8, 16, 32, 64, 128] # 256, 512, 1024]
     # sizes = [8, 16]
 
     MARGIN = 0.1
@@ -166,6 +166,11 @@ if __name__ == "__main__":
                         help="Plot every x iterations",
                         default=50, type=int)
 
+    parser.add_argument("-R", "--repeats",
+                        dest="reps",
+                        help="Number of repeats.",
+                        default=10, type=int)
+
     parser.add_argument("-r", "--random-seed",
                         dest="seed",
                         help="Random seed.",
@@ -179,4 +184,4 @@ if __name__ == "__main__":
     go(batch=options.batch_size,
         iterations=options.iterations, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
-        sigma_scale=options.sigma_scale, min_sigma=options.min_sigma, seed=options.seed)
+        sigma_scale=options.sigma_scale, min_sigma=options.min_sigma, seed=options.seed, reps=options.reps)

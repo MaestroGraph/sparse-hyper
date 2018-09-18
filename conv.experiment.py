@@ -365,11 +365,12 @@ class GraphConvolution(Module):
     Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
     """
 
-    def __init__(self, in_features, out_features, bias=True):
+    def __init__(self, in_features, out_features, bias=True, has_weight=True):
+
         super(GraphConvolution, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = Parameter(torch.FloatTensor(in_features, out_features))
+        self.weight = Parameter(torch.FloatTensor(in_features, out_features)) if has_weight else None
         if bias:
             self.bias = Parameter(torch.FloatTensor(out_features))
         else:
@@ -378,17 +379,21 @@ class GraphConvolution(Module):
 
 
     def reset_parameters(self):
-        stdv = 1. / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(-stdv, stdv)
+        if self.weight is not None:
+            stdv = 1. / math.sqrt(self.weight.size(1))
+            self.weight.data.uniform_(-stdv, stdv)
+
         if self.bias is not None:
-            self.bias.data.uniform_(-stdv, stdv)
+            self.bias.data.zero_() # different from the default implementation
 
     def forward(self, input, adj : MatrixHyperlayer):
 
         if input is None: # The input is the identity matrix
             support = self.weight
-        else:
+        elif self.weight is not None:
             support = torch.mm(input, self.weight)
+        else:
+            support = input
 
         output = adj(support)
 
@@ -434,7 +439,7 @@ class ConvModel(nn.Module):
         self.convs = nn.ModuleList()
         self.convs.append(GraphConvolution(n, emb_size))
         for _ in range(1, depth):
-            self.convs.append(GraphConvolution(emb_size, emb_size))
+            self.convs.append(GraphConvolution(emb_size, emb_size, has_weight=False))
 
     def forward(self):
 
@@ -571,7 +576,6 @@ def go(arg):
             plt.axis('off')
 
             plt.savefig('./conv/graph{:03}.pdf'.format(epoch), dpi=300)
-
 
     print('Finished Training.')
 

@@ -184,4 +184,5 @@ if __name__ == "__main__":
     go(batch=options.batch_size,
         iterations=options.iterations, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
-        sigma_scale=options.sigma_scale, min_sigma=options.min_sigma, seed=options.seed, reps=options.reps)
+        sigma_scale=options.sigma_scale, min_sigma=options.min_sigma, seed=options.seed,
+       reps=options.reps)

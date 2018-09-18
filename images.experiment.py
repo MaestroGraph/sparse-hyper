@@ -572,8 +572,8 @@ class ASHModel(nn.Module):
 
             ax.imshow(im, interpolation='nearest', extent=(-0.5, w - 0.5, -0.5, h - 0.5), origin='upper', cmap='gray_r')
 
-            for i, hyper in enumerate(self.hyperlayers):
-                means, sigmas, values, _ = hyper.hyper( images, prep=prep[:, i*4 : (i+1)*4] )
+            for j, hyper in enumerate(self.hyperlayers):
+                means, sigmas, values, _ = hyper.hyper( images, prep=prep[:, j*4 : (j+1)*4] )
 
                 util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
                     axes=ax, flip_y=h, alpha_global=0.3)

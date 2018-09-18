@@ -25,6 +25,8 @@ import numpy as np
 
 from argparse import ArgumentParser
 
+import networkx as nx
+
 """
 Graph convolution experiment. Given output vectors, learn both the convolution weights and the "graph structure" behind
 MNIST.
@@ -525,6 +527,57 @@ def go(arg):
             plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
 
             plt.savefig('./conv/means{:03}.pdf'.format(epoch))
+
+            # Plot the graph
+
+            g = nx.MultiGraph()
+            g.add_nodes_from(range(data.size(0)))
+
+            means, _, values = model.adj.hyper()
+
+            for i in range(means.size(0)):
+                m = means[i, :].round().long()
+                v = values[i]
+
+                g.add_weighted_edges_from([(m[0].item(), m[1].item(), v.item())])
+
+            print(len(g.edges()), values.size(0))
+
+            plt.figure(figsize=(8,8))
+            ax = plt.subplot(111)
+
+            pos = nx.spring_layout(g)
+            nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
+            # edges = nx.draw_networkx_edges(g, pos, edge_color=values.data.view(-1), edge_vmin=0.0, edge_vmax=1.0, cmap='bone')
+
+            varr = values.data.view(-1).numpy()
+            nx.draw_networkx_edges(g, pos, width=varr**0.5, edge_color=varr, edge_vmin=0.0, edge_vmax=1.0, edge_cmap=plt.cm.gray, axes=ax)
+
+            ims = 0.01
+            xmin, xmax = float('inf'), float('-inf')
+            ymin, ymax = float('inf'), float('-inf')
+
+            for i, coords in pos.items():
+                extent = (coords[0] - ims, coords[0] + ims, coords[1] - ims, coords[1] + ims)
+                ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent, zorder=100)
+
+                xmin, xmax = min(coords[0], xmin), max(coords[0], xmax)
+                ymin, ymax = min(coords[1], ymin), max(coords[1], ymax)
+
+            MARGIN = 0.1
+            ax.set_xlim(xmin-MARGIN, xmax+MARGIN)
+            ax.set_ylim(ymin-MARGIN, ymax+MARGIN)
+
+            ax.spines["right"].set_visible(False)
+            ax.spines["top"].set_visible(False)
+            ax.spines["bottom"].set_visible(True)
+            ax.spines["left"].set_visible(True)
+
+            ax.get_xaxis().set_tick_params(which='both', top='off', bottom='off', labelbottom='off')
+            ax.get_yaxis().set_tick_params(which='both', left='off', right='off')
+
+            plt.savefig('./conv/graph{:03}.pdf'.format(epoch), dpi=300)
+
 
     print('Finished Training.')
 

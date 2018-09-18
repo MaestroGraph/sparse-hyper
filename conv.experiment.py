@@ -422,9 +422,9 @@ class ConvModel(nn.Module):
         # )
 
         self.decoder = nn.Sequential(
-            nn.Linear(emb_size, 256),
-            nn.Linear(256, 28*28), nn.ReLU(),
-            util.Reshape((1, 28, 28)), nn.Sigmoid()
+            nn.Linear(emb_size, 256), nn.ReLU(),
+            nn.Linear(256, 28*28), nn.Sigmoid(),
+            util.Reshape((1, 28, 28))
         )
 
         self.adj = MatrixHyperlayer(n,n, k, additional=additional)
@@ -497,31 +497,34 @@ def go(arg):
 
         w.add_scalar('mnist/train-loss', loss.item(), epoch)
 
-        print('{:03} '.format(epoch), loss.item())
-        print('    ', model.adj.params.grad.mean().item())
+        if epoch % arg.plot_every == 0:
 
-        plt.cla()
-        plt.imshow(np.transpose(torchvision.utils.make_grid(data.data[:16, :]).cpu().numpy(), (1, 2, 0)),
-                   interpolation='nearest')
-        plt.savefig('./conv/rec.{:03d}.input.pdf'.format(epoch))
+            print('{:03} '.format(epoch), loss.item())
+            print('    adj', model.adj.params.grad.mean().item())
+            print('    lin', next(model.decoder.parameters()).grad.mean().item())
 
-        plt.cla()
-        plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16, :]).cpu().numpy(), (1, 2, 0)),
-                   interpolation='nearest')
-        plt.savefig('./conv/rec.{:03d}.pdf'.format(epoch))
+            plt.cla()
+            plt.imshow(np.transpose(torchvision.utils.make_grid(data.data[:16, :]).cpu().numpy(), (1, 2, 0)),
+                       interpolation='nearest')
+            plt.savefig('./conv/rec.{:03d}.input.pdf'.format(epoch))
 
-        plt.figure(figsize=(7, 7))
+            plt.cla()
+            plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16, :]).cpu().numpy(), (1, 2, 0)),
+                       interpolation='nearest')
+            plt.savefig('./conv/rec.{:03d}.pdf'.format(epoch))
 
-        means, sigmas, values = model.adj.hyper()
+            plt.figure(figsize=(7, 7))
 
-        plt.cla()
+            means, sigmas, values = model.adj.hyper()
 
-        s = model.adj.size()
-        util.plot(means.unsqueeze(0), sigmas.unsqueeze(0), values.unsqueeze(0).squeeze(2), shape=s)
-        plt.xlim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
-        plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
+            plt.cla()
 
-        plt.savefig('./conv/means{:03}.pdf'.format(epoch))
+            s = model.adj.size()
+            util.plot(means.unsqueeze(0), sigmas.unsqueeze(0), values.unsqueeze(0).squeeze(2), shape=s)
+            plt.xlim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
+            plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
+
+            plt.savefig('./conv/means{:03}.pdf'.format(epoch))
 
     print('Finished Training.')
 
@@ -645,6 +648,11 @@ if __name__ == "__main__":
                         dest="depth",
                         help="Number of graph convolutions",
                         default=5, type=int)
+
+    parser.add_argument("-p", "--plot-every",
+                        dest="plot_every",
+                        help="Numer of epochs to wait between plotting",
+                        default=100, type=int)
 
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",

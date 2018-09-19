@@ -28,7 +28,6 @@ def go(iterations=30000, batch=4, cuda=False, plot_every=1000,
        lr=0.01, fv=False, sigma_scale=0.1, min_sigma=0.0, seed=0, reps=10, dot_every=100):
 
     sizes = [4, 8, 16, 32, 64, 128] # 256, 512, 1024]
-    # sizes = [8, 16]
 
     MARGIN = 0.1
 
@@ -42,7 +41,10 @@ def go(iterations=30000, batch=4, cuda=False, plot_every=1000,
         results = np.load('results.np')
     else:
         for si, size in enumerate(sizes):
-            print('Starting size', size)
+            additional = int(np.floor(np.log2(size)) * size)
+
+            print('Starting size {} with {} additional samples '.format(size, additional))
+
             for r in trange(reps):
                 util.makedirs('./identity/{}/{}'.format(size, r))
 

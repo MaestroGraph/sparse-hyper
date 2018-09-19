@@ -2,6 +2,7 @@ import gaussian
 import torch, random, sys
 from torch.autograd import Variable
 from torch.nn import Parameter
+import torch.nn.functional as F
 from torch import nn, optim
 from tqdm import trange
 from tensorboardX import SummaryWriter
@@ -10,6 +11,7 @@ import matplotlib.pyplot as plt
 import util, logging, time, gc
 import numpy as np
 from scipy.stats import sem
+from numpy import std
 
 from argparse import ArgumentParser
 
@@ -51,24 +53,34 @@ class SortLayer(HyperLayer):
 
         outsize = 4 * k
 
-        activation = nn.ReLU()
+        activation = nn.Sigmoid()
         hiddenbig = size * 9
         hidden = size * 6
 
+        # self.source = nn.Sequential(
+        #     nn.Linear(size, hiddenbig),
+        #     activation,
+        #     nn.Linear(hiddenbig, hiddenbig),
+        #     activation,
+        #     nn.Linear(hiddenbig, hiddenbig),
+        #     activation,
+        #     nn.Linear(hiddenbig, hidden),
+        #     activation,
+        #     nn.Linear(hidden, hidden),
+        #     activation,
+        #     nn.Linear(hidden, hidden),
+        #     activation,
+        #     nn.Linear(hidden, outsize),
+        # )
+
+        h = size * size * 2
         self.source = nn.Sequential(
-            nn.Linear(size, hiddenbig),
+            nn.Linear(size, h),
             activation,
-            nn.Linear(hiddenbig, hiddenbig),
+            nn.Linear(h, h),
             activation,
-            nn.Linear(hiddenbig, hiddenbig),
-            activation,
-            nn.Linear(hiddenbig, hidden),
-            activation,
-            nn.Linear(hidden, hidden),
-            activation,
-            nn.Linear(hidden, hidden),
-            activation,
-            nn.Linear(hidden, outsize),
+
+            nn.Linear(h, outsize),
         )
 
     def hyper(self, input):
@@ -79,24 +91,32 @@ class SortLayer(HyperLayer):
 
         res = self.source(input).unsqueeze(2).view(b, self.k, 4)
 
+        self.sigloss = res[:, :, 2].log().sum(dim=1)
+
         means, sigmas, values = self.split_out(res, input.size()[1:], self.out_size)
+
         sigmas = sigmas * self.sigma_scale + self.sigma_floor
+
 
         if self.fix_values:
             values = values * 0.0 + 1.0
 
         return means, sigmas, values
 
-    # def sigma_loss(self, input):
-    #     b, s = input.size()
-    #
-    #     res = self.source(input).unsqueeze(2).view(b, self.k, 4)
-    #     means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
-    #
-    #     return torch.nn.functional.sigmoid( - torch.log(sigmas.sum() / self.k))
+    # def sigma_loss(self):
+    #     return self.sigloss
+
+    def sigma_loss(self, input):
+        b, s = input.size()
+
+        res = self.source(input).unsqueeze(2).view(b, self.k, 4)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_size)
+
+        return - torch.log(sigmas.sum(dim=2).sum(dim=1) / (self.k * s))
 
 
-def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1, reps=10, dot_every=100, sigma_floor=0.0):
+def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1,
+       reps=10, dot_every=100, sigma_floor=0.0, penalty=0.0):
 
     MARGIN = 0.1
 
@@ -109,31 +129,35 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
     if os.path.exists('results.np'):
         results = np.load('results.np')
     else:
-        for si, size in enumerate(range(3, max_size)):
-            print('Starting size', size)
+        for si, size in enumerate(range(4, max_size)):
+            additional = int(np.floor(np.log2(size)) * size)
+
+            print('Starting size {} with {} additional samples '.format(size, additional))
             for r in trange(reps):
                 util.makedirs('./sort/{}/{}'.format(size, r))
                 SHAPE = (size,)
 
-                additional = size
-
-                gaussian.PROPER_SAMPLING =size < 8
+                gaussian.PROPER_SAMPLING = size < 8
 
                 model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv, sigma_floor=sigma_floor)
 
                 if cuda:
                    model.cuda()
 
-                criterion = nn.MSELoss()
                 optimizer = optim.Adam(model.parameters(), lr=lr)
 
-                losses = []
-
-                for i in range(iterations):
+                for i in trange(iterations):
+                    #
+                    # t = torch.tensor(range(size), dtype=torch.float).unsqueeze(0).expand(batch, size)/size
+                    #
+                    # x = torch.zeros(batch, size)
+                    # for row in range(batch):
+                    #     randind = torch.randperm(size)
+                    #     x[row, :] = t[row, randind]
 
                     x = torch.randn((batch,) + SHAPE)
 
-                    t = x.sort()[0]
+                    t, idxs = x.sort()
 
                     if cuda:
                         x, t = x.cuda(), t.cuda()
@@ -144,17 +168,58 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
 
                     y = model(x)
 
-                    loss = criterion(y, t) # compute the loss
+                    loss = F.mse_loss(y, t)#, reduce=False).sum(dim=1) # compute the loss
+                    #loss = (loss + penalty * model.sigma_loss(x)).sum()
 
-                    t0 = time.time()
                     loss.backward()        # compute the gradients
 
                     optimizer.step()
 
                     w.add_scalar('sort/loss/{}/{}'.format(size, r), loss.data.item(), i*batch)
 
+                    # Compute accuracy estimate
                     if i % dot_every == 0:
-                        results[si, r, i//dot_every] = loss.item()
+
+                        correct = 0
+                        tot = 0
+                        for ii in range(10000//batch):
+                            x = torch.randn((batch,) + SHAPE)
+                            t, idxs = x.sort()
+
+                            if cuda:
+                                x, t = x.cuda(), t.cuda()
+                            x, t = Variable(x), Variable(t)
+
+                            means, sigmas, values = model.hyper(x)
+
+                            # first example in batch, sort by
+                            m = means.round().long()
+                            sorted, id = m[:, :, 0].sort()
+
+                            mo = torch.LongTensor(batch, size, 2)
+                            for b in range(batch):
+                                mo[b, :, :] = m[b, id[b], :]
+                            m = mo
+
+                            gold = torch.LongTensor(batch, size, 2)
+                            gold[:, :, 0] = torch.tensor(range(size)).unsqueeze(0).expand(batch, size)
+                            gold[:, :, 1] = idxs
+
+                            tot += x.size(0)
+                            correct += ((gold.view(batch, -1) != m.view(batch, -1)).sum(dim=1) == 0).sum().item()
+
+                            # if ii == 0:
+                            #     print( (gold.view(batch, -1) != m.view(batch, -1) ).sum(dim=1) )
+                            #
+                            #     print(x[0])
+                            #     print(gold[0])
+                            #     print(means[0])
+
+
+                        # print('acc', correct/tot)
+
+                        results[si, r, i//dot_every] = 1.0 - (correct/tot)
+                        w.add_scalar('sort/accuracy/{}/{}'.format(size, r), correct/tot, i * batch)
 
                     if i % plot_every == 0:
 
@@ -177,7 +242,7 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
 
     for si, size in enumerate(range(3, max_size)):
         print(sem(results[si, :, :], axis=0))
-        plt.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[si, :, :], axis=0), yerr=sem(results[si, :, :], axis=0), label='{} by {}'.format(size, size))
+        plt.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[si, :, :], axis=0), yerr=std(results[si, :, :], axis=0), label='{} by {}'.format(size, size))
         plt.legend()
 
     util.basic()
@@ -238,6 +303,11 @@ if __name__ == "__main__":
                         help="How many iterations per dot in the loss curves.",
                         default=1000, type=int)
 
+    parser.add_argument("-D", "--depth-mult",
+                        dest="depth-mult",
+                        help="Depth multiplier. The hypernetwork is n layers deep where n = floor(size*depth_mult).",
+                        default=1.5, type=float)
+
     parser.add_argument("-S", "--sigma-scale",
                         dest="sigma_scale",
                         help="Sigma scale.",
@@ -266,4 +336,4 @@ if __name__ == "__main__":
     go(batch=options.batch_size, iterations=options.iterations, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, max_size=options.size, fv=options.fix_values,
         seed=options.seed, sigma_scale=options.sigma_scale, reps=options.reps,
-       dot_every=options.dot_every, sigma_floor=options.sigma_floor)
+       dot_every=options.dot_every, sigma_floor=options.sigma_floor, penalty=options.penalty)

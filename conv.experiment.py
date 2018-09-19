@@ -556,7 +556,7 @@ def go(arg):
             # edges = nx.draw_networkx_edges(g, pos, edge_color=values.data.view(-1), edge_vmin=0.0, edge_vmax=1.0, cmap='bone')
 
             varr = values.data.view(-1).cpu().numpy()
-            nx.draw_networkx_edges(g, pos, width=varr**0.5, edge_color=varr, edge_vmin=0.0, edge_vmax=1.0, edge_cmap=plt.cm.gray, axes=ax)
+            nx.draw_networkx_edges(g, pos, width=varr**0.5, edge_color=varr, edge_vmin=0.0, edge_vmax=1.0, edge_cmap=plt.cm.gray_r, axes=ax)
 
             ims = 0.01
             xmin, xmax = float('inf'), float('-inf')

@@ -129,7 +129,7 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
     if os.path.exists('results.np'):
         results = np.load('results.np')
     else:
-        for si, size in enumerate(range(4, max_size)):
+        for si, size in enumerate(range(3, max_size)):
             additional = int(np.floor(np.log2(size)) * size)
 
             print('Starting size {} with {} additional samples '.format(size, additional))

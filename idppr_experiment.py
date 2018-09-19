@@ -50,8 +50,6 @@ def go(iterations=30000, batch=4, cuda=False, plot_every=1000,
 
                 SHAPE = (size,)
 
-                additional = size
-
                 gaussian.PROPER_SAMPLING = size < 8
                 model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=sigma_scale, has_bias=False, fix_values=fv, min_sigma=min_sigma)
 

@@ -1,5 +1,5 @@
 import gaussian
-import util, logging, time, itertools
+import util, time, itertools
 from gaussian import Bias
 
 import torch, random
@@ -217,8 +217,6 @@ class MatrixHyperlayer(nn.Module):
 
         neighbor_ints = neighbor_ints.long()
 
-        logging.info('  neighbors: {} seconds'.format(time.time() - t0))
-
         # Sample additional points
         if rng is not None:
             t0 = time.time()
@@ -239,11 +237,8 @@ class MatrixHyperlayer(nn.Module):
 
             ints_fl = ints.float()
 
-            logging.info('  sampling: {} seconds'.format(time.time() - t0))
-
         ints_fl = Variable(ints_fl)  # leaf node in the comp graph, gradients go through values
 
-        t0 = time.time()
         # compute the proportion of the value each integer index tuple receives
         props = densities(ints_fl, means, sigmas)
 
@@ -251,8 +246,6 @@ class MatrixHyperlayer(nn.Module):
         sums = torch.sum(props + gaussian.EPSILON, dim=1, keepdim=True).expand_as(props)
         props = props / sums
 
-        logging.info('  densities: {} seconds'.format(time.time() - t0))
-        t0 = time.time()
 
         # repeat each value 2^rank+A times, so it matches the new indices
         val = values.expand_as(props).contiguous()
@@ -264,19 +257,13 @@ class MatrixHyperlayer(nn.Module):
         props = props.view(-1)
         val = val.view(-1)
 
-        logging.info('  reshaping: {} seconds'.format(time.time() - t0))
-
         return ints, props, val
 
     def forward(self, input):
 
         ### Compute and unpack output of hypernetwork
 
-        t0 = time.time()
-
         means, sigmas, values = self.hyper(input)
-
-        logging.info('compute hyper: {} seconds'.format(time.time() - t0))
 
         t0total = time.time()
 
@@ -291,18 +278,10 @@ class MatrixHyperlayer(nn.Module):
 
         values = values * props
 
-        logging.info('discretize: {} seconds'.format(time.time() - t0))
-
         if self.use_cuda:
             indices = indices.cuda()
 
         # translate tensor indices to matrix indices
-        t0 = time.time()
-
-        logging.info('flatten: {} seconds'.format(time.time() - t0))
-
-        # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
-        #     through 'values', which are a function of both the real_indices and the real_values.
 
         ### Create the sparse weight tensor
 
@@ -317,10 +296,6 @@ class MatrixHyperlayer(nn.Module):
 
         spmm = sparsemult(self.use_cuda)
         output = spmm(vindices, values, sz, input)
-
-        logging.info('sparse mult: {} seconds'.format(time.time() - t0))
-
-        logging.info('total: {} seconds'.format(time.time() - t0total))
 
         return output
 
@@ -465,7 +440,6 @@ def go(arg):
     MARGIN = 0.1
     util.makedirs('./conv/')
     torch.manual_seed(arg.seed)
-    logging.basicConfig(filename='run.log',level=logging.INFO)
 
     w = SummaryWriter()
 
@@ -497,9 +471,7 @@ def go(arg):
         outputs = model()
         loss = F.binary_cross_entropy(outputs, data)
 
-        t0 = time.time()
         loss.backward()  # compute the gradients
-        logging.info('backward: {} seconds'.format(time.time() - t0))
         optimizer.step()
 
         w.add_scalar('mnist/train-loss', loss.item(), epoch)

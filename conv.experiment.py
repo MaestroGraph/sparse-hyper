@@ -163,9 +163,10 @@ class MatrixHyperlayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_num, out_num, k, additional=0, sigma_scale=0.2):
+    def __init__(self, in_num, out_num, k, additional=0, sigma_scale=0.2, min_sigma=0.0):
         super().__init__()
 
+        self.min_sigma = min_sigma
         self.use_cuda = False
         self.in_num = in_num
         self.out_num = out_num
@@ -328,7 +329,7 @@ class MatrixHyperlayer(nn.Module):
 
         sigmas = sigmas.expand_as(means)
         sigmas = sigmas * ss.expand_as(sigmas)
-        sigmas = sigmas * self.sigma_scale # + self.min_sigma
+        sigmas = sigmas * self.sigma_scale + self.min_sigma
 
         return means, sigmas, F.sigmoid(values)
 
@@ -379,7 +380,7 @@ class GraphConvolution(Module):
 
 class ConvModel(nn.Module):
 
-    def __init__(self, data_size, k, emb_size = 16, depth=2, additional=128):
+    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0):
         super().__init__()
 
         self.data_shape = data_size
@@ -409,21 +410,25 @@ class ConvModel(nn.Module):
             util.Reshape((1, 28, 28))
         )
 
-        self.adj = MatrixHyperlayer(n,n, k, additional=additional)
+        self.adj = MatrixHyperlayer(n,n, k, additional=additional, min_sigma=min_sigma)
 
-        self.convs = nn.ModuleList()
-        self.convs.append(GraphConvolution(n, emb_size))
-        for _ in range(1, depth):
-            self.convs.append(GraphConvolution(emb_size, emb_size, has_weight=False))
+        # self.convs = nn.ModuleList()
+        # self.convs.append(GraphConvolution(n, emb_size))
+        # for _ in range(1, depth):
+        #     self.convs.append(GraphConvolution(emb_size, emb_size, has_weight=False))
+        self.embedding_conv = GraphConvolution(n, emb_size)
+        self.weightless_conv = GraphConvolution(emb_size, emb_size, has_weight=False)
 
-    def forward(self):
+    def forward(self, depth=1):
 
-        x = self.convs[0](input=None, adj=self.adj) # identity matrix input
-        for i in range(1, len(self.convs)):
-            x = F.sigmoid(x)
-            x = self.convs[i](input=x, adj=self.adj)
+        x = self.embedding_conv(input=None, adj=self.adj) # identity matrix input
+        results = [x]
+        for i in range(1, depth):
+            # x = F.sigmoid(x)
+            x = self.weightless_conv(input=x, adj=self.adj)
+            results.append(x)
 
-        return self.decoder(x)
+        return [self.decoder(r) for r in results]
 
     def cuda(self):
 
@@ -453,7 +458,7 @@ def go(arg):
     if arg.limit is not None:
         data = data[:arg.limit]
 
-    model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size, depth=arg.depth, additional=arg.additional)
+    model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size, additional=arg.additional, min_sigma=arg.min_sigma)
 
     if arg.cuda: # This probably won't work (but maybe with small data)
         model.cuda()
@@ -468,8 +473,11 @@ def go(arg):
 
         optimizer.zero_grad()
 
-        outputs = model()
-        loss = F.binary_cross_entropy(outputs, data)
+        outputs = model(depth=arg.depth)
+
+        loss = 0.0
+        for o in outputs:
+            loss = loss + F.binary_cross_entropy(o, data)
 
         loss.backward()  # compute the gradients
         optimizer.step()
@@ -478,19 +486,23 @@ def go(arg):
 
         if epoch % arg.plot_every == 0:
 
-            print('{:03} '.format(epoch), loss.item())
+            print('{:03}   '.format(epoch), loss.item())
             print('    adj', model.adj.params.grad.mean().item())
             print('    lin', next(model.decoder.parameters()).grad.mean().item())
 
             plt.cla()
             plt.imshow(np.transpose(torchvision.utils.make_grid(data.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                        interpolation='nearest')
-            plt.savefig('./conv/inp.{:03d}.pdf'.format(epoch))
+            plt.savefig('./conv/inp.{:03d}.png'.format(epoch))
 
-            plt.cla()
-            plt.imshow(np.transpose(torchvision.utils.make_grid(outputs.data[:16, :]).cpu().numpy(), (1, 2, 0)),
-                       interpolation='nearest')
-            plt.savefig('./conv/rec.{:03d}.pdf'.format(epoch))
+            outputs = model(depth=arg.depth)
+
+            for d, o in enumerate(outputs):
+
+                plt.cla()
+                plt.imshow(np.transpose(torchvision.utils.make_grid(o.data[:16, :]).cpu().numpy(), (1, 2, 0)),
+                           interpolation='nearest')
+                plt.savefig('./conv/rec.{:03d}.{:02d}.png'.format(epoch, d))
 
             plt.figure(figsize=(7, 7))
 
@@ -692,6 +704,11 @@ if __name__ == "__main__":
     parser.add_argument("-D", "--data", dest="data",
                         help="Data directory",
                         default='./data')
+
+    parser.add_argument("-M", "--min-sigma",
+                        dest="min_sigma",
+                        help="Minimal sigma value",
+                        default=0.0, type=float)
 
     args = parser.parse_args()
 

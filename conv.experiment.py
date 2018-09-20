@@ -519,7 +519,7 @@ def go(arg):
 
             # Plot the graph
 
-            g = nx.MultiGraph()
+            g = nx.MultiDiGraph()
             g.add_nodes_from(range(data.size(0)))
 
             means, _, values = model.adj.hyper()
@@ -528,7 +528,7 @@ def go(arg):
                 m = means[i, :].round().long()
                 v = values[i]
 
-                g.add_weighted_edges_from([(m[0].item(), m[1].item(), v.item())])
+                g.add_weighted_edges_from([(m[1].item(), m[0].item(), v.item())])
 
             print(len(g.edges()), values.size(0))
 

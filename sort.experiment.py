@@ -7,6 +7,8 @@ from torch import nn, optim
 from tqdm import trange
 from tensorboardX import SummaryWriter
 
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import util, logging, time, gc
 import numpy as np

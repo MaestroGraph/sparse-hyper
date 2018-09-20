@@ -59,7 +59,7 @@ def basic(axes=None):
     axes.spines["bottom"].set_visible(True)
     axes.spines["left"].set_visible(True)
 
-    axes.get_xaxis().set_tick_params(which='both', top='off', bottom='on', labelbottom='off')
+    axes.get_xaxis().set_tick_params(which='both', top='off', bottom='on', labelbottom='on')
     axes.get_yaxis().set_tick_params(which='both', left='on', right='off')
 
 def plot(means, sigmas, values, shape=None, axes=None, flip_y=None, alpha_global=1.0):
@@ -94,7 +94,7 @@ def plot(means, sigmas, values, shape=None, axes=None, flip_y=None, alpha_global
     for i in range(n):
         color = map.to_rgba(values[i])
 
-        alpha = max(0.05, ((sigmas[i, 0] * sigmas[i, 0])+1.0)**-2) * alpha_global
+        alpha = min(0.8, max(0.05, ((sigmas[i, 0] * sigmas[i, 0])+1.0)**-2)) * alpha_global
         axes.add_patch(Ellipse((means[i, 1], means[i, 0]), width=sigmas[i,1], height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 

@@ -126,17 +126,22 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
 
     ndots = iterations//dot_every
 
-    results = np.zeros((max_size-3, reps, ndots))
+    qs = [0.0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+
+    results = np.zeros((len(qs), reps, ndots))
+
+    size = max_size
 
     if os.path.exists('results.np'):
         results = np.load('results.np')
     else:
-        for si, size in enumerate(range(3, max_size)):
+#        for si, size in enumerate(range(3, max_size)):
+        for si, q in enumerate(qs):
             additional = int(np.floor(np.log2(size)) * size)
 
-            print('Starting size {} with {} additional samples '.format(size, additional))
+            print('Starting min_sgima {} with {} additional samples '.format(size, additional))
             for r in trange(reps):
-                util.makedirs('./sort/{}/{}'.format(size, r))
+                util.makedirs('./sort/{}/{}'.format(si, r))
                 SHAPE = (size,)
 
                 gaussian.PROPER_SAMPLING = size < 8
@@ -218,7 +223,7 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
                             #     print(means[0])
 
 
-                        # print('acc', correct/tot)
+                        print('acc', correct/tot)
 
                         results[si, r, i//dot_every] = 1.0 - (correct/tot)
                         w.add_scalar('sort/accuracy/{}/{}'.format(size, r), correct/tot, i * batch)
@@ -233,7 +238,7 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
                         util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
                         plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
                         plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-                        plt.savefig('./sort/{}/{}/means{:04}.pdf'.format(size, r, i))
+                        plt.savefig('./sort/{}/{}/means{:04}.pdf'.format(si, r, i))
 
         print('experiments finished')
 
@@ -241,15 +246,22 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
 
     plt.figure(figsize=(5, 5))
     plt.clf()
+    ax = plt.gca()
 
-    for si, size in enumerate(range(3, max_size)):
-        print(sem(results[si, :, :], axis=0))
-        plt.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[si, :, :], axis=0), yerr=std(results[si, :, :], axis=0), label='{} by {}'.format(size, size))
-        plt.legend()
+    for si, q in enumerate(qs):
+        # print(sem(results[si, :, :], axis=0))
+        ax.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[si, :, :], axis=0), yerr=std(results[si, :, :], axis=0), label='min sigma {}'.format(q))
+        ax.legend()
 
-    util.basic()
+    util.basic(ax)
 
-    plt.savefig('./sort/results.png')
+    ax.spines['bottom'].set_position('zero')
+    ax.set_ylim(0.0, 1.0)
+
+    plt.xlabel('iterations')
+    plt.ylabel('accuracy')
+
+    #plt.savefig('./sort/results.png')
     plt.savefig('./sort/results.pdf')
 
 if __name__ == "__main__":

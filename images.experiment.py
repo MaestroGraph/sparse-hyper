@@ -609,8 +609,6 @@ class ASHModel(nn.Module):
         bbox[:, 2:] = (bbox[:, 2:] - gaussian.EPSILON) * w
         bbox = bbox.round().long()
 
-        print(bbox)
-
         y, x = bbox[:, :2], bbox[:, 2:]  # y is vert (height), x is hor (width),
 
         # flip the bounds that are the wrong way around

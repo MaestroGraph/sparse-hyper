@@ -1171,8 +1171,13 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
             if PLOT and i == 0 and type(model) is ASHModel:
 
+                print('post', model.lin1.weight.grad.data.mean())
+                print('pre', list(model.preprocess.modules())[1].weight.grad.data.mean())
+
                 model.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.glimpses.{:03}.pdf'.format(epoch))
+
+
 
         total = 0.0
         correct = 0.0

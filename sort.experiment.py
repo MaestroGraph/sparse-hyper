@@ -139,14 +139,14 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
         for si, q in enumerate(qs):
             additional = int(np.floor(np.log2(size)) * size)
 
-            print('Starting min_sgima {} with {} additional samples '.format(size, additional))
+            print('Starting min_sigma {} with {} additional samples '.format(q, additional))
             for r in trange(reps):
                 util.makedirs('./sort/{}/{}'.format(si, r))
                 SHAPE = (size,)
 
                 gaussian.PROPER_SAMPLING = size < 8
 
-                model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv, sigma_floor=sigma_floor)
+                model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv, sigma_floor=q)
 
                 if cuda:
                    model.cuda()
@@ -250,7 +250,7 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
 
     for si, q in enumerate(qs):
         # print(sem(results[si, :, :], axis=0))
-        ax.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[si, :, :], axis=0), yerr=std(results[si, :, :], axis=0), label='min sigma {}'.format(q))
+        ax.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[si, :, :], axis=0), yerr=sem(results[si, :, :], axis=0), label='min sigma {}'.format(q))
         ax.legend()
 
     util.basic(ax)

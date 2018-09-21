@@ -261,7 +261,6 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 
     def __init__(self, in_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None, preprocess=None):
 
-
         ci, hi, wi = in_size
         out_size = co, ho, wo = ci, k, k
 
@@ -664,12 +663,15 @@ class ASHModel(nn.Module):
 
                 for j in range(self.num_glimpses):
 
-                    bbox = prep[:, j * 8: (j + 1) * 8]
+                    ps = prep[:, j * 8: (j + 1) * 8]
+                    bbox = ps[:, :4]
 
                     bbox = F.sigmoid(bbox)
                     bbox[:, :2] = (bbox[:, :2] - gaussian.EPSILON) * h
                     bbox[:, 2:] = (bbox[:, 2:] - gaussian.EPSILON) * w
                     bbox = bbox.round().long()
+
+                    print(bbox[j])
 
                     y, x = bbox[:, :2], bbox[:, 2:]  # y is vert (height), x is hor (width),
 
@@ -681,8 +683,8 @@ class ASHModel(nn.Module):
                         mpl.patches.Rectangle(xy = (y[i, 0], x[i, 0]), width =y[i, 1] - y[i, 0], height=x[i, 1] - x[i, 0], linewidth=1, edgecolor='r', facecolor='none', alpha=0.7)
                     )
 
-            # ax.xaxis.set_visible(False)
-            # ax.yaxis.set_visible(False)
+            ax.xaxis.set_visible(False)
+            ax.yaxis.set_visible(False)
 
             ax.set_xlim(-0.5, w - 0.5)
             ax.set_ylim(-0.5, h - 0.5)  # NB Axis flipped

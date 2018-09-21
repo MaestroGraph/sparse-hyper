@@ -46,7 +46,6 @@ class SortLayer(HyperLayer):
             def forward(self, input):
                 return input
 
-
         self.k = k
         self.size = size
         self.sigma_scale = sigma_scale

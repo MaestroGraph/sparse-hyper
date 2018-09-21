@@ -538,10 +538,12 @@ class ASHModel(nn.Module):
         self.lin2 = nn.Linear(hidden, num_classes)
 
         self.k = k
+        self.is_cuda = False
 
     def cuda(self):
 
         super().cuda()
+        self.is_cuda = True
 
         for hyper in self.hyperlayers:
             hyper.apply(lambda t: t.cuda())
@@ -612,8 +614,7 @@ class ASHModel(nn.Module):
         y, _ = torch.sort(y, dim=1)
         x, _ = torch.sort(x, dim=1)
 
-        # TODO Cuda
-        extract = torch.FloatTensor(b, c, res[0], res[1]).zero_()
+        extract = torch.cuda.FloatTensor(b, c, res[0], res[1]).zero_() if self.is_cuda else torch.FloatTensor(b, c, res[0], res[1]).zero_()
 
         for bi in range(b):
             if (x[bi, 0] - x[bi, 1]).abs() > 2 and (y[bi, 0] - y[bi, 1]).abs() > 2:
@@ -621,10 +622,11 @@ class ASHModel(nn.Module):
                 temp = image[bi, :, y[bi, 0]:y[bi, 1], x[bi, 0]:x[bi, 1],]
 
                 extract[bi] = rescale(temp, outsize=res)
-            # else:
-            #     print(bbox[bi, :])
 
-        return Variable(extract)
+        extract = Variable(extract)
+
+        return extract
+
 
     def debug(self):
         print(list(self.preprocess.parameters())[0].grad)

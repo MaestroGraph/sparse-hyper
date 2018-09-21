@@ -38,6 +38,7 @@ fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
 DROPOUT = 0.0
+SIGMA_BOOST_REINFORCE = 3.0
 
 def inv(i, max):
     sc = (i/max) * 0.999 + 0.0005
@@ -573,9 +574,9 @@ class ASHModel(nn.Module):
             for i, hyper in enumerate(self.hyperlayers):
                 ps = prep[:, i * 8: (i + 1) * 8]
                 bbox  = ps[:, :4]
-                sigs  = ps[:, 4:]
+                sigs  = F.softplus(ps[:, 4:]) * SIGMA_BOOST_REINFORCE
 
-                stoch_node = torch.distributions.Normal(0, F.softplus(sigs))
+                stoch_node = torch.distributions.Normal(0, sigs)
                 sample = stoch_node.sample()
 
                 stoch_nodes.append(stoch_node)
@@ -607,6 +608,8 @@ class ASHModel(nn.Module):
         bbox[:, :2] = (bbox[:, :2] - gaussian.EPSILON) * h
         bbox[:, 2:] = (bbox[:, 2:] - gaussian.EPSILON) * w
         bbox = bbox.round().long()
+
+        print(bbox)
 
         y, x = bbox[:, :2], bbox[:, 2:]  # y is vert (height), x is hor (width),
 

@@ -485,48 +485,48 @@ class ASHModel(nn.Module):
 
         print(hid)
 
-        self.preprocess = nn.Sequential(
-            # nn.MaxPool2d(kernel_size=4),
-            # util.Debug(lambda x: print(x.size())),
-            nn.Conv2d(c, ch1, kernel_size=3, padding=1),
-            activation,
-            nn.Conv2d(ch1, ch1, kernel_size=3, padding=1),
-            activation,
-            nn.MaxPool2d(kernel_size=p1),
-            nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
-            activation,
-            nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
-            activation,
-            nn.MaxPool2d(kernel_size=p2),
-            nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
-            activation,
-            nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
-            activation,
-            #util.Debug(lambda x : print(x.size())),
-            util.Flatten(),
-            nn.Linear(hid, hidlin),
-            nn.Dropout(DROPOUT),
-            activation,
-            nn.Linear(hidlin, hidlin),
-            nn.Dropout(DROPOUT),
-            activation,
-            nn.Linear(hidlin, 4 if not self.reinforce else 8)
-        )
-
-        # hid = max(1, floor(w / 5) * floor(h / 5) * c)
         # self.preprocess = nn.Sequential(
-        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
+        #     # nn.MaxPool2d(kernel_size=4),
+        #     # util.Debug(lambda x: print(x.size())),
+        #     nn.Conv2d(c, ch1, kernel_size=3, padding=1),
         #     activation,
-        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
+        #     nn.Conv2d(ch1, ch1, kernel_size=3, padding=1),
         #     activation,
-        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
+        #     nn.MaxPool2d(kernel_size=p1),
+        #     nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
         #     activation,
-        #     nn.MaxPool2d(kernel_size=5),
+        #     nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
+        #     activation,
+        #     nn.MaxPool2d(kernel_size=p2),
+        #     nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
+        #     activation,
+        #     nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
+        #     activation,
+        #     #util.Debug(lambda x : print(x.size())),
         #     util.Flatten(),
-        #     nn.Linear(hid, 16),
+        #     nn.Linear(hid, hidlin),
+        #     nn.Dropout(DROPOUT),
         #     activation,
-        #     nn.Linear(16, 4*glimpses)
+        #     nn.Linear(hidlin, hidlin),
+        #     nn.Dropout(DROPOUT),
+        #     activation,
+        #     nn.Linear(hidlin, (4 if not self.reinforce else 8) * glimpses)
         # )
+
+        hid = max(1, floor(w / 5) * floor(h / 5) * c)
+        self.preprocess = nn.Sequential(
+            nn.Conv2d(c, c, kernel_size=5, padding=2),
+            activation,
+            nn.Conv2d(c, c, kernel_size=5, padding=2),
+            activation,
+            nn.Conv2d(c, c, kernel_size=5, padding=2),
+            activation,
+            nn.MaxPool2d(kernel_size=5),
+            util.Flatten(),
+            nn.Linear(hid, 16),
+            activation,
+            nn.Linear(16, (4 if not self.reinforce else 8) * glimpses)
+        )
 
         self.hyperlayers = []
 
@@ -571,7 +571,7 @@ class ASHModel(nn.Module):
             # RL baseline
             stoch_nodes = []
             samples = []
-            for i, hyper in enumerate(self.hyperlayers):
+            for i in range(self.num_glimpses):
                 ps = prep[:, i * 8: (i + 1) * 8]
                 bbox  = ps[:, :4]
                 sigs  = F.softplus(ps[:, 4:]) * SIGMA_BOOST_REINFORCE

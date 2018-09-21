@@ -470,6 +470,7 @@ class ASHModel(nn.Module):
         super().__init__()
 
         self.reinforce = reinforce
+        self.num_glimpses = glimpses
 
         activation = nn.ReLU()
 
@@ -634,15 +635,14 @@ class ASHModel(nn.Module):
     def plot(self, images):
 
         prep = self.preprocess(images)
-
         perrow = 5
-
         num, c, w, h = images.size()
 
         rows = int(math.ceil(num / perrow))
 
         plt.figure(figsize=(perrow * 3, rows * 3))
 
+        # TODO: remove inefficiency, by reversing loops
         for i in range(num):
             ax = plt.subplot(rows, perrow, i + 1)
 
@@ -651,19 +651,46 @@ class ASHModel(nn.Module):
 
             ax.imshow(im, interpolation='nearest', extent=(-0.5, w - 0.5, -0.5, h - 0.5), origin='upper', cmap='gray_r')
 
-            for j, hyper in enumerate(self.hyperlayers):
-                means, sigmas, values, _ = hyper.hyper( images, prep=prep[:, j*4 : (j+1)*4] )
+            if not self.reinforce:
+                # Draw dots
 
-                util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
-                    axes=ax, flip_y=h, alpha_global=0.3)
+                for j, hyper in enumerate(self.hyperlayers):
+                    means, sigmas, values, _ = hyper.hyper(images, prep=prep[:, j * 4: (j + 1) * 4])
+
+                    util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
+                              axes=ax, flip_y=h, alpha_global=0.3)
+            else:
+                # Draw rectangle
+
+                for j in range(self.num_glimpses):
+
+                    bbox = prep[:, j * 8: (j + 1) * 8]
+
+                    bbox = F.sigmoid(bbox)
+                    bbox[:, :2] = (bbox[:, :2] - gaussian.EPSILON) * h
+                    bbox[:, 2:] = (bbox[:, 2:] - gaussian.EPSILON) * w
+                    bbox = bbox.round().long()
+
+                    y, x = bbox[:, :2], bbox[:, 2:]  # y is vert (height), x is hor (width),
+
+                    # flip the bounds that are the wrong way around
+                    y, _ = torch.sort(y, dim=1)
+                    x, _ = torch.sort(x, dim=1)
+
+                    ax.add_patch(
+                        mpl.patches.Rectangle(xy = (y[i, 0], x[i, 0]), width =y[i, 1] - y[i, 0], height=x[i, 1] - x[i, 0], linewidth=1, edgecolor='r', facecolor='none', alpha=0.7)
+                    )
 
             # ax.xaxis.set_visible(False)
             # ax.yaxis.set_visible(False)
 
             ax.set_xlim(-0.5, w - 0.5)
-            ax.set_ylim(-0.5, h - 0.5) # NB Axis flipped
+            ax.set_ylim(-0.5, h - 0.5)  # NB Axis flipped
 
         plt.gcf()
+
+
+
 
 # class ToImageLayer(gaussian_out.HyperLayer):
 #     """
@@ -1140,7 +1167,7 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
                 hyperlayer.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
 
-            if PLOT and i == 0 and type(model) is ASHModel and not reinforce:
+            if PLOT and i == 0 and type(model) is ASHModel:
 
                 model.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.glimpses.{:03}.pdf'.format(epoch))
@@ -1161,7 +1188,10 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
             # wrap them in Variables
             inputs, labels = Variable(inputs), Variable(labels)
 
-            outputs = model(inputs)
+            if not reinforce:
+                outputs = model(inputs)
+            else:
+                outputs, _, _ = model(inputs)
 
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)

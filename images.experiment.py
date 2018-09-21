@@ -1,4 +1,4 @@
-import gaussian_temp, util, time,  os, math, sys, PIL
+import gaussian, gaussian_temp, util, time,  os, math, sys, PIL
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -8,6 +8,8 @@ from tqdm import trange, tqdm
 from tensorboardX import SummaryWriter
 from util import Lambda, Debug
 from torch.utils.serialization import load_lua
+
+from skimage.transform import resize
 
 from math import *
 from torch.utils.data import TensorDataset, DataLoader
@@ -243,6 +245,13 @@ def sigmoid(x):
 #
 #         plt.gcf()
 
+def rescale( image, outsize):
+    image = image.cpu().numpy()
+    image = np.transpose(image, (1, 2, 0))
+
+    image = resize(image, outsize)
+
+    return torch.from_numpy( np.transpose(image, (2, 0, 1)) )
 
 class SimpleImageLayer(gaussian_temp.HyperLayer):
     """
@@ -457,8 +466,10 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 
 class ASHModel(nn.Module):
 
-    def __init__(self, shape, k, glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes):
+    def __init__(self, shape, k, glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes, reinforce=False):
         super().__init__()
+
+        self.reinforce = reinforce
 
         activation = nn.ReLU()
 
@@ -498,7 +509,7 @@ class ASHModel(nn.Module):
             nn.Linear(hidlin, hidlin),
             nn.Dropout(DROPOUT),
             activation,
-            nn.Linear(hidlin, 4 * glimpses),
+            nn.Linear(hidlin, 4 if not self.reinforce else 8)
         )
 
         # hid = max(1, floor(w / 5) * floor(h / 5) * c)
@@ -526,6 +537,8 @@ class ASHModel(nn.Module):
         self.lin1 = nn.Linear(k * k * shape[0] * glimpses, hidden)
         self.lin2 = nn.Linear(hidden, num_classes)
 
+        self.k = k
+
     def cuda(self):
 
         super().cuda()
@@ -538,16 +551,80 @@ class ASHModel(nn.Module):
         prep = self.preprocess(image)
 
         b = image.size(0)
-
         glimpses = []
-        for i, hyper in enumerate(self.hyperlayers):
-            glimpses.append(hyper(image, prep=prep[:, i*4 : (i+1)*4]))
 
-        x = torch.cat(glimpses, dim=1).view(b, -1)
-        x = F.relu(self.lin1(x))
-        x = F.softmax(self.lin2(x), dim=1)
+        if not self.reinforce:
 
-        return x
+            for i, hyper in enumerate(self.hyperlayers):
+                glimpses.append(hyper(image, prep=prep[:, i*4 : (i+1)*4]))
+
+            x = torch.cat(glimpses, dim=1).view(b, -1)
+            x = F.relu(self.lin1(x))
+            x = F.softmax(self.lin2(x), dim=1)
+
+            return x
+
+        else:
+            # RL baseline
+            stoch_nodes = []
+            samples = []
+            for i, hyper in enumerate(self.hyperlayers):
+                ps = prep[:, i * 8: (i + 1) * 8]
+                bbox  = ps[:, :4]
+                sigs  = ps[:, 4:]
+
+                stoch_node = torch.distributions.Normal(0, F.softplus(sigs))
+                sample = stoch_node.sample()
+
+                stoch_nodes.append(stoch_node)
+                samples.append(sample)
+
+                bbox = bbox + sample
+
+                glimpses.append(self.extract(image, bbox, (self.k, self.k)))
+
+            x = torch.cat(glimpses, dim=1).view(b, -1)
+            x = F.relu(self.lin1(x))
+            x = F.softmax(self.lin2(x), dim=1)
+
+            return x, stoch_nodes, samples
+
+    def extract(self, image, bbox, res=(12,12)):
+        """
+        Extracts a rectangle from the given image and scales it down.
+
+        :param image:
+        :param bbox:
+        :param res:
+        :return:
+        """
+
+        b, c, h, w  = image.size()
+
+        bbox = F.sigmoid(bbox)
+        bbox[:, :2] = (bbox[:, :2] - gaussian.EPSILON) * h
+        bbox[:, 2:] = (bbox[:, 2:] - gaussian.EPSILON) * w
+        bbox = bbox.round().long()
+
+        y, x = bbox[:, :2], bbox[:, 2:]  # y is vert (height), x is hor (width),
+
+        # flip the bounds that are the wrong way around
+        y, _ = torch.sort(y, dim=1)
+        x, _ = torch.sort(x, dim=1)
+
+        # TODO Cuda
+        extract = torch.FloatTensor(b, c, res[0], res[1]).zero_()
+
+        for bi in range(b):
+            if (x[bi, 0] - x[bi, 1]).abs() > 2 and (y[bi, 0] - y[bi, 1]).abs() > 2:
+
+                temp = image[bi, :, y[bi, 0]:y[bi, 1], x[bi, 0]:x[bi, 1],]
+
+                extract[bi] = rescale(temp, outsize=res)
+            # else:
+            #     print(bbox[bi, :])
+
+        return Variable(extract)
 
     def debug(self):
         print(list(self.preprocess.parameters())[0].grad)
@@ -864,6 +941,8 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
     hyperlayer = None
 
+    reinforce = False
+
     if modelname == 'baseline':
 
         model = nn.Sequential(
@@ -902,7 +981,7 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
     elif modelname == 'ash':
 
-        model = ASHModel(shape, k, args.num_glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes)
+        model = ASHModel(shape, k, args.num_glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes, reinforce=False)
 
         # model = nn.Sequential(
         #     hyperlayer,
@@ -911,6 +990,11 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
         #     activation,
         #     nn.Linear(hidden, num_classes),
         #     nn.Softmax())
+
+    elif modelname == 'ash-reinforce':
+
+        model = ASHModel(shape, k, args.num_glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes, reinforce=True)
+        reinforce = True
 
     elif modelname == 'nas':
         C = 1
@@ -998,23 +1082,27 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
             optimizer.zero_grad()
 
-            outputs = model(inputs)
+            if not reinforce:
+                outputs = model(inputs)
+            else:
+                outputs, stoch_nodes, actions = model(inputs)
 
-            mloss = xent(outputs, labels)
+            mloss = F.cross_entropy(outputs, labels, reduce=False)
 
-            # if rec_lambda is not None and reconstruction is not None:
-            #
-            #     rec = reconstruction(hyperlayer.last_out)
-            #
-            #     rloss = mse(rec, inputs)
-            #
-            #     loss = mloss + rec_lambda * rloss
-            # else:
-            loss = mloss
+            if reinforce:
+                rloss = 0.0
 
-            t0 = time.time()
+                for node, action in zip(stoch_nodes, actions):
+                    rloss = rloss - node.log_prob(action) * - mloss.data.unsqueeze(1).expand_as(action)
+
+                # print(mloss.size(), rloss.size())
+
+                loss = rloss.sum(dim=1) + mloss
+            else:
+                loss = mloss
+
+            loss = loss.sum()
             loss.backward()  # compute the gradients
-            logging.info('backward: {} seconds'.format(time.time() - t0))
 
             # model.debug()
 
@@ -1022,7 +1110,7 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
             optimizer.step()
 
-            tbw.add_scalar('mnist/train-loss', float(mloss.data.item()), step)
+            tbw.add_scalar('mnist/train-loss', float(loss.data.item()), step)
 
             step += inputs.size(0)
 
@@ -1050,7 +1138,7 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
                 hyperlayer.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
 
-            if PLOT and i == 0 and type(model) is ASHModel:
+            if PLOT and i == 0 and type(model) is ASHModel and not reinforce:
 
                 model.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.glimpses.{:03}.pdf'.format(epoch))
@@ -1091,7 +1179,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-e", "--epochs",
                         dest="epochs",
-                        help="Number of epochs over thegenerated data.",
+                        help="Number of epochs over the generated data.",
                         default=350, type=int)
 
     parser.add_argument("-m", "--model",

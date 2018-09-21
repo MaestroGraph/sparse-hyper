@@ -24,88 +24,103 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-def go(iterations=30000, batch=4, cuda=False, plot_every=1000,
+def go(batch=4, cuda=False, plot_every=1000,
        lr=0.01, fv=False, sigma_scale=0.1, min_sigma=0.0, seed=0, reps=10, dot_every=100):
 
     sizes = [4, 8, 16, 32, 64, 128] # 256, 512, 1024]
+    itss  = [200, 400, 80000, 320000, 640000, 640000]
 
     MARGIN = 0.1
 
     torch.manual_seed(seed)
 
-    ndots = iterations // dot_every
+    results = {}
 
-    results = np.zeros((len(sizes), reps, ndots))
+    for si, size in enumerate(sizes):
 
-    if os.path.exists('results.np'):
-        results = np.load('results.np')
-    else:
-        for si, size in enumerate(sizes):
-            additional = int(np.floor(np.log2(size)) * size)
+        iterations = itss[si]
+        ndots = iterations // dot_every
 
-            print('Starting size {} with {} additional samples '.format(size, additional))
+        results[size] = np.zeros((reps, ndots))
 
-            for r in trange(reps):
-                util.makedirs('./identity/{}/{}'.format(size, r))
+        additional = int(np.floor(np.log2(size)) * size)
 
-                SHAPE = (size,)
+        print('Starting size {} with {} additional samples '.format(size, additional))
 
-                gaussian.PROPER_SAMPLING = size < 8
-                model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=sigma_scale, has_bias=False, fix_values=fv, min_sigma=min_sigma)
+        for r in trange(reps):
+            util.makedirs('./identity/{}/{}'.format(size, r))
+
+            SHAPE = (size,)
+
+            gaussian.PROPER_SAMPLING = size < 8
+            model = gaussian.ParamASHLayer(SHAPE, SHAPE, k=size, additional=additional, sigma_scale=sigma_scale, has_bias=False, fix_values=fv, min_sigma=min_sigma)
+
+            if cuda:
+                model.cuda()
+
+            criterion = nn.MSELoss()
+            optimizer = optim.Adam(model.parameters(), lr=lr)
+
+
+            for i in trange(iterations):
+
+                x = torch.randn((batch,) + SHAPE)
 
                 if cuda:
-                    model.cuda()
+                    x = x.cuda()
+                x = Variable(x)
 
-                criterion = nn.MSELoss()
-                optimizer = optim.Adam(model.parameters(), lr=lr)
+                optimizer.zero_grad()
+
+                y = model(x)
+
+                loss = criterion(y, x)
+
+                loss.backward()
+
+                optimizer.step()
+
+                w.add_scalar('identity32/loss/{}/{}'.format(size, r), loss.item(), i*batch)
+
+                if i % dot_every == 0:
+                    results[size][r, i//dot_every] = loss.item()
+
+                if plot_every > 0 and i % plot_every == 0:
+                    plt.figure(figsize=(7, 7))
+
+                    means, sigmas, values = model.hyper(x)
+
+                    plt.cla()
+                    util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
+                    plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+                    plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+
+                    plt.savefig('./identity/{}/{}/means{:04}.pdf'.format(size, r, i))
 
 
-                for i in range(iterations):
+        np.save('results.{:03d}.np'.format(size), results)
 
-                    x = torch.randn((batch,) + SHAPE)
+    print('experiments finished')
 
-                    if cuda:
-                        x = x.cuda()
-                    x = Variable(x)
-
-                    optimizer.zero_grad()
-
-                    y = model(x)
-
-                    loss = criterion(y, x)
-
-                    loss.backward()
-
-                    optimizer.step()
-
-                    w.add_scalar('identity32/loss/{}/{}'.format(size, r), loss.item(), i*batch)
-
-                    if i % dot_every == 0:
-                        results[si, r, i//dot_every] = loss.item()
-
-                    if plot_every > 0 and i % plot_every == 0:
-                        plt.figure(figsize=(7, 7))
-
-                        means, sigmas, values = model.hyper(x)
-
-                        plt.cla()
-                        util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
-                        plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-                        plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-
-                        plt.savefig('./identity/{}/{}/means{:04}.pdf'.format(size, r, i))
-
-        print('experiments finished')
-
-        np.save('results.np', results)
 
     plt.figure(figsize=(5, 5))
     plt.clf()
 
     for si, size in enumerate(sizes):
-        print(sem(results[si, :, :], axis=0))
-        plt.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[si, :, :], axis=0), yerr=sem(results[si, :, :], axis=0), label='{} by {}'.format(size, size))
+        iterations = itss[si]
+        res = results[size]
+        ndots = iterations // dot_every
+
+        additional = int(np.floor(np.log2(size)) * size)
+
+        print(sem(res[:, :], axis=0))
+        plt.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[size][:, :], axis=0), yerr=sem(results[size][:, :], axis=0), label='{} by {}, a={}'.format(size, size, additional))
         plt.legend()
+
+    ax = plt.gca()
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel('iterations')
+    ax.set_ylabel('mean-squared error')
 
     util.basic()
 
@@ -127,11 +142,6 @@ if __name__ == "__main__":
                         dest="batch_size",
                         help="The batch size.",
                         default=64, type=int)
-
-    parser.add_argument("-i", "--iterations",
-                        dest="iterations",
-                        help="The number of iterations (ie. the nr of batches).",
-                        default=3000, type=int)
 
     parser.add_argument("-a", "--additional",
                         dest="additional",
@@ -181,8 +191,7 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size,
-        iterations=options.iterations, cuda=options.cuda,
+    go(batch=options.batch_size, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
         sigma_scale=options.sigma_scale, min_sigma=options.min_sigma, seed=options.seed,
        reps=options.reps)

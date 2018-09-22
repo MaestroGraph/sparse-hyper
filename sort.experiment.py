@@ -279,11 +279,6 @@ if __name__ == "__main__":
                         help="The batch size.",
                         default=128, type=int)
 
-    parser.add_argument("-i", "--iterations",
-                        dest="iterations",
-                        help="The number of iterations (ie. the nr of batches).",
-                        default=60000, type=int)
-
     parser.add_argument("-a", "--additional",
                         dest="additional",
                         help="Number of additional points sampled",
@@ -347,7 +342,7 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size, iterations=options.iterations, cuda=options.cuda,
+    go(batch=options.batch_size, cuda=options.cuda,
         lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
         seed=options.seed, sigma_scale=options.sigma_scale, reps=options.reps,
        dot_every=options.dot_every, sigma_floor=options.sigma_floor, penalty=options.penalty)

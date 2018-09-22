@@ -128,122 +128,119 @@ def go(iterations=30000, batch=4, cuda=False, plot_every=50, lr=0.01, fv=False, 
 
     results = {}
 
-    if os.path.exists('results.np'):
-        results = np.load('results.np')
-    else:
-        for si, size in enumerate(sizes):
+    for si, size in enumerate(sizes):
 
-            iterations = itss[si]
-            ndots = iterations // dot_every
+        iterations = itss[si]
+        ndots = iterations // dot_every
 
-            additional = int(np.floor(np.log2(size)) * size)
+        additional = int(np.floor(np.log2(size)) * size)
 
-            results[size] = np.zeros((reps, ndots))
+        results[size] = np.zeros((reps, ndots))
 
-            print('Starting size {} with {} additional samples '.format(size, additional))
+        print('Starting size {} with {} additional samples '.format(size, additional))
 
-            for r in trange(reps):
-                util.makedirs('./sort/{}/{}'.format(si, r))
-                SHAPE = (size,)
+        for r in trange(reps):
+            util.makedirs('./sort/{}/{}'.format(si, r))
+            SHAPE = (size,)
 
-                gaussian.PROPER_SAMPLING = size < 8
+            gaussian.PROPER_SAMPLING = size < 8
 
-                model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv, sigma_floor=sigma_floor)
+            model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv, sigma_floor=sigma_floor)
+
+            if cuda:
+               model.cuda()
+
+            optimizer = optim.Adam(model.parameters(), lr=lr)
+
+            for i in trange(iterations):
+                #
+                # t = torch.tensor(range(size), dtype=torch.float).unsqueeze(0).expand(batch, size)/size
+                #
+                # x = torch.zeros(batch, size)
+                # for row in range(batch):
+                #     randind = torch.randperm(size)
+                #     x[row, :] = t[row, randind]
+
+                x = torch.randn((batch,) + SHAPE)
+
+                t, idxs = x.sort()
 
                 if cuda:
-                   model.cuda()
+                    x, t = x.cuda(), t.cuda()
 
-                optimizer = optim.Adam(model.parameters(), lr=lr)
+                x, t = Variable(x), Variable(t)
 
-                for i in trange(iterations):
-                    #
-                    # t = torch.tensor(range(size), dtype=torch.float).unsqueeze(0).expand(batch, size)/size
-                    #
-                    # x = torch.zeros(batch, size)
-                    # for row in range(batch):
-                    #     randind = torch.randperm(size)
-                    #     x[row, :] = t[row, randind]
+                optimizer.zero_grad()
 
-                    x = torch.randn((batch,) + SHAPE)
+                y = model(x)
 
-                    t, idxs = x.sort()
+                loss = F.mse_loss(y, t)#, reduce=False).sum(dim=1) # compute the loss
+                #loss = (loss + penalty * model.sigma_loss(x)).sum()
 
-                    if cuda:
-                        x, t = x.cuda(), t.cuda()
+                loss.backward()        # compute the gradients
 
-                    x, t = Variable(x), Variable(t)
+                optimizer.step()
 
-                    optimizer.zero_grad()
+                w.add_scalar('sort/loss/{}/{}'.format(size, r), loss.data.item(), i*batch)
 
-                    y = model(x)
+                # Compute accuracy estimate
+                if i % dot_every == 0:
 
-                    loss = F.mse_loss(y, t)#, reduce=False).sum(dim=1) # compute the loss
-                    #loss = (loss + penalty * model.sigma_loss(x)).sum()
+                    correct = 0
+                    tot = 0
+                    for ii in range(10000//batch):
+                        x = torch.randn((batch,) + SHAPE)
+                        t, idxs = x.sort()
 
-                    loss.backward()        # compute the gradients
-
-                    optimizer.step()
-
-                    w.add_scalar('sort/loss/{}/{}'.format(size, r), loss.data.item(), i*batch)
-
-                    # Compute accuracy estimate
-                    if i % dot_every == 0:
-
-                        correct = 0
-                        tot = 0
-                        for ii in range(10000//batch):
-                            x = torch.randn((batch,) + SHAPE)
-                            t, idxs = x.sort()
-
-                            if cuda:
-                                x, t = x.cuda(), t.cuda()
-                            x, t = Variable(x), Variable(t)
-
-                            means, sigmas, values = model.hyper(x)
-
-                            # first example in batch, sort by
-                            m = means.round().long()
-                            sorted, id = m[:, :, 0].sort()
-
-                            mo = torch.LongTensor(batch, size, 2)
-                            for b in range(batch):
-                                mo[b, :, :] = m[b, id[b], :]
-                            m = mo
-
-                            gold = torch.LongTensor(batch, size, 2)
-                            gold[:, :, 0] = torch.tensor(range(size)).unsqueeze(0).expand(batch, size)
-                            gold[:, :, 1] = idxs
-
-                            tot += x.size(0)
-                            correct += ((gold.view(batch, -1) != m.view(batch, -1)).sum(dim=1) == 0).sum().item()
-
-                            # if ii == 0:
-                            #     print( (gold.view(batch, -1) != m.view(batch, -1) ).sum(dim=1) )
-                            #
-                            #     print(x[0])
-                            #     print(gold[0])
-                            #     print(means[0])
-
-
-                        print('acc', correct/tot)
-
-                        results[size][r, i//dot_every] = 1.0 - (correct/tot)
-                        w.add_scalar('sort/accuracy/{}/{}'.format(size, r), correct/tot, i * batch)
-
-                    if i % plot_every == 0:
+                        if cuda:
+                            x, t = x.cuda(), t.cuda()
+                        x, t = Variable(x), Variable(t)
 
                         means, sigmas, values = model.hyper(x)
 
-                        plt.figure(figsize=(5, 5))
+                        # first example in batch, sort by
+                        m = means.round().long()
+                        sorted, id = m[:, :, 0].sort()
 
-                        plt.cla()
-                        util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
-                        plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-                        plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-                        plt.savefig('./sort/{}/{}/means{:04}.pdf'.format(si, r, i))
+                        mo = torch.LongTensor(batch, size, 2)
+                        for b in range(batch):
+                            mo[b, :, :] = m[b, id[b], :]
+                        m = mo
 
-            np.save('results.{}.np'.format(size), results[size])
-        print('experiments finished')
+                        gold = torch.LongTensor(batch, size, 2)
+                        gold[:, :, 0] = torch.tensor(range(size)).unsqueeze(0).expand(batch, size)
+                        gold[:, :, 1] = idxs
+
+                        tot += x.size(0)
+                        correct += ((gold.view(batch, -1) != m.view(batch, -1)).sum(dim=1) == 0).sum().item()
+
+                        # if ii == 0:
+                        #     print( (gold.view(batch, -1) != m.view(batch, -1) ).sum(dim=1) )
+                        #
+                        #     print(x[0])
+                        #     print(gold[0])
+                        #     print(means[0])
+
+
+                    print('acc', correct/tot)
+
+                    results[size][r, i//dot_every] = 1.0 - (correct/tot)
+                    w.add_scalar('sort/accuracy/{}/{}'.format(size, r), correct/tot, i * batch)
+
+                if i % plot_every == 0:
+
+                    means, sigmas, values = model.hyper(x)
+
+                    plt.figure(figsize=(5, 5))
+
+                    plt.cla()
+                    util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
+                    plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+                    plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+                    plt.savefig('./sort/{}/{}/means{:04}.pdf'.format(si, r, i))
+
+        np.save('results.{}.np'.format(size), results[size])
+    print('experiments finished')
 
     plt.figure(figsize=(10, 5))
     plt.clf()

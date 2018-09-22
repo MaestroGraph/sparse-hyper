@@ -28,8 +28,8 @@ w = SummaryWriter()
 def go(batch=4, cuda=False, plot_every=1000,
        lr=0.01, fv=False, sigma_scale=0.1, min_sigma=0.0, seed=0, reps=10, dot_every=100):
 
-    sizes = [4, 8, 16] # , 32, 64, 128] # 256, 512, 1024]
-    itss  = [10000, 20000, 80000] #, 320000, 640000, 640000]
+    sizes = [4, 8, 16, 32, 64, 128, 256]
+    itss  = [40000, 80000, 160000, 320000, 640000, 640000, 640000]
 
     MARGIN = 0.1
 
@@ -45,7 +45,7 @@ def go(batch=4, cuda=False, plot_every=1000,
         additional = int(np.floor(np.log2(size)) * size)
         results[size] = np.zeros((2, reps, ndots))
 
-        for reinforce in [True, False]:
+        for reinforce in [True, False] if size < 32 else [False]:
             rf = 0 if not reinforce else 1
 
             print('Starting size {} with {} additional samples (reinforce={})'.format(size, additional, reinforce))
@@ -131,7 +131,7 @@ def go(batch=4, cuda=False, plot_every=1000,
         ndots = iterations // dot_every
         additional = int(np.floor(np.log2(size)) * size)
 
-        for reinforce in [False, True]:
+        for reinforce in [True, False] if size < 32 else [False]:
             rf = 0 if not reinforce else 1
 
             # print(reinforce, res[rf, :, :])
@@ -141,7 +141,7 @@ def go(batch=4, cuda=False, plot_every=1000,
             plt.errorbar(
                 x=np.arange(ndots) * dot_every, y=np.mean(res[rf, :, :], axis=0), yerr=np.std(res[rf, :, :], axis=0),
                 label='{} by {}, a={}, {}'.format(size, size, additional, 'reinforce' if reinforce else 'backprop'),
-                color=color, linestyle='--' if reinforce else '-')
+                color=color, linestyle='--' if reinforce else '-',  alpha=0.5 if reinforce else 1.0)
 
             plt.legend()
 

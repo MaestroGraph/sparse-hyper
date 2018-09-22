@@ -124,7 +124,7 @@ def go(iterations=30000, batch=4, cuda=False, plot_every=50, lr=0.01, fv=False, 
     torch.manual_seed(seed)
 
     sizes = [4, 8, 16, 32, 64]
-    itss = [300, 1000, 80000, 160000, 320000]
+    itss = [20000, 40000, 80000, 160000, 320000]
 
     results = {}
 

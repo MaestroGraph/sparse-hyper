@@ -314,9 +314,10 @@ class HyperLayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None):
+    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None, reinforce=False):
         super().__init__()
 
+        self.reinforce = reinforce
         self.use_cuda = False
         self.in_rank = in_rank
         self.out_size = out_shape # without batch dimension
@@ -613,40 +614,54 @@ class HyperLayer(nn.Module):
         # turn the real values into integers in a differentiable way
         t0 = time.time()
 
-        if self.subsample is None:
-            indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+        if not self.reinforce:
+            if self.subsample is None:
+                indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
 
-            values = values * props
-        else: # select a small proportion of the indices to learn over
+                values = values * props
+            else: # select a small proportion of the indices to learn over
 
-            b, k, r = means.size()
+                b, k, r = means.size()
 
-            prop = torch.cuda.FloatTensor([self.subsample]) if self.use_cuda else torch.FloatTensor([self.subsample])
+                prop = torch.cuda.FloatTensor([self.subsample]) if self.use_cuda else torch.FloatTensor([self.subsample])
 
-            selection = None
-            while (selection is None) or (float(selection.sum()) < 1):
-                selection = torch.bernoulli(prop.expand(k)).byte()
+                selection = None
+                while (selection is None) or (float(selection.sum()) < 1):
+                    selection = torch.bernoulli(prop.expand(k)).byte()
 
-            mselection = selection.unsqueeze(0).unsqueeze(2).expand_as(means)
-            sselection = selection.unsqueeze(0).unsqueeze(2).expand_as(sigmas)
-            vselection = selection.unsqueeze(0).expand_as(values)
+                mselection = selection.unsqueeze(0).unsqueeze(2).expand_as(means)
+                sselection = selection.unsqueeze(0).unsqueeze(2).expand_as(sigmas)
+                vselection = selection.unsqueeze(0).expand_as(values)
 
-            means_in, means_out = means[mselection].view(b, -1, r), means[~ mselection].view(b, -1, r)
-            sigmas_in, sigmas_out = sigmas[sselection].view(b, -1, r), sigmas[~ sselection].view(b, -1, r)
-            values_in, values_out = values[vselection].view(b, -1), values[~ vselection].view(b, -1)
+                means_in, means_out = means[mselection].view(b, -1, r), means[~ mselection].view(b, -1, r)
+                sigmas_in, sigmas_out = sigmas[sselection].view(b, -1, r), sigmas[~ sselection].view(b, -1, r)
+                values_in, values_out = values[vselection].view(b, -1), values[~ vselection].view(b, -1)
 
-            means_out = means_out.detach()
-            values_out = values_out.detach()
+                means_out = means_out.detach()
+                values_out = values_out.detach()
 
-            indices_in, props, values_in = self.discretize(means_in, sigmas_in, values_in, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
-            values_in = values_in * props
+                indices_in, props, values_in = self.discretize(means_in, sigmas_in, values_in, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+                values_in = values_in * props
 
-            indices_out = means_out.data.round().long()
+                indices_out = means_out.data.round().long()
 
-            indices = torch.cat([indices_in, indices_out], dim=1)
-            values = torch.cat([values_in, values_out], dim=1)
+                indices = torch.cat([indices_in, indices_out], dim=1)
+                values = torch.cat([values_in, values_out], dim=1)
 
-        logging.info('discretize: {} seconds'.format(time.time() - t0))
+            logging.info('discretize: {} seconds'.format(time.time() - t0))
+        else: # reinforce approach
+            dists = torch.distributions.Normal(means, sigmas)
+            samples = dists.sample()
+
+            indices = samples.data.round().long()
+
+            # if the sampling puts the indices out of bounds, we just clip to the min and max values
+            indices[indices < 0] = 0
+
+            rngt = torch.cuda.tensor(rng) if self.use_cuda else torch.tensor(rng)
+
+            maxes = rngt.unsqueeze(0).unsqueeze(0).expand_as(means) - 1
+            indices[indices > maxes] = maxes[indices > maxes]
 
         if self.use_cuda:
             indices = indices.cuda()
@@ -710,12 +725,14 @@ class HyperLayer(nn.Module):
 
         logging.info('total: {} seconds'.format(time.time() - t0total))
 
-        return y
+        if self.reinforce:
+            return y, dists, samples
+        else:
+            return y
 
     def forward_sample(self, input):
         """
         Samples a single sparse matrix, and computes a transformation with that in a non-differentiable manner.
-
 
         :param input:
         :return:
@@ -739,8 +756,10 @@ class ParamASHLayer(HyperLayer):
     Hyperlayer with free sparse parameters, no hypernetwork (not stricly ASH, should rename).
     """
 
-    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False, subsample=None, min_sigma=0.0):
-        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape, bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample)
+    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False,
+                 subsample=None, min_sigma=0.0, reinforce=False):
+        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape,
+                         bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample, reinforce=reinforce)
 
         self.k = k
         self.in_shape = in_shape

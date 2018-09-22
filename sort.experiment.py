@@ -116,7 +116,7 @@ class SortLayer(HyperLayer):
         return - torch.log(sigmas.sum(dim=2).sum(dim=1) / (self.k * s))
 
 
-def go(iterations=30000, batch=4, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1,
+def go(batch=4, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1,
        reps=10, dot_every=100, sigma_floor=0.0, penalty=0.0):
 
     MARGIN = 0.1
@@ -246,8 +246,11 @@ def go(iterations=30000, batch=4, cuda=False, plot_every=50, lr=0.01, fv=False, 
     plt.clf()
     ax = plt.gca()
 
-    for si, q in enumerate(sizes):
+    for si, size in enumerate(sizes):
         # print(sem(results[si, :, :], axis=0))
+
+        iterations = itss[si]
+        ndots = iterations // dot_every
         additional = int(np.floor(np.log2(size)) * size)
 
         ax.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[size][:, :], axis=0),

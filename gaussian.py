@@ -658,7 +658,7 @@ class HyperLayer(nn.Module):
             # if the sampling puts the indices out of bounds, we just clip to the min and max values
             indices[indices < 0] = 0
 
-            rngt = torch.cuda.tensor(rng) if self.use_cuda else torch.tensor(rng)
+            rngt = torch.tensor(data=rng, device='cuda' if self.use_cuda else 'cpu')
 
             maxes = rngt.unsqueeze(0).unsqueeze(0).expand_as(means) - 1
             indices[indices > maxes] = maxes[indices > maxes]

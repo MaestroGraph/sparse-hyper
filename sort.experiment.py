@@ -116,36 +116,39 @@ class SortLayer(HyperLayer):
         return - torch.log(sigmas.sum(dim=2).sum(dim=1) / (self.k * s))
 
 
-def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1,
+def go(iterations=30000, batch=4, cuda=False, plot_every=50, lr=0.01, fv=False, seed=0, sigma_scale=0.1,
        reps=10, dot_every=100, sigma_floor=0.0, penalty=0.0):
 
     MARGIN = 0.1
 
     torch.manual_seed(seed)
 
-    ndots = iterations//dot_every
+    sizes = [4, 8, 16, 32, 64]
+    itss = [300, 1000, 80000, 160000, 320000]
 
-    qs = [0.0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
-
-    results = np.zeros((len(qs), reps, ndots))
-
-    size = max_size
+    results = {}
 
     if os.path.exists('results.np'):
         results = np.load('results.np')
     else:
-#        for si, size in enumerate(range(3, max_size)):
-        for si, q in enumerate(qs):
+        for si, size in enumerate(sizes):
+
+            iterations = itss[si]
+            ndots = iterations // dot_every
+
             additional = int(np.floor(np.log2(size)) * size)
 
-            print('Starting min_sigma {} with {} additional samples '.format(q, additional))
+            results[size] = np.zeros((reps, ndots))
+
+            print('Starting size {} with {} additional samples '.format(size, additional))
+
             for r in trange(reps):
                 util.makedirs('./sort/{}/{}'.format(si, r))
                 SHAPE = (size,)
 
                 gaussian.PROPER_SAMPLING = size < 8
 
-                model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv, sigma_floor=q)
+                model = SortLayer(size, k=size, additional=additional, sigma_scale=sigma_scale, fix_values=fv, sigma_floor=sigma_floor)
 
                 if cuda:
                    model.cuda()
@@ -224,7 +227,7 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
 
                         print('acc', correct/tot)
 
-                        results[si, r, i//dot_every] = 1.0 - (correct/tot)
+                        results[size][r, i//dot_every] = 1.0 - (correct/tot)
                         w.add_scalar('sort/accuracy/{}/{}'.format(size, r), correct/tot, i * batch)
 
                     if i % plot_every == 0:
@@ -239,17 +242,20 @@ def go(iterations=30000, batch=4, max_size=16, cuda=False, plot_every=50, lr=0.0
                         plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
                         plt.savefig('./sort/{}/{}/means{:04}.pdf'.format(si, r, i))
 
+            np.save('results.{}.np'.format(size), results[size])
         print('experiments finished')
 
-        np.save('results.np', results)
-
-    plt.figure(figsize=(5, 5))
+    plt.figure(figsize=(10, 5))
     plt.clf()
     ax = plt.gca()
 
-    for si, q in enumerate(qs):
+    for si, q in enumerate(sizes):
         # print(sem(results[si, :, :], axis=0))
-        ax.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[si, :, :], axis=0), yerr=sem(results[si, :, :], axis=0), label='min sigma {}'.format(q))
+        additional = int(np.floor(np.log2(size)) * size)
+
+        ax.errorbar(x=np.arange(ndots) * dot_every, y=np.mean(results[size][:, :], axis=0),
+                    yerr=np.std(results[size][:, :], axis=0),
+                    label='size {} by {}, a={}'.format(size, size, additional))
         ax.legend()
 
     util.basic(ax)
@@ -272,11 +278,6 @@ if __name__ == "__main__":
                         dest="batch_size",
                         help="The batch size.",
                         default=128, type=int)
-
-    parser.add_argument("-s", "--size",
-                        dest="size",
-                        help="Max size of the input",
-                        default=5, type=int)
 
     parser.add_argument("-i", "--iterations",
                         dest="iterations",
@@ -347,6 +348,6 @@ if __name__ == "__main__":
     LOG.info('OPTIONS ' + str(options))
 
     go(batch=options.batch_size, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every, max_size=options.size, fv=options.fix_values,
+        lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
         seed=options.seed, sigma_scale=options.sigma_scale, reps=options.reps,
        dot_every=options.dot_every, sigma_floor=options.sigma_floor, penalty=options.penalty)

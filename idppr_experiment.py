@@ -117,7 +117,7 @@ def go(batch=4, cuda=False, plot_every=1000,
 
     print('experiments finished')
 
-    plt.figure(figsize=(5, 5))
+    plt.figure(figsize=(10, 5))
     plt.clf()
 
     norm = mpl.colors.Normalize(vmin=min(sizes), vmax=max(sizes))

@@ -264,7 +264,7 @@ def go(iterations=30000, batch=4, cuda=False, plot_every=50, lr=0.01, fv=False, 
     ax.set_ylim(0.0, 1.0)
 
     plt.xlabel('iterations')
-    plt.ylabel('accuracy')
+    plt.ylabel('error')
 
     #plt.savefig('./sort/results.png')
     plt.savefig('./sort/results.pdf')

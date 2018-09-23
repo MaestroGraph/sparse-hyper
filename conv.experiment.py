@@ -163,7 +163,7 @@ class MatrixHyperlayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_num, out_num, k, additional=0, sigma_scale=0.2, min_sigma=0.0):
+    def __init__(self, in_num, out_num, k, additional=0, sigma_scale=0.2, min_sigma=0.0, symmetric=True):
         super().__init__()
 
         self.min_sigma = min_sigma
@@ -172,6 +172,7 @@ class MatrixHyperlayer(nn.Module):
         self.out_num = out_num
         self.additional = additional
         self.sigma_scale = sigma_scale
+        self.symmetric = symmetric
 
         self.weights_rank = 2 # implied rank of W
 
@@ -294,10 +295,11 @@ class MatrixHyperlayer(nn.Module):
         # Kill anything on the diagonal
         values[indices[:, 0] == indices[:, 1]] = 0.0
 
-        # # Add reverse direction automatically
-        # flipped_indices = torch.cat([indices[:, 1].unsqueeze(1), indices[:, 0].unsqueeze(1)], dim=1)
-        # indices         = torch.cat([indices, flipped_indices], dim=0)
-        # values          = torch.cat([values, values], dim=0)
+        if self.symmetric:
+            # Add reverse direction automatically
+            flipped_indices = torch.cat([indices[:, 1].unsqueeze(1), indices[:, 0].unsqueeze(1)], dim=1)
+            indices         = torch.cat([indices, flipped_indices], dim=0)
+            values          = torch.cat([values, values], dim=0)
 
         ### Create the sparse weight tensor
 
@@ -456,12 +458,12 @@ class ConvModel(nn.Module):
 
 class ConvModelFlat(nn.Module):
 
-    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0):
+    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0, directed=True):
         super().__init__()
 
         n, c, h, w = data_size
 
-        self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma)
+        self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma, symmetric=not directed)
 
     def forward(self, data, depth=1, train=True):
         n = data.size(0)
@@ -508,11 +510,11 @@ def go(arg):
     if arg.limit is not None:
         data = data[:arg.limit]
 
-    model = ConvModelFlat(data.size(), k=arg.k, emb_size=arg.emb_size, additional=arg.additional, min_sigma=arg.min_sigma)
+    model = ConvModelFlat(data.size(), k=arg.k, emb_size=arg.emb_size, additional=arg.additional, min_sigma=arg.min_sigma, directed=not arg.undirected)
 
     if arg.cuda: # This probably won't work (but maybe with small data)
         model.cuda()
-        data   = data.cuda()
+        data = data.cuda()
 
     data, target = Variable(data), Variable(data)
 
@@ -577,7 +579,7 @@ def go(arg):
             # Plot the graph
             outputs = model(data, depth=arg.depth, train=False)
 
-            g = nx.MultiDiGraph()
+            g = nx.MultiGraph() if arg.undirected else nx.MultiDiGraph()
             g.add_nodes_from(range(data.size(0)))
 
             means, _, values = model.adj.hyper()
@@ -589,12 +591,12 @@ def go(arg):
                 v = values[i]
 
                 g.add_edge(m[1].item(), m[0].item(), weight=v.item() )
-                print(m[1].item(), m[0].item(), v.item())
+                # print(m[1].item(), m[0].item(), v.item())
 
             plt.figure(figsize=(8,8))
             ax = plt.subplot(111)
 
-            pos = nx.spring_layout(g, iterations=5000, k=5/math.sqrt(means.size(0)))
+            pos = nx.spring_layout(g, iterations=5000)
             # pos = nx.circular_layout(g)
 
             nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
@@ -775,6 +777,10 @@ if __name__ == "__main__":
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
+                        action="store_true")
+
+    parser.add_argument("-S", "--undirected", dest="undirected",
+                        help="Use an undirected graph",
                         action="store_true")
 
     parser.add_argument("-D", "--data", dest="data",

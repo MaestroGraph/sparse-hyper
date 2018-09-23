@@ -163,7 +163,7 @@ class MatrixHyperlayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_num, out_num, k, additional=0, sigma_scale=0.2, min_sigma=0.0, symmetric=True):
+    def __init__(self, in_num, out_num, k, additional=0, sigma_scale=0.2, min_sigma=0.0, symmetric=True, fix_value=False):
         super().__init__()
 
         self.min_sigma = min_sigma
@@ -173,6 +173,7 @@ class MatrixHyperlayer(nn.Module):
         self.additional = additional
         self.sigma_scale = sigma_scale
         self.symmetric = symmetric
+        self.fix_value = fix_value
 
         self.weights_rank = 2 # implied rank of W
 
@@ -348,7 +349,7 @@ class MatrixHyperlayer(nn.Module):
         sigmas = sigmas * ss.expand_as(sigmas)
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
-        return means, sigmas, F.tanh(values)
+        return means, sigmas, values * 0.0 + 1.0 if self.fix_value else F.tanh(values)
 
 
 class GraphConvolution(Module):
@@ -397,7 +398,7 @@ class GraphConvolution(Module):
 
 class ConvModel(nn.Module):
 
-    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0, directed=True):
+    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0, directed=True, fix_value=False):
         super().__init__()
 
         self.data_shape = data_size
@@ -428,7 +429,8 @@ class ConvModel(nn.Module):
             nn.Sigmoid(), util.Reshape((1, 28, 28))
         )
 
-        self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma, symmetric=not directed)
+        self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma,
+                                    symmetric=not directed, fix_value=fix_value)
         self.embedding = Parameter(torch.randn(n, emb_size))
 
         # self.embedding_conv = GraphConvolution(n, emb_size, bias=False)
@@ -512,7 +514,7 @@ def go(arg):
         data = data[:arg.limit]
 
     model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size, additional=arg.additional, min_sigma=arg.min_sigma,
-                      directed=not arg.undirected)
+                      directed=not arg.undirected, fix_value=arg.fix_value)
 
     if arg.cuda: # This probably won't work (but maybe with small data)
         model.cuda()
@@ -788,6 +790,10 @@ if __name__ == "__main__":
 
     parser.add_argument("-G", "--draw-graph", dest="draw_graph",
                         help="Draw the graph",
+                        action="store_true")
+
+    parser.add_argument("-F", "--fix-value", dest="fix_value",
+                        help="Fix the values of the matrix to 1",
                         action="store_true")
 
     parser.add_argument("-D", "--data", dest="data",

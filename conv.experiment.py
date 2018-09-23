@@ -247,7 +247,6 @@ class MatrixHyperlayer(nn.Module):
         sums = torch.sum(props + gaussian.EPSILON, dim=1, keepdim=True).expand_as(props)
         props = props / sums
 
-
         # repeat each value 2^rank+A times, so it matches the new indices
         val = values.expand_as(props).contiguous()
 
@@ -294,6 +293,11 @@ class MatrixHyperlayer(nn.Module):
 
         # Kill anything on the diagonal
         values[indices[:, 0] == indices[:, 1]] = 0.0
+
+        # Add reverse direction automatically
+        flipped_indices = torch.cat([indices[:, 1].unsqueeze(1), indices[:, 0].unsqueeze(1)], dim=1)
+        indices         = torch.cat([indices, flipped_indices], dim=0)
+        values          = torch.cat([values, values], dim=0)
 
         ### Create the sparse weight tensor
 
@@ -416,9 +420,9 @@ class ConvModel(nn.Module):
         # )
 
         self.decoder = nn.Sequential(
-            nn.Linear(emb_size, 256), nn.ReLU(),
-            nn.Linear(256, 28*28), nn.Sigmoid(),
-            util.Reshape((1, 28, 28))
+            nn.Linear(emb_size, 28*28),
+            #nn.Linear(256, 28*28),
+            nn.Sigmoid(), util.Reshape((1, 28, 28))
         )
 
         self.adj = MatrixHyperlayer(n,n, k, additional=additional, min_sigma=min_sigma)
@@ -532,23 +536,26 @@ def go(arg):
             # Plot the graph
             outputs = model(depth=arg.depth, train=False)
 
-            g = nx.MultiDiGraph()
+            g = nx.MultiGraph()
             g.add_nodes_from(range(data.size(0)))
 
             means, _, values = model.adj.hyper()
 
+            print('Drawing graph at ', epoch, 'epochs')
             for i in range(means.size(0)):
                 m = means[i, :].round().long()
                 v = values[i]
 
                 g.add_weighted_edges_from([(m[1].item(), m[0].item(), v.item())])
 
+                print(m[1].item(), m[0].item(), v.item())
+
             print(len(g.edges()), values.size(0))
 
             plt.figure(figsize=(8,8))
             ax = plt.subplot(111)
 
-            pos = nx.spring_layout(g)
+            pos = nx.spring_layout(g, iterations=500, k=5/math.sqrt(means.size(0)))
             # pos = nx.circular_layout(g)
 
             nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)

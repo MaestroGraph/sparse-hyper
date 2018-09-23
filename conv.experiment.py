@@ -397,7 +397,7 @@ class GraphConvolution(Module):
 
 class ConvModel(nn.Module):
 
-    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0):
+    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0, directed=True):
         super().__init__()
 
         self.data_shape = data_size
@@ -422,12 +422,12 @@ class ConvModel(nn.Module):
         # )
 
         self.decoder = nn.Sequential(
-            nn.Linear(emb_size, 28*28),
-            #nn.Linear(256, 28*28),
+            nn.Linear(emb_size, 256), nn.ReLU(),
+            nn.Linear(256, 28*28),
             nn.Sigmoid(), util.Reshape((1, 28, 28))
         )
 
-        self.adj = MatrixHyperlayer(n,n, k, additional=additional, min_sigma=min_sigma)
+        self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma, symmetric=not directed)
         self.embedding = Parameter(torch.randn(n, emb_size))
 
         # self.embedding_conv = GraphConvolution(n, emb_size, bias=False)
@@ -445,7 +445,7 @@ class ConvModel(nn.Module):
         x = self.embedding
         results =[x]
         for _ in range(1, depth):
-            x = self.adj(x)
+            x = self.adj(x, train=train)
             results.append(x)
 
         return [self.decoder(r) for r in results]
@@ -510,7 +510,8 @@ def go(arg):
     if arg.limit is not None:
         data = data[:arg.limit]
 
-    model = ConvModelFlat(data.size(), k=arg.k, emb_size=arg.emb_size, additional=arg.additional, min_sigma=arg.min_sigma, directed=not arg.undirected)
+    model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size, additional=arg.additional, min_sigma=arg.min_sigma,
+                      directed=not arg.undirected)
 
     if arg.cuda: # This probably won't work (but maybe with small data)
         model.cuda()
@@ -525,7 +526,7 @@ def go(arg):
 
         optimizer.zero_grad()
 
-        outputs = model(data, depth=arg.depth)
+        outputs = model(depth=arg.depth)
 
         losses = torch.zeros((len(outputs),), device='cuda' if arg.cuda else 'cpu')
         for i, o in enumerate(outputs):
@@ -554,7 +555,7 @@ def go(arg):
                        interpolation='nearest')
             plt.savefig('./conv/inp.{:03d}.png'.format(epoch))
 
-            outputs = model(data, depth=arg.depth)
+            outputs = model(depth=arg.depth, train=False)
 
             for d, o in enumerate(outputs):
 
@@ -577,7 +578,7 @@ def go(arg):
             plt.savefig('./conv/means{:03}.pdf'.format(epoch))
 
             # Plot the graph
-            outputs = model(data, depth=arg.depth, train=False)
+            outputs = model(depth=arg.depth, train=False)
 
             g = nx.MultiGraph() if arg.undirected else nx.MultiDiGraph()
             g.add_nodes_from(range(data.size(0)))
@@ -596,8 +597,8 @@ def go(arg):
             plt.figure(figsize=(8,8))
             ax = plt.subplot(111)
 
-            pos = nx.spring_layout(g, iterations=500)
-            # pos = nx.circular_layout(g)
+            # pos = nx.spring_layout(g, iterations=500)
+            pos = nx.circular_layout(g)
 
             nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
             # edges = nx.draw_networkx_edges(g, pos, edge_color=values.data.view(-1), edge_vmin=0.0, edge_vmax=1.0, cmap='bone')
@@ -615,7 +616,7 @@ def go(arg):
             xmin, xmax = float('inf'), float('-inf')
             ymin, ymax = float('inf'), float('-inf')
 
-            out0 = outputs[0].data
+            out0 = outputs[1].data
             # out1 = outputs[1].data
 
             for i, coords in pos.items():
@@ -624,14 +625,14 @@ def go(arg):
                 extent0 = (coords[0] - ims, coords[0] + ims, coords[1] + ims, coords[1] + 3 * ims)
                 # extent1 = (coords[0] - ims, coords[0] + ims, coords[1] + 3 * ims, coords[1] + 5 * ims)
 
-                ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent,  zorder=100)
-                ax.imshow(out0[i].cpu().squeeze(),  cmap='pink_r', extent=extent0, zorder=100)
+                ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent,  zorder=100, alpha=0.85)
+                ax.imshow(out0[i].cpu().squeeze(),  cmap='pink_r', extent=extent0, zorder=100, alpha=0.85)
                 # ax.imshow(out1[i].cpu().squeeze(),  cmap='pink_r', extent=extent1, zorder=100)
 
                 xmin, xmax = min(coords[0], xmin), max(coords[0], xmax)
                 ymin, ymax = min(coords[1], ymin), max(coords[1], ymax)
 
-            MARGIN = 0.1
+            MARGIN = 0.3
             ax.set_xlim(xmin-MARGIN, xmax+MARGIN)
             ax.set_ylim(ymin-MARGIN, ymax+MARGIN)
 

@@ -422,9 +422,9 @@ class ConvModel(nn.Module):
         # )
 
         self.decoder = nn.Sequential(
-            nn.Linear(emb_size, 200), nn.ReLU(),
-            nn.Linear(200, 200), nn.ReLU(),
-            nn.Linear(200, 28*28),
+            nn.Linear(emb_size, 200), nn.Sigmoid(),
+            nn.Linear(200, 400), nn.Sigmoid(),
+            nn.Linear(400, 28*28),
             nn.Sigmoid(), util.Reshape((1, 28, 28))
         )
 
@@ -577,69 +577,70 @@ def go(arg):
             plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
 
             plt.savefig('./conv/means{:03}.pdf'.format(epoch))
+            if arg.draw_graph:
 
-            # Plot the graph
-            outputs = model(depth=arg.depth, train=False)
+                # Plot the graph
+                outputs = model(depth=arg.depth, train=False)
 
-            g = nx.MultiGraph() if arg.undirected else nx.MultiDiGraph()
-            g.add_nodes_from(range(data.size(0)))
+                g = nx.MultiGraph() if arg.undirected else nx.MultiDiGraph()
+                g.add_nodes_from(range(data.size(0)))
 
-            means, _, values = model.adj.hyper()
+                means, _, values = model.adj.hyper()
 
-            print('Drawing graph at ', epoch, 'epochs')
-            elist = []
-            for i in range(means.size(0)):
-                m = means[i, :].round().long()
-                v = values[i]
+                print('Drawing graph at ', epoch, 'epochs')
+                elist = []
+                for i in range(means.size(0)):
+                    m = means[i, :].round().long()
+                    v = values[i]
 
-                g.add_edge(m[1].item(), m[0].item(), weight=v.item() )
-                # print(m[1].item(), m[0].item(), v.item())
+                    g.add_edge(m[1].item(), m[0].item(), weight=v.item() )
+                    # print(m[1].item(), m[0].item(), v.item())
 
-            plt.figure(figsize=(8,8))
-            ax = plt.subplot(111)
+                plt.figure(figsize=(8,8))
+                ax = plt.subplot(111)
 
-            pos = nx.spring_layout(g, iterations=1000)
-            # pos = nx.circular_layout(g)
+                pos = nx.spring_layout(g, iterations=1000)
+                # pos = nx.circular_layout(g)
 
-            nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
-            # edges = nx.draw_networkx_edges(g, pos, edge_color=values.data.view(-1), edge_vmin=0.0, edge_vmax=1.0, cmap='bone')
+                nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
+                # edges = nx.draw_networkx_edges(g, pos, edge_color=values.data.view(-1), edge_vmin=0.0, edge_vmax=1.0, cmap='bone')
 
-            weights = [d['weight'] for (_, _, d) in g.edges(data=True)]
+                weights = [d['weight'] for (_, _, d) in g.edges(data=True)]
 
-            norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0) # doing this manually, the nx code produces very strange results
-            map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.RdYlBu)
+                norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0) # doing this manually, the nx code produces very strange results
+                map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.RdYlBu)
 
-            colors = map.to_rgba(weights)
+                colors = map.to_rgba(weights)
 
-            nx.draw_networkx_edges(g, pos, width=1.0, edge_color=colors, axes=ax)
+                nx.draw_networkx_edges(g, pos, width=1.0, edge_color=colors, axes=ax)
 
-            ims = 0.03
-            xmin, xmax = float('inf'), float('-inf')
-            ymin, ymax = float('inf'), float('-inf')
+                ims = 0.03
+                xmin, xmax = float('inf'), float('-inf')
+                ymin, ymax = float('inf'), float('-inf')
 
-            out0 = outputs[1].data
-            # out1 = outputs[1].data
+                out0 = outputs[1].data
+                # out1 = outputs[1].data
 
-            for i, coords in pos.items():
+                for i, coords in pos.items():
 
-                extent  = (coords[0] - ims, coords[0] + ims, coords[1] - ims, coords[1] + ims)
-                extent0 = (coords[0] - ims, coords[0] + ims, coords[1] + ims, coords[1] + 3 * ims)
-                # extent1 = (coords[0] - ims, coords[0] + ims, coords[1] + 3 * ims, coords[1] + 5 * ims)
+                    extent  = (coords[0] - ims, coords[0] + ims, coords[1] - ims, coords[1] + ims)
+                    extent0 = (coords[0] - ims, coords[0] + ims, coords[1] + ims, coords[1] + 3 * ims)
+                    # extent1 = (coords[0] - ims, coords[0] + ims, coords[1] + 3 * ims, coords[1] + 5 * ims)
 
-                ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent,  zorder=100, alpha=0.85)
-                ax.imshow(out0[i].cpu().squeeze(),  cmap='pink_r', extent=extent0, zorder=100, alpha=0.85)
-                # ax.imshow(out1[i].cpu().squeeze(),  cmap='pink_r', extent=extent1, zorder=100)
+                    ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent,  zorder=100, alpha=0.85)
+                    ax.imshow(out0[i].cpu().squeeze(),  cmap='pink_r', extent=extent0, zorder=100, alpha=0.85)
+                    # ax.imshow(out1[i].cpu().squeeze(),  cmap='pink_r', extent=extent1, zorder=100)
 
-                xmin, xmax = min(coords[0], xmin), max(coords[0], xmax)
-                ymin, ymax = min(coords[1], ymin), max(coords[1], ymax)
+                    xmin, xmax = min(coords[0], xmin), max(coords[0], xmax)
+                    ymin, ymax = min(coords[1], ymin), max(coords[1], ymax)
 
-            MARGIN = 0.3
-            ax.set_xlim(xmin-MARGIN, xmax+MARGIN)
-            ax.set_ylim(ymin-MARGIN, ymax+MARGIN)
+                MARGIN = 0.3
+                ax.set_xlim(xmin-MARGIN, xmax+MARGIN)
+                ax.set_ylim(ymin-MARGIN, ymax+MARGIN)
 
-            plt.axis('off')
+                plt.axis('off')
 
-            plt.savefig('./conv/graph{:03}.pdf'.format(epoch), dpi=300)
+                plt.savefig('./conv/graph{:03}.pdf'.format(epoch), dpi=300)
 
     print('Finished Training.')
 
@@ -783,6 +784,10 @@ if __name__ == "__main__":
 
     parser.add_argument("-S", "--undirected", dest="undirected",
                         help="Use an undirected graph",
+                        action="store_true")
+
+    parser.add_argument("-G", "--draw-graph", dest="draw_graph",
+                        help="Draw the graph",
                         action="store_true")
 
     parser.add_argument("-D", "--data", dest="data",

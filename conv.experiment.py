@@ -294,10 +294,10 @@ class MatrixHyperlayer(nn.Module):
         # Kill anything on the diagonal
         values[indices[:, 0] == indices[:, 1]] = 0.0
 
-        # Add reverse direction automatically
-        flipped_indices = torch.cat([indices[:, 1].unsqueeze(1), indices[:, 0].unsqueeze(1)], dim=1)
-        indices         = torch.cat([indices, flipped_indices], dim=0)
-        values          = torch.cat([values, values], dim=0)
+        # # Add reverse direction automatically
+        # flipped_indices = torch.cat([indices[:, 1].unsqueeze(1), indices[:, 0].unsqueeze(1)], dim=1)
+        # indices         = torch.cat([indices, flipped_indices], dim=0)
+        # values          = torch.cat([values, values], dim=0)
 
         ### Create the sparse weight tensor
 
@@ -346,7 +346,7 @@ class MatrixHyperlayer(nn.Module):
         sigmas = sigmas * ss.expand_as(sigmas)
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
-        return means, sigmas, F.sigmoid(values)
+        return means, sigmas, F.tanh(values)
 
 
 class GraphConvolution(Module):
@@ -426,22 +426,24 @@ class ConvModel(nn.Module):
         )
 
         self.adj = MatrixHyperlayer(n,n, k, additional=additional, min_sigma=min_sigma)
+        self.embedding = Parameter(torch.randn(n, emb_size))
 
-        # self.convs = nn.ModuleList()
-        # self.convs.append(GraphConvolution(n, emb_size))
-        # for _ in range(1, depth):
-        #     self.convs.append(GraphConvolution(emb_size, emb_size, has_weight=False))
-        self.embedding_conv = GraphConvolution(n, emb_size, bias=False)
-        self.weightless_conv = GraphConvolution(emb_size, emb_size, has_weight=False, bias=False)
+        # self.embedding_conv = GraphConvolution(n, emb_size, bias=False)
+        # self.weightless_conv = GraphConvolution(emb_size, emb_size, has_weight=False, bias=False)
 
     def forward(self, depth=1, train=True):
 
-        x0 = self.embedding_conv.weight
-        x = self.embedding_conv(input=None, adj=self.adj, train=train) # identity matrix input
-        results = [x0, x]
-        for i in range(1, depth):
-            # x = F.sigmoid(x)
-            x = self.weightless_conv(input=x, adj=self.adj, train=train)
+        # x0 = self.embedding_conv.weight
+        # x = self.embedding_conv(input=None, adj=self.adj, train=train) # identity matrix input
+        # results = [x0, x]
+        # for i in range(1, depth):
+        #     x = self.weightless_conv(input=x, adj=self.adj, train=train)
+        #     results.append(x)
+
+        x = self.embedding
+        results =[x]
+        for _ in range(1, depth):
+            x = self.adj(x)
             results.append(x)
 
         return [self.decoder(r) for r in results]
@@ -452,9 +454,31 @@ class ConvModel(nn.Module):
 
         self.adj.apply(lambda t: t.cuda())
 
-    def debug(self):
-        print(self.adj.params.grad)
-        print(self.convs[0].weight)
+class ConvModelFlat(nn.Module):
+
+    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0):
+        super().__init__()
+
+        n, c, h, w = data_size
+
+        self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma)
+
+    def forward(self, data, depth=1, train=True):
+        n = data.size(0)
+
+        x = data.view(n, -1)
+        results =[]
+        for _ in range(depth):
+            x = self.adj(x, train=train)
+            results.append(x)
+
+        return [r.view(data.size()) for r in results]
+
+    def cuda(self):
+
+        super().cuda()
+
+        self.adj.apply(lambda t: t.cuda())
 
 def go(arg):
 
@@ -469,18 +493,28 @@ def go(arg):
     mnist = torchvision.datasets.MNIST(root=arg.data, train=True, download=True, transform=transforms.ToTensor())
     data = util.totensor(mnist, shuffle=True)
 
+    clusters = [[0, 3, 4, 14], [1, 7, 10, 11], [8, 15]]
+    gold = []
+
+    for c in clusters:
+        for ii, i in enumerate(c):
+            for j in c[ii+1:]:
+                gold.append([i, j])
+
+    gold = Variable(torch.tensor(gold, dtype=torch.float))
+
     assert data.min() == 0 and data.max() == 1.0
 
     if arg.limit is not None:
         data = data[:arg.limit]
 
-    model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size, additional=arg.additional, min_sigma=arg.min_sigma)
+    model = ConvModelFlat(data.size(), k=arg.k, emb_size=arg.emb_size, additional=arg.additional, min_sigma=arg.min_sigma)
 
     if arg.cuda: # This probably won't work (but maybe with small data)
         model.cuda()
-        data  = data.cuda()
+        data   = data.cuda()
 
-    data = Variable(data)
+    data, target = Variable(data), Variable(data)
 
     ## SIMPLE
     optimizer = optim.Adam(model.parameters(), lr=arg.lr)
@@ -489,29 +523,36 @@ def go(arg):
 
         optimizer.zero_grad()
 
-        outputs = model(depth=arg.depth)
+        outputs = model(data, depth=arg.depth)
 
-        loss = 0.0
-        for o in outputs:
-            loss = loss + F.binary_cross_entropy(o, data)
+        losses = torch.zeros((len(outputs),), device='cuda' if arg.cuda else 'cpu')
+        for i, o in enumerate(outputs):
+            losses[i] = (F.mse_loss(o, target))
 
-        loss.backward()  # compute the gradients
+        loss = losses.sum()
+
+        # means, sigmas, values = model.adj.hyper()
+        # cheatloss = F.mse_loss(means, gold)
+        #
+        # (loss * 0.00001 + cheatloss).backward()  # compute the gradients
+
+        loss.backward()
         optimizer.step()
 
         w.add_scalar('mnist/train-loss', loss.item(), epoch)
 
         if epoch % arg.plot_every == 0:
 
-            print('{:03}   '.format(epoch), loss.item())
+            print('{:03}   '.format(epoch), losses)
             print('    adj', model.adj.params.grad.mean().item())
-            print('    lin', next(model.decoder.parameters()).grad.mean().item())
+            #  print('    lin', next(model.decoder.parameters()).grad.mean().item())
 
             plt.cla()
             plt.imshow(np.transpose(torchvision.utils.make_grid(data.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                        interpolation='nearest')
             plt.savefig('./conv/inp.{:03d}.png'.format(epoch))
 
-            outputs = model(depth=arg.depth)
+            outputs = model(data, depth=arg.depth)
 
             for d, o in enumerate(outputs):
 
@@ -534,52 +575,56 @@ def go(arg):
             plt.savefig('./conv/means{:03}.pdf'.format(epoch))
 
             # Plot the graph
-            outputs = model(depth=arg.depth, train=False)
+            outputs = model(data, depth=arg.depth, train=False)
 
-            g = nx.MultiGraph()
+            g = nx.MultiDiGraph()
             g.add_nodes_from(range(data.size(0)))
 
             means, _, values = model.adj.hyper()
 
             print('Drawing graph at ', epoch, 'epochs')
+            elist = []
             for i in range(means.size(0)):
                 m = means[i, :].round().long()
                 v = values[i]
 
-                g.add_weighted_edges_from([(m[1].item(), m[0].item(), v.item())])
-
+                g.add_edge(m[1].item(), m[0].item(), weight=v.item() )
                 print(m[1].item(), m[0].item(), v.item())
-
-            print(len(g.edges()), values.size(0))
 
             plt.figure(figsize=(8,8))
             ax = plt.subplot(111)
 
-            pos = nx.spring_layout(g, iterations=500, k=5/math.sqrt(means.size(0)))
-            # pos = nx.circular_layout(g)
+            # pos = nx.spring_layout(g, iterations=500, k=5/math.sqrt(means.size(0)))
+            pos = nx.circular_layout(g)
 
             nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
             # edges = nx.draw_networkx_edges(g, pos, edge_color=values.data.view(-1), edge_vmin=0.0, edge_vmax=1.0, cmap='bone')
 
-            varr = values.data.view(-1).cpu().numpy()
-            nx.draw_networkx_edges(g, pos, width=varr**0.5, edge_color=varr, edge_vmin=0.0, edge_vmax=1.0, edge_cmap=plt.cm.gray_r, axes=ax)
+            weights = [d['weight'] for (_, _, d) in g.edges(data=True)]
+
+            norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0) # doing this manually, the nx code produces very strange results
+            map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.RdYlBu)
+
+            colors = map.to_rgba(weights)
+
+            nx.draw_networkx_edges(g, pos, width=1.0, edge_color=colors, axes=ax)
 
             ims = 0.03
             xmin, xmax = float('inf'), float('-inf')
             ymin, ymax = float('inf'), float('-inf')
 
             out0 = outputs[0].data
-            out1 = outputs[1].data
+            # out1 = outputs[1].data
 
             for i, coords in pos.items():
 
                 extent  = (coords[0] - ims, coords[0] + ims, coords[1] - ims, coords[1] + ims)
                 extent0 = (coords[0] - ims, coords[0] + ims, coords[1] + ims, coords[1] + 3 * ims)
-                extent1 = (coords[0] - ims, coords[0] + ims, coords[1] + 3 * ims, coords[1] + 5 * ims)
+                # extent1 = (coords[0] - ims, coords[0] + ims, coords[1] + 3 * ims, coords[1] + 5 * ims)
 
                 ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent,  zorder=100)
                 ax.imshow(out0[i].cpu().squeeze(),  cmap='pink_r', extent=extent0, zorder=100)
-                ax.imshow(out1[i].cpu().squeeze(),  cmap='pink_r', extent=extent1, zorder=100)
+                # ax.imshow(out1[i].cpu().squeeze(),  cmap='pink_r', extent=extent1, zorder=100)
 
                 xmin, xmax = min(coords[0], xmin), max(coords[0], xmax)
                 ymin, ymax = min(coords[1], ymin), max(coords[1], ymax)

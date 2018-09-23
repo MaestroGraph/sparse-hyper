@@ -576,15 +576,13 @@ class ASHModel(nn.Module):
                 bbox  = ps[:, :4]
                 sigs  = F.softplus(ps[:, 4:]) * SIGMA_BOOST_REINFORCE
 
-                stoch_node = torch.distributions.Normal(0, sigs)
+                stoch_node = torch.distributions.Normal(bbox, sigs)
                 sample = stoch_node.sample()
 
                 stoch_nodes.append(stoch_node)
                 samples.append(sample)
 
-                bbox = bbox + sample
-
-                glimpses.append(self.extract(image, bbox, (self.k, self.k)))
+                glimpses.append(self.extract(image, sample, (self.k, self.k)))
 
             x = torch.cat(glimpses, dim=1).view(b, -1)
             x = F.relu(self.lin1(x))

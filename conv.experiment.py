@@ -179,7 +179,7 @@ class MatrixHyperlayer(nn.Module):
         lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=self.weights_rank)]
         self.floor_mask = torch.ByteTensor(lsts)
 
-        self.params = Parameter(torch.randn(k, 4))
+        self.params   = Parameter(torch.randn(k, 4))
 
     def size(self):
         return (self.out_num, self.in_num)
@@ -260,7 +260,7 @@ class MatrixHyperlayer(nn.Module):
 
         return ints, props, val
 
-    def forward(self, input):
+    def forward(self, input, train=True):
 
         ### Compute and unpack output of hypernetwork
 
@@ -275,14 +275,25 @@ class MatrixHyperlayer(nn.Module):
         # turn the real values into integers in a differentiable way
         t0 = time.time()
 
-        indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+        if train:
+            indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
 
-        values = values * props
+            values = values * props
+        else:
+            indices = means.round().long()
+            values = values.squeeze()
 
         if self.use_cuda:
             indices = indices.cuda()
 
-        # translate tensor indices to matrix indices
+        # # diagonal
+        # dindices = torch.tensor(range(self.in_num), device='cuda' if self.use_cuda else 'cpu').unsqueeze(1).expand(self.in_num, 2)
+        #
+        # indices = torch.cat([indices, dindices], dim=0)
+        # values = torch.cat([values, self.diagonal], dim=0)
+
+        # Kill anything on the diagonal
+        values[indices[:, 0] == indices[:, 1]] = 0.0
 
         ### Create the sparse weight tensor
 
@@ -325,7 +336,7 @@ class MatrixHyperlayer(nn.Module):
 
         sigmas = nn.functional.softplus(self.params[:, w_rank:w_rank + 1] + gaussian.SIGMA_BOOST) + gaussian.EPSILON
 
-        values = self.params[:, w_rank + 1:]
+        values = self.params[:, w_rank + 1:] # * 0.0 + 1.0
 
         sigmas = sigmas.expand_as(means)
         sigmas = sigmas * ss.expand_as(sigmas)
@@ -362,7 +373,7 @@ class GraphConvolution(Module):
         if self.bias is not None:
             self.bias.data.zero_() # different from the default implementation
 
-    def forward(self, input, adj : MatrixHyperlayer):
+    def forward(self, input, adj : MatrixHyperlayer, train=True):
 
         if input is None: # The input is the identity matrix
             support = self.weight
@@ -371,7 +382,7 @@ class GraphConvolution(Module):
         else:
             support = input
 
-        output = adj(support)
+        output = adj(support, train=train)
 
         if self.bias is not None:
             return output + self.bias
@@ -416,16 +427,17 @@ class ConvModel(nn.Module):
         # self.convs.append(GraphConvolution(n, emb_size))
         # for _ in range(1, depth):
         #     self.convs.append(GraphConvolution(emb_size, emb_size, has_weight=False))
-        self.embedding_conv = GraphConvolution(n, emb_size)
-        self.weightless_conv = GraphConvolution(emb_size, emb_size, has_weight=False)
+        self.embedding_conv = GraphConvolution(n, emb_size, bias=False)
+        self.weightless_conv = GraphConvolution(emb_size, emb_size, has_weight=False, bias=False)
 
-    def forward(self, depth=1):
+    def forward(self, depth=1, train=True):
 
-        x = self.embedding_conv(input=None, adj=self.adj) # identity matrix input
-        results = [x]
+        x0 = self.embedding_conv.weight
+        x = self.embedding_conv(input=None, adj=self.adj, train=train) # identity matrix input
+        results = [x0, x]
         for i in range(1, depth):
             # x = F.sigmoid(x)
-            x = self.weightless_conv(input=x, adj=self.adj)
+            x = self.weightless_conv(input=x, adj=self.adj, train=train)
             results.append(x)
 
         return [self.decoder(r) for r in results]
@@ -462,7 +474,7 @@ def go(arg):
 
     if arg.cuda: # This probably won't work (but maybe with small data)
         model.cuda()
-        data = data.cuda()
+        data  = data.cuda()
 
     data = Variable(data)
 
@@ -518,6 +530,7 @@ def go(arg):
             plt.savefig('./conv/means{:03}.pdf'.format(epoch))
 
             # Plot the graph
+            outputs = model(depth=arg.depth, train=False)
 
             g = nx.MultiDiGraph()
             g.add_nodes_from(range(data.size(0)))
@@ -536,19 +549,30 @@ def go(arg):
             ax = plt.subplot(111)
 
             pos = nx.spring_layout(g)
+            # pos = nx.circular_layout(g)
+
             nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
             # edges = nx.draw_networkx_edges(g, pos, edge_color=values.data.view(-1), edge_vmin=0.0, edge_vmax=1.0, cmap='bone')
 
             varr = values.data.view(-1).cpu().numpy()
             nx.draw_networkx_edges(g, pos, width=varr**0.5, edge_color=varr, edge_vmin=0.0, edge_vmax=1.0, edge_cmap=plt.cm.gray_r, axes=ax)
 
-            ims = 0.01
+            ims = 0.03
             xmin, xmax = float('inf'), float('-inf')
             ymin, ymax = float('inf'), float('-inf')
 
+            out0 = outputs[0].data
+            out1 = outputs[1].data
+
             for i, coords in pos.items():
-                extent = (coords[0] - ims, coords[0] + ims, coords[1] - ims, coords[1] + ims)
-                ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent, zorder=100)
+
+                extent  = (coords[0] - ims, coords[0] + ims, coords[1] - ims, coords[1] + ims)
+                extent0 = (coords[0] - ims, coords[0] + ims, coords[1] + ims, coords[1] + 3 * ims)
+                extent1 = (coords[0] - ims, coords[0] + ims, coords[1] + 3 * ims, coords[1] + 5 * ims)
+
+                ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent,  zorder=100)
+                ax.imshow(out0[i].cpu().squeeze(),  cmap='pink_r', extent=extent0, zorder=100)
+                ax.imshow(out1[i].cpu().squeeze(),  cmap='pink_r', extent=extent1, zorder=100)
 
                 xmin, xmax = min(coords[0], xmin), max(coords[0], xmax)
                 ymin, ymax = min(coords[1], ymin), max(coords[1], ymax)

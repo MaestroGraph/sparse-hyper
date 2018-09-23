@@ -596,7 +596,7 @@ def go(arg):
             plt.figure(figsize=(8,8))
             ax = plt.subplot(111)
 
-            pos = nx.spring_layout(g, iterations=5000)
+            pos = nx.spring_layout(g, iterations=500)
             # pos = nx.circular_layout(g)
 
             nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)

@@ -424,7 +424,7 @@ class ConvModel(nn.Module):
         self.decoder = nn.Sequential(
             nn.Linear(emb_size, 200), nn.ReLU(),
             nn.Linear(200, 200), nn.ReLU(),
-            nn.Linear(200, 28*28), nn.ReLU(),
+            nn.Linear(200, 28*28),
             nn.Sigmoid(), util.Reshape((1, 28, 28))
         )
 

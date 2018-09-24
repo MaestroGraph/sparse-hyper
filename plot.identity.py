@@ -10,22 +10,24 @@ dot_every = 100
 plt.figure(figsize=(10, 5))
 plt.clf()
 
-files  = ['results.004.False.np.npy', 'results.004.True.npy']
-sizes  = [4, 4]
-itss   = [500, 1000]
-des    = [100, 100]
-reinfs = [False, True]
+files  = [
+    'results.004.True.npy',
+    'results.008.False.npy',
+    'results.016.False.npy']
+sizes  = [4, 8, 16]
+itss   = [16_000, 32_000, 64_000]
+des    = [500, 500, 500]
+reinfs = [True, False, False]
 
-# norm = mpl.colors.Normalize(vmin=min(np.log2(sizes)), vmax=max(np.log2(sizes)))
-# cmap = plt.get_cmap('viridis')
-# map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
-color='b'
+norm = mpl.colors.Normalize(vmin=min(np.log2(sizes)), vmax=max(np.log2(sizes)))
+cmap = plt.get_cmap('viridis')
+map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
 
 for si, (file, size, iterations, dot_every, reinf) in enumerate(zip(files, sizes, itss, des, reinfs)):
-    res = np.load(file)
+    res = np.load('./paper/identity/' + file)
     print('size ', size, 'reinf', reinf, res.shape)
 
-    # color = map.to_rgba(np.log2(size))
+    color = map.to_rgba(np.log2(size))
     ndots = iterations // dot_every
     additional = int(np.floor(np.log2(size)) * size)
 
@@ -51,4 +53,4 @@ ax.legend()
 
 util.basic()
 
-plt.savefig('./paper/identity.pdf', dpi=600)
+plt.savefig('./paper/identity/identity.pdf', dpi=600)

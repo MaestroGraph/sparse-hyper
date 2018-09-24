@@ -859,8 +859,7 @@ COLUMN = 13
 
 def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
-       tb_dir=None, data='./data', hidden=32, task='mnist', final=False, pre=3, dropout=0.0,
-       rec_lambda=None, small=True):
+       tb_dir=None, data='./data', hidden=32, task='mnist', final=False, dropout=0.0, plot_every=1):
 
     DROPOUT = dropout
 
@@ -1145,7 +1144,7 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
             step += inputs.size(0)
 
-            if PLOT and i == 0 and hyperlayer is not None:
+            if e % plot_every == 0 and i == 0 and hyperlayer is not None:
 
                 sigmas = list(hyperlayer.last_sigmas[0, :])
                 values = list(hyperlayer.last_values[0, :])
@@ -1169,7 +1168,7 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
                 hyperlayer.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
 
-            if PLOT and i == 0 and type(model) is ASHModel:
+            if e % plot_every == 0 and i == 0 and type(model) is ASHModel:
 
                 print('post', model.lin1.weight.grad.data.mean())
                 print('pre', list(model.preprocess.modules())[1].weight.grad.data.mean())
@@ -1220,6 +1219,12 @@ if __name__ == "__main__":
                         dest="epochs",
                         help="Number of epochs over the generated data.",
                         default=350, type=int)
+
+
+    parser.add_argument("-p", "--plot-every",
+                        dest="plot_every",
+                        help="Plot every n epochs.",
+                        default=1, type=int)
 
     parser.add_argument("-m", "--model",
                         dest="model",
@@ -1289,10 +1294,6 @@ if __name__ == "__main__":
                         help="Size of the hidden layer.",
                         default=32, type=int)
 
-    parser.add_argument("-p", "--pre", dest="pre",
-                        help="Size of the preprocessed input representation.",
-                        default=32, type=int)
-
     parser.add_argument("-Q", "--dropout", dest="dropout",
                         help="Dropout of the baseline and hypernetwork.",
                         default=0.0, type=float)
@@ -1320,6 +1321,5 @@ if __name__ == "__main__":
        lr=options.lr, subsample=options.subsample,
        num_values=options.num_values, min_sigma=options.min_sigma,
        tb_dir=options.tb_dir, data=options.data, task=options.task,
-       final=options.final, hidden=options.hidden, pre=options.pre,
-       dropout=options.dropout, rec_lambda=options.rec_loss,
-       small=options.small, seed=options.seed, args=options)
+       final=options.final, hidden=options.hidden,
+       dropout=options.dropout, seed=options.seed, args=options, plot_every=options.plot_every)

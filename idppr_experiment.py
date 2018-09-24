@@ -25,125 +25,101 @@ Simple experiment: learn the identity function from one tensor to another
 """
 w = SummaryWriter()
 
-def go(batch=4, cuda=False, plot_every=1000,
-       lr=0.01, fv=False, sigma_scale=0.1, min_sigma=0.0, seed=0, reps=10, dot_every=100):
-
-    sizes = [4, 8, 16, 32, 64, 128, 256]
-    itss  = [40000, 80000, 160000, 320000, 640000, 640000, 640000]
+def go(arg):
 
     MARGIN = 0.1
 
-    torch.manual_seed(seed)
+    iterations = arg.iterations if arg.iterations is not None else arg.size * 3000
+    additional = arg.additional if arg.additional is not None else int(np.floor(np.log2(arg.size)) * arg.size)
 
-    results = {}
+    torch.manual_seed(arg.seed)
 
-    for si, size in enumerate(sizes):
+    ndots = iterations // arg.dot_every
 
-        iterations = itss[si]
-        ndots = iterations // dot_every
+    results = np.zeros((arg.reps, ndots))
 
-        additional = int(np.floor(np.log2(size)) * size)
-        results[size] = np.zeros((2, reps, ndots))
+    print('Starting size {} with {} additional samples (reinforce={})'.format(arg.size, additional, arg.reinforce))
 
-        for reinforce in [True, False] if size < 32 else [False]:
-            rf = 0 if not reinforce else 1
+    for r in range(arg.reps):
+        print('repeat {} of {}'.format(r, arg.reps))
+        util.makedirs('./identity/{}'.format(r))
 
-            print('Starting size {} with {} additional samples (reinforce={})'.format(size, additional, reinforce))
+        SHAPE = (arg.size,)
 
-            for r in trange(reps):
-                util.makedirs('./identity/{}/{}/{}'.format(reinforce, size, r))
+        gaussian.PROPER_SAMPLING = arg.size < 8
+        model = gaussian.ParamASHLayer(
+            SHAPE, SHAPE, k=arg.size, additional=additional,
+            sigma_scale=arg.sigma_scale if not arg.reinforce else arg.size/7.0,
+            has_bias=False, fix_values=arg.fix_values, min_sigma=arg.min_sigma, reinforce=arg.reinforce)
 
-                SHAPE = (size,)
+        if arg.cuda:
+            model.cuda()
 
-                gaussian.PROPER_SAMPLING = size < 8
-                model = gaussian.ParamASHLayer(
-                    SHAPE, SHAPE, k=size, additional=additional,
-                    sigma_scale=sigma_scale if not reinforce else size/7.0,
-                    has_bias=False, fix_values=fv, min_sigma=min_sigma, reinforce=reinforce)
-
-                if cuda:
-                    model.cuda()
-
-                optimizer = optim.Adam(model.parameters(), lr=lr)
+        optimizer = optim.Adam(model.parameters(), lr=arg.lr)
 
 
-                for i in trange(iterations):
+        for i in trange(iterations):
 
-                    x = torch.randn((batch,) + SHAPE)
+            x = torch.randn((arg.batch,) + SHAPE)
 
-                    if cuda:
-                        x = x.cuda()
-                    x = Variable(x)
+            if arg.cuda:
+                x = x.cuda()
+            x = Variable(x)
 
-                    optimizer.zero_grad()
+            optimizer.zero_grad()
 
-                    if not reinforce:
-                        y = model(x)
+            if not arg.reinforce:
+                y = model(x)
 
-                        loss = F.mse_loss(y, x)
+                loss = F.mse_loss(y, x)
 
-                    else:
-                        y, dists, actions = model(x)
+            else:
+                y, dists, actions = model(x)
 
-                        mloss = F.mse_loss(y, x, reduce=False).mean(dim=1)
-                        rloss = - dists.log_prob(actions) * - mloss.data.unsqueeze(1).unsqueeze(1).expand_as(actions)
+                mloss = F.mse_loss(y, x, reduce=False).mean(dim=1)
+                rloss = - dists.log_prob(actions) * - mloss.data.unsqueeze(1).unsqueeze(1).expand_as(actions)
 
-                        loss = rloss.mean()
+                loss = rloss.mean()
 
-                    loss.backward()
+            loss.backward()
 
-                    optimizer.step()
+            optimizer.step()
 
-                    w.add_scalar('identity32/loss/{}/{}/{}'.format(reinforce, size, r), loss.item(), i*batch)
+            w.add_scalar('identity/loss/', loss.item(), i*arg.batch)
 
-                    if i % dot_every == 0:
-                        mse = F.mse_loss(y.data, x.data)
+            if i % arg.dot_every == 0:
+                mse = F.mse_loss(y.data, x.data)
+                results[r, i//arg.dot_every] = mse.item()
 
-                        results[size][rf, r, i//dot_every] = mse.item()
+            if arg.plot_every > 0 and i % arg.plot_every == 0:
+                plt.figure(figsize=(7, 7))
 
-                    if plot_every > 0 and i % plot_every == 0:
-                        plt.figure(figsize=(7, 7))
+                means, sigmas, values = model.hyper(x)
 
-                        means, sigmas, values = model.hyper(x)
+                plt.cla()
+                util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
+                plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+                plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
 
-                        plt.cla()
-                        util.plot(means, sigmas, values, shape=(SHAPE[0], SHAPE[0]))
-                        plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
-                        plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
+                plt.savefig('./identity/{}/{}/{}/means{:04}.pdf'.format(arg.reinforce, arg.size, r, i))
 
-                        plt.savefig('./identity/{}/{}/{}/means{:04}.pdf'.format(reinforce, size, r, i))
-
-        np.save('results.{:03d}.np'.format(size), results)
+    np.save('results.{:03d}.{}'.format(arg.size, arg.reinforce), results)
 
     print('experiments finished')
 
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(10, 4))
     plt.clf()
 
-    norm = mpl.colors.Normalize(vmin=min(sizes), vmax=max(sizes))
-    cmap = plt.get_cmap('viridis')
-    map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
+    # print(reinforce, res[rf, :, :])
+    # print(reinforce, np.mean(res[rf, :, :], axis=0))
+    # print(reinforce, np.std(res[rf, :, :], axis=0))
 
-    for si, size in enumerate(sizes):
-        color = map.to_rgba(size)
-        res = results[size]
-        iterations = itss[si]
-        ndots = iterations // dot_every
-        additional = int(np.floor(np.log2(size)) * size)
+    plt.errorbar(
+        x=np.arange(ndots) * arg.dot_every, y=np.mean(results, axis=0), yerr=np.std(results, axis=0),
+        label='{} by {}, a={}, {}'.format(arg.size, arg.size, additional, 'reinforce' if arg.reinforce else 'backprop'),
+        linestyle='--' if arg.reinforce else '-',  alpha=0.7 if arg.reinforce else 1.0)
 
-        for reinforce in [True, False] if size < 32 else [False]:
-            rf = 0 if not reinforce else 1
-
-            # print(reinforce, res[rf, :, :])
-            # print(reinforce, np.mean(res[rf, :, :], axis=0))
-            # print(reinforce, np.std(res[rf, :, :], axis=0))
-
-            plt.errorbar(
-                x=np.arange(ndots) * dot_every, y=np.mean(res[rf, :, :], axis=0), yerr=np.std(res[rf, :, :], axis=0),
-                label='{} by {}, a={}, {}'.format(size, size, additional, 'reinforce' if reinforce else 'backprop'),
-                color=color, linestyle='--' if reinforce else '-',  alpha=0.5 if reinforce else 1.0)
-
-            plt.legend()
+    plt.legend()
 
     ax = plt.gca()
     ax.set_ylim(bottom=0)
@@ -161,20 +137,25 @@ if __name__ == "__main__":
     ## Parse the command line options
     parser = ArgumentParser()
 
+    parser.add_argument("-i", "--iterations",
+                        dest="iterations",
+                        help="Size (nr of dimensions) of the input.",
+                        default=None, type=int)
+
     parser.add_argument("-s", "--size",
                         dest="size",
                         help="Size (nr of dimensions) of the input.",
                         default=32, type=int)
 
     parser.add_argument("-b", "--batch-size",
-                        dest="batch_size",
+                        dest="batch",
                         help="The batch size.",
                         default=64, type=int)
 
     parser.add_argument("-a", "--additional",
                         dest="additional",
-                        help="Number of additional points sampled",
-                        default=512, type=int)
+                        help="Number of additional points sampled (automatically chosen if None)",
+                        default=None, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
@@ -209,7 +190,6 @@ if __name__ == "__main__":
                         help="A dot in the graph for every x iterations",
                         default=100, type=int)
 
-
     parser.add_argument("-R", "--repeats",
                         dest="reps",
                         help="Number of repeats.",
@@ -220,12 +200,13 @@ if __name__ == "__main__":
                         help="Random seed.",
                         default=32, type=int)
 
+    parser.add_argument("-B", "--use_reinforce", dest="reinforce",
+                        help="Use reinforce instead of the backprop approach.",
+                        action="store_true")
+
     options = parser.parse_args()
 
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
-        sigma_scale=options.sigma_scale, min_sigma=options.min_sigma, seed=options.seed,
-       reps=options.reps, dot_every=options.dot_every)
+    go(options)

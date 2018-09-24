@@ -101,7 +101,7 @@ def go(arg):
                 plt.xlim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
                 plt.ylim((-MARGIN*(SHAPE[0]-1), (SHAPE[0]-1) * (1.0+MARGIN)))
 
-                plt.savefig('./identity/{}/{}/{}/means{:04}.pdf'.format(arg.reinforce, arg.size, r, i))
+                plt.savefig('./identity/{}/means{:04}.pdf'.format(r, i))
 
     np.save('results.{:03d}.{}'.format(arg.size, arg.reinforce), results)
 

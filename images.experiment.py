@@ -38,7 +38,7 @@ fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
 DROPOUT = 0.0
-SIGMA_BOOST_REINFORCE = 3.0
+SIGMA_BOOST_REINFORCE = 10.0 # ensure that first sigmas are large enough
 
 def inv(i, max):
     sc = (i/max) * 0.999 + 0.0005
@@ -477,56 +477,54 @@ class ASHModel(nn.Module):
         p1 = 4
         p2 = 2
 
-        ch1, ch2, ch3 = 64, 128, 512
+        ch1, ch2, ch3 = 32, 64, 128
 
         c, h, w = shape
         hid = max(1, floor(floor(w / p1) / p2) * floor(floor(h / p1) / p2)) * ch3
         hidlin = 512
 
-        print(hid)
-
-        # self.preprocess = nn.Sequential(
-        #     # nn.MaxPool2d(kernel_size=4),
-        #     # util.Debug(lambda x: print(x.size())),
-        #     nn.Conv2d(c, ch1, kernel_size=3, padding=1),
-        #     activation,
-        #     nn.Conv2d(ch1, ch1, kernel_size=3, padding=1),
-        #     activation,
-        #     nn.MaxPool2d(kernel_size=p1),
-        #     nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
-        #     activation,
-        #     nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
-        #     activation,
-        #     nn.MaxPool2d(kernel_size=p2),
-        #     nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
-        #     activation,
-        #     nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
-        #     activation,
-        #     #util.Debug(lambda x : print(x.size())),
-        #     util.Flatten(),
-        #     nn.Linear(hid, hidlin),
-        #     nn.Dropout(DROPOUT),
-        #     activation,
-        #     nn.Linear(hidlin, hidlin),
-        #     nn.Dropout(DROPOUT),
-        #     activation,
-        #     nn.Linear(hidlin, (4 if not self.reinforce else 8) * glimpses)
-        # )
-
-        hid = max(1, floor(w / 5) * floor(h / 5) * c)
         self.preprocess = nn.Sequential(
-            nn.Conv2d(c, c, kernel_size=5, padding=2),
+            # nn.MaxPool2d(kernel_size=4),
+            # util.Debug(lambda x: print(x.size())),
+            nn.Conv2d(c, ch1, kernel_size=3, padding=1),
             activation,
-            nn.Conv2d(c, c, kernel_size=5, padding=2),
+            nn.Conv2d(ch1, ch1, kernel_size=3, padding=1),
             activation,
-            nn.Conv2d(c, c, kernel_size=5, padding=2),
+            nn.MaxPool2d(kernel_size=p1),
+            nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
             activation,
-            nn.MaxPool2d(kernel_size=5),
+            nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=p2),
+            nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
+            activation,
+            nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
+            activation,
+            #util.Debug(lambda x : print(x.size())),
             util.Flatten(),
-            nn.Linear(hid, 16),
+            nn.Linear(hid, hidlin),
+            nn.Dropout(DROPOUT),
             activation,
-            nn.Linear(16, (4 if not self.reinforce else 8) * glimpses)
+            nn.Linear(hidlin, hidlin),
+            nn.Dropout(DROPOUT),
+            activation,
+            nn.Linear(hidlin, (4 if not self.reinforce else 8) * glimpses)
         )
+
+        # hid = max(1, floor(w / 5) * floor(h / 5) * c)
+        # self.preprocess = nn.Sequential(
+        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
+        #     activation,
+        #     nn.MaxPool2d(kernel_size=5),
+        #     util.Flatten(),
+        #     nn.Linear(hid, 16),
+        #     activation,
+        #     nn.Linear(16, (4 if not self.reinforce else 8) * glimpses)
+        # )
 
         self.hyperlayers = []
 
@@ -574,7 +572,10 @@ class ASHModel(nn.Module):
             for i in range(self.num_glimpses):
                 ps = prep[:, i * 8: (i + 1) * 8]
                 bbox  = ps[:, :4]
-                sigs  = F.softplus(ps[:, 4:]) * SIGMA_BOOST_REINFORCE
+                sigs  = F.softplus(ps[:, 4:] + SIGMA_BOOST_REINFORCE)
+
+                # print('bbox', bbox.mean(dim=0))
+                # print('sigs', sigs.mean(dim=0))
 
                 stoch_node = torch.distributions.Normal(bbox, sigs)
                 sample = stoch_node.sample()
@@ -640,7 +641,7 @@ class ASHModel(nn.Module):
 
         plt.figure(figsize=(perrow * 3, rows * 3))
 
-        # TODO: remove inefficiency, by reversing loops
+        # TODO: remove inefficiency by reversing loops
         for i in range(num):
             ax = plt.subplot(rows, perrow, i + 1)
 
@@ -670,7 +671,7 @@ class ASHModel(nn.Module):
                     bbox[:, 2:] = (bbox[:, 2:] - gaussian.EPSILON) * w
                     bbox = bbox.round().long()
 
-                    print(bbox[j])
+#                    print(bbox[j])
 
                     y, x = bbox[:, :2], bbox[:, 2:]  # y is vert (height), x is hor (width),
 

@@ -24,6 +24,7 @@ PROPER_SAMPLING = False # NB: set to true for very small tranformations.
 BATCH_NEIGHBORS = True
 SIGMA_BOOST = 2.0
 
+SINKHORN_ITS = 3
 """
 
 """
@@ -32,13 +33,13 @@ class Bias(Enum):
     """
 
     """
-    # No bias is used.
+    # No bias is used.`c
     NONE = 1
 
     # The bias is returned as a single dense tensor of floats.
     DENSE = 2
 
-    # The bias is returnd in sparse format, in the same way as the weight matrix is.
+    # The bias is returned in sparse format, in the same way as the weight matrix is.
     SPARSE = 3
 
 def flatten(input):
@@ -665,6 +666,14 @@ class HyperLayer(nn.Module):
 
         if self.use_cuda:
             indices = indices.cuda()
+
+        # Create bias for permutation matrices
+        TAU = 1
+        if SINKHORN_ITS is not None:
+            values = values / TAU
+            for _ in range(SINKHORN_ITS):
+                values = util.normalize(indices, values, rng, row=True)
+                values = util.normalize(indices, values, rng, row=False)
 
         # translate tensor indices to matrix indices
         t0 = time.time()

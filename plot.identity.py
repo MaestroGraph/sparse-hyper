@@ -11,13 +11,14 @@ plt.figure(figsize=(10, 5))
 plt.clf()
 
 files  = [
+    'results.002.True.npy',
     'results.004.True.npy',
     'results.008.False.npy',
     'results.016.False.npy']
-sizes  = [4, 8, 16]
-itss   = [16_000, 32_000, 64_000]
-des    = [500, 500, 500]
-reinfs = [True, False, False]
+sizes  = [2, 4, 8, 16]
+itss   = [20_000, 16_000, 32_000, 64_000]
+des    = [500, 500, 500, 500]
+reinfs = [True, True, False, False]
 
 norm = mpl.colors.Normalize(vmin=min(np.log2(sizes)), vmax=max(np.log2(sizes)))
 cmap = plt.get_cmap('viridis')
@@ -39,11 +40,11 @@ for si, (file, size, iterations, dot_every, reinf) in enumerate(zip(files, sizes
     if res.shape[0] > 1:
         plt.errorbar(
             x=np.arange(ndots) * dot_every, y=np.mean(res, axis=0), yerr=np.std(res, axis=0),
-            label=lbl, color=color, linestyle='--' if reinf else '-',  alpha=0.7 if reinf else 1.0)
+            label=lbl, color=color, linestyle='--' if reinf else '-',  alpha=0.4 if reinf else 1.0)
     else:
         plt.plot(
             x=np.arange(ndots) * dot_every, y=np.mean(res, axis=0),
-            label=lbl, color=color, linestyle='--' if reinf else '-', alpha=0.7 if reinf else 1.0)
+            label=lbl, color=color, linestyle='--' if reinf else '-', alpha=0.4 if reinf else 1.0)
 
 ax = plt.gca()
 ax.set_ylim(bottom=0)

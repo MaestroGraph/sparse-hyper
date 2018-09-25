@@ -252,16 +252,16 @@ def sample(collection, k, required):
         sample.extend(required)
 
         return sample
-
-if __name__ == '__main__':
-
-    print('.')
-    print(sample(range(6), 5, [0, 1, 2]))
-    print('.')
-    print(sample(range(100), 6, [0, 1, 2]))
-    print(sample(range(100), 6, [0, 1, 2]))
-    print(sample(range(100), 6, [0, 1, 2]))
-    print('.')
+#
+# if __name__ == '__main__':
+#
+#     print('.')
+#     print(sample(range(6), 5, [0, 1, 2]))
+#     print('.')
+#     print(sample(range(100), 6, [0, 1, 2]))
+#     print(sample(range(100), 6, [0, 1, 2]))
+#     print(sample(range(100), 6, [0, 1, 2]))
+#     print('.')
 
 def sparsemult(use_cuda):
     return SparseMultGPU.apply if use_cuda else SparseMultCPU.apply
@@ -408,15 +408,15 @@ def bsoftmax(input):
 
 def contains_nan(tensor):
     return (tensor != tensor).sum() > 0
-
-if __name__ == '__main__':
-
-
-    i = torch.LongTensor([[0, 16, 1],
-                          [2, 0, 2]])
-    v = torch.FloatTensor([1, 1, 1])
-
-    matrix = torch.sparse.FloatTensor(i, v, torch.Size((16, 16)))
+#
+# if __name__ == '__main__':
+#
+#
+#     i = torch.LongTensor([[0, 16, 1],
+#                           [2, 0, 2]])
+#     v = torch.FloatTensor([1, 1, 1])
+#
+#     matrix = torch.sparse.FloatTensor(i, v, torch.Size((16, 16)))
 
 def od(lst):
     od = OrderedDict()
@@ -615,3 +615,55 @@ class Reshape(nn.Module):
     def forward(self, input):
         return input.view( (input.size(0),) + self.shape)
 
+def normalize(indices, values, size, row=True, cuda=None, epsilon=0.00000001):
+    """
+    Row or column normalizes a sparse matrix, defined by the given indices and values. Expects a batch dimension.
+
+    :param indices: (b, k, 2) LongTensor of index tuples
+    :param values: length-k vector of values
+    :param size: dimensions of the matrix
+    :param row: If true, we normalize the rows, otherwise the columns
+    :return: The normalized values (the indices stay the same)
+    """
+
+    if cuda is None:
+        cuda = indices.is_cuda
+
+    dv = 'cuda' if cuda else 'cpu'
+    spm = sparsemult(cuda)
+
+    b, k, r = indices.size()
+
+    assert r == 2
+
+    # unroll the batch dimension
+    # (think if this as putting all the matrices in the batch along the diagonal of one huge matrix)
+    ran = torch.arange(b, device=dv).unsqueeze(1).expand(b, 2)
+    ran = ran * torch.tensor(size, device=dv).unsqueeze(0).expand(b, 2)
+
+    offset = ran.unsqueeze(1).expand(b, k, 2).contiguous().view(-1, 2)
+    indices = indices.view(-1, 2)
+
+    indices = indices + offset
+    values = values.view(-1)
+
+    if row:
+        ones = torch.ones((b*size[1],), device=dv)
+    else:
+        ones = torch.ones((b*size[0],), device=dv)
+        # transpose the matrix
+        indices = torch.cat([indices[:, 1:2], indices[:, 0:1]], dim=1)
+
+    sums = spm(indices.t(), values, torch.tensor(size, device=dv)*b, ones)  # row/column sums
+
+    # select the sums corresponding to each index
+    div = torch.index_select(sums, 0, indices[:, 0]).squeeze() + epsilon
+
+    return (values/div).view(b, k)
+
+if __name__ == "__main__":
+    tind = torch.tensor([[[0, 0],[0, 1], [4, 4], [4, 3]], [[0, 1],[1, 0],[0, 2], [2, 0]]])
+    tv = torch.tensor([[0.5, 0.5, 0.4, 0.6], [0.5, 1, 0.5, 1]])
+
+    print(normalize(tind, tv, (5, 5)))
+    print(normalize(tind, tv, (5, 5), row=False))

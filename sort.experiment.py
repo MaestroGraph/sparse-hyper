@@ -30,6 +30,21 @@ Experiment: learn a mapping from a random x, to x sorted.
 """
 w = SummaryWriter()
 
+def penalty(means):
+    b, k, r = means.size()
+    sorted, _ = means.sort(dim=1)
+    diffs = sorted[:, :-1, :] - sorted[:, :1, :]
+
+    penalty = 1.0 - diffs[diffs < 1.0]
+
+    # print(sorted.size(), sorted)
+    # print('d', diffs)
+    # print(diffs[diffs < 1.0])
+    # print(penalty.size(), penalty)
+
+    # sys.exit()
+
+    return penalty.mean()
 
 class SortLayer(HyperLayer):
     """
@@ -170,6 +185,10 @@ def go(arg):
             loss = F.mse_loss(y, t)#, reduce=False).sum(dim=1) # compute the loss
             #loss = (loss + penalty * model.sigma_loss(x)).sum()
 
+            if arg.penalty is not None:
+                means, _, _ = model.hyper(x) # TODO double computation
+                loss = loss + arg.penalty * penalty(means)
+
             loss.backward()        # compute the gradients
 
             optimizer.step()
@@ -215,9 +234,10 @@ def go(arg):
                     #     print(means[0])
 
 
-                # print('acc', correct/tot)
+                print('acc', correct/tot)
 
                 results[r, i//arg.dot_every] = 1.0 - (correct/tot)
+
                 w.add_scalar('sort/accuracy/{}/{}'.format(arg.size, r), correct/tot, i * arg.batch_size)
 
             if i % arg.plot_every == 0:
@@ -236,30 +256,33 @@ def go(arg):
     print('experiments finished')
 
     plt.figure(figsize=(10, 5))
-    plt.clf()
     ax = plt.gca()
-
-    additional = int(np.floor(np.log2(arg.size)) * arg.size)
+    #
+    # print(results.shape)
+    # print(np.mean(results[:, :], axis=0))
+    # print(np.arange(ndots) * arg.dot_every)
 
     if results.shape[0] > 1:
         ax.errorbar(x=np.arange(ndots) * arg.dot_every, y=np.mean(results[:, :], axis=0),
                         yerr=np.std(results[:, :], axis=0),
                         label='size {0}x{0}, a={1}, r={2}'.format(arg.size, additional, arg.reps))
     else:
-        ax.plot(x=np.arange(ndots) * arg.dot_every, y=np.mean(results[:, :], axis=0),
+        ax.plot(np.arange(ndots) * arg.dot_every, np.mean(results[:, :], axis=0),
                         label='size {0}x{0}, a={1}'.format(arg.size, additional))
+
     ax.legend()
 
     util.basic(ax)
 
     ax.spines['bottom'].set_position('zero')
     ax.set_ylim(0.0, 1.0)
+#    ax.set_xlim(0.0, 100.0)
 
     plt.xlabel('iterations')
     plt.ylabel('error')
 
-    plt.savefig('./sort/results.png')
-    plt.savefig('./sort/results.pdf')
+    plt.savefig('./sort/result.png')
+    plt.savefig('./sort/result.pdf')
 
 if __name__ == "__main__":
 
@@ -328,6 +351,12 @@ if __name__ == "__main__":
                         dest="min_sigma",
                         help="Sigma floor (minimum sigma value).",
                         default=0.0, type=float)
+
+    parser.add_argument("-P", "--penalty",
+                        dest="penalty",
+                        help="Penalty.",
+                        default=None, type=float)
+
 
     options = parser.parse_args()
 

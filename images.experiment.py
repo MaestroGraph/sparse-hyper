@@ -1176,8 +1176,6 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
                 model.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.glimpses.{:03}.pdf'.format(epoch))
 
-
-
         total = 0.0
         correct = 0.0
 

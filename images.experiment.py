@@ -1144,7 +1144,7 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
             step += inputs.size(0)
 
-            if e % plot_every == 0 and i == 0 and hyperlayer is not None:
+            if epoch % plot_every == 0 and i == 0 and hyperlayer is not None:
 
                 sigmas = list(hyperlayer.last_sigmas[0, :])
                 values = list(hyperlayer.last_values[0, :])
@@ -1168,7 +1168,7 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
                 hyperlayer.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
 
-            if e % plot_every == 0 and i == 0 and type(model) is ASHModel:
+            if epoch % plot_every == 0 and i == 0 and type(model) is ASHModel:
 
                 print('post', model.lin1.weight.grad.data.mean())
                 print('pre', list(model.preprocess.modules())[1].weight.grad.data.mean())
@@ -1322,4 +1322,5 @@ if __name__ == "__main__":
        num_values=options.num_values, min_sigma=options.min_sigma,
        tb_dir=options.tb_dir, data=options.data, task=options.task,
        final=options.final, hidden=options.hidden,
-       dropout=options.dropout, seed=options.seed, args=options, plot_every=options.plot_every)
+       dropout=options.dropout, seed=options.seed, args=options,
+       plot_every=options.plot_every)

@@ -1,18 +1,18 @@
-import hyper, gaussian
 import torch, random, sys
 from torch.autograd import Variable
 from torch.nn import Parameter
+import torch.nn.functional as F
 from torch import nn, optim
 from tqdm import trange
 from tensorboardX import SummaryWriter
 
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import util, logging, time, gc
 import numpy as np
 
 from argparse import ArgumentParser
-
-import psutil, os
 
 from gaussian import HyperLayer
 
@@ -24,44 +24,44 @@ Check if the sort function is learnable directly
 """
 w = SummaryWriter()
 
-def go(iterations=30000, batch=4, size=32, cuda=False, lr=0.01, seed=0):
+def go(arg):
 
-    HIDDENBIG = size * size ** 2
-    HIDDEN = size * 3
+    HIDDENBIG = arg.size * arg.size ** 2
 
-    torch.manual_seed(seed)
 
-    model = nn.Sequential(
-        nn.Linear(size, HIDDENBIG),
-        nn.ReLU(),
-        nn.Linear(HIDDENBIG, HIDDENBIG),
-        nn.ReLU(),
-        nn.Linear(HIDDENBIG, HIDDENBIG),
-        nn.ReLU(),
-        nn.Linear(HIDDENBIG, HIDDEN),
-        nn.ReLU(),
-        nn.Linear(HIDDEN, HIDDEN),
-        nn.ReLU(),
-        nn.Linear(HIDDEN, HIDDEN),
-        nn.ReLU(),
-        nn.Linear(HIDDEN, size),
-    )
+    torch.manual_seed(arg.seed)
+    activation = nn.ReLU()
 
-    if cuda:
+    layers = []
+    layers.append(nn.Linear(arg.size, HIDDENBIG))
+    layers.append(activation)
+
+    for _ in range(arg.depth):
+        layers.append(nn.Linear(HIDDENBIG, HIDDENBIG, bias=True))
+        # layers.append(nn.BatchNorm1d(HIDDENBIG))
+        layers.append(activation)
+
+    layers.append(nn.Linear(HIDDENBIG, arg.size))
+    layers.append(nn.Sigmoid())
+    layers.append(util.Lambda(lambda x : x * arg.size))
+
+    model = nn.Sequential(*layers)
+
+    if arg.cuda:
         model.cuda()
 
-    losses = []
+    errors = []
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=arg.lr)
 
-    for i in trange(iterations):
+    plt.figure(figsize=(16, 8))
 
-        x = (torch.rand((batch, size)) * 64.0).floor() / 32.0 - 1.0
+    for i in trange(arg.iterations):
 
+        x = torch.randn((arg.batch, arg.size))
         t = x.sort()[1].float()
 
-        if cuda:
+        if arg.cuda:
             x, t = x.cuda(), t.cuda()
 
         x, t = Variable(x), Variable(t)
@@ -70,26 +70,51 @@ def go(iterations=30000, batch=4, size=32, cuda=False, lr=0.01, seed=0):
 
         y = model(x)
 
-        loss = criterion(y, t)
+        loss = F.mse_loss(y, t)
 
         if i % 1000 == 0:
-            print((y-t)[:10, :])
+            # Compute accuracy estimate
+
+            correct = 0
+            tot = 0
+            for ii in range(10000 // arg.batch):
+                x = torch.randn((arg.batch, arg.size))
+                t = x.sort()[1].float()
+
+                if arg.cuda:
+                    x, t = x.cuda(), t.cuda()
+                x, t = Variable(x), Variable(t)
+
+                y = model(x).round()
+
+                # if ii == 0:
+                #     print(y[:3].long())
+                #     print(t[:3].long())
+                #     print(y[:3].long() != t[:3].long())
+                #     print((y[:3].long()!=t[:3].long()).sum(dim=1))
+
+                neq = (y.long()!=t.long()).sum(dim=1)
+
+                correct += (neq == 0).sum().item()
+                tot += x.size(0)
+            print('acc', correct/tot)
+
+            errors.append(1 - (correct/tot))
 
         t0 = time.time()
         loss.backward()        # compute the gradients
 
         optimizer.step()
 
-        w.add_scalar('sort-direct/loss', loss.data[0], i*batch)
-
-        losses.append(float(loss.data[0]))
+        w.add_scalar('sort-direct/loss', loss.data[0], i*arg.batch)
 
         if i % 1000 == 0:
             plt.clf()
-            plt.figure(figsize=(9, 3))
+            plt.plot(errors)
+
             util.clean()
-            plt.plot(losses)
-            plt.savefig('losses.pdf')
+            plt.ylim(0, 1)
+            plt.savefig('sorting-test.errors.png')
 
 if __name__ == "__main__":
 
@@ -97,13 +122,18 @@ if __name__ == "__main__":
     parser = ArgumentParser()
 
     parser.add_argument("-b", "--batch-size",
-                        dest="batch_size",
+                        dest="batch",
                         help="The batch size.",
-                        default=512, type=int)
+                        default=64, type=int)
 
     parser.add_argument("-s", "--size",
                         dest="size",
                         help="Size of the input",
+                        default=5, type=int)
+
+    parser.add_argument("-d", "--depth",
+                        dest="depth",
+                        help="Depth of the sorting network",
                         default=5, type=int)
 
     parser.add_argument("-i", "--iterations",
@@ -130,7 +160,4 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size,
-        iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, size=options.size,
-        seed=options.seed)
+    go(options)

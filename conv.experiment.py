@@ -222,22 +222,30 @@ class MatrixHyperlayer(nn.Module):
 
         # Sample additional points
         if rng is not None:
-            t0 = time.time()
-            total = util.prod(rng)
+            RRA = 32
+            relative_range = (16,16)
 
-            # not gaussian.PROPER_SAMPLING (since it's a big matrix)
-            sampled_ints = torch.cuda.FloatTensor(n, additional, rank) if use_cuda else torch.FloatTensor(n, additional, rank)
+            """
+            Sample uniformly from a small range around the given index tuple
+            """
+            rr_ints = torch.cuda.FloatTensor(n, RRA, rank) if use_cuda else torch.FloatTensor(n, RRA, rank)
 
-            sampled_ints.uniform_()
-            sampled_ints *= (1.0 - gaussian.EPSILON)
+            rr_ints.uniform_()
+            rr_ints *= (1.0 - gaussian.EPSILON)
 
-            rng = torch.cuda.FloatTensor(rng) if use_cuda else torch.FloatTensor(rng)
-            rng = rng.unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
+            rng = torch.cuda.FloatTensor(relative_range) if use_cuda else torch.FloatTensor(relative_range)
+            rng = rng.unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
 
-            sampled_ints = torch.floor(sampled_ints * rng).long()
+            rr_ints = torch.floor((rr_ints - 0.5) * rng).long()
 
-            ints = torch.cat((neighbor_ints, sampled_ints), dim=1)
+            rr_ints = means.unsqueeze(1).round().long() + rr_ints
 
+            # Correct (crudely) for sampling over the edges
+            rr_ints[rr_ints < 0] = 0
+            rngl = rng.long()
+            rr_ints[rr_ints > rngl] = rngl[rr_ints > rngl]
+
+            ints = torch.cat([neighbor_ints, rr_ints], dim=1)
             ints_fl = ints.float()
 
         ints_fl = Variable(ints_fl)  # leaf node in the comp graph, gradients go through values

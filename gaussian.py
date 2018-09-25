@@ -552,7 +552,7 @@ class HyperLayer(nn.Module):
                     """
                     Sample uniformly from a small range around the given index tuple
                     """
-                    rr_ints = torch.cuda.FloatTensor(batchsize, n, RRA, rank) if use_cuda else FloatTensor(batchsize, n, additional, rank)
+                    rr_ints = torch.cuda.FloatTensor(batchsize, n, RRA, rank) if use_cuda else FloatTensor(batchsize, n,RRA, rank)
 
                     rr_ints.uniform_()
                     rr_ints *= (1.0 - EPSILON)

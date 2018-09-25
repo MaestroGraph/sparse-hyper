@@ -315,7 +315,9 @@ class HyperLayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None, reinforce=False):
+    def __init__(self,
+                 in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False,
+                 subsample=None, reinforce=False, relative_range=None):
         super().__init__()
 
         self.reinforce = reinforce
@@ -323,6 +325,7 @@ class HyperLayer(nn.Module):
         self.in_rank = in_rank
         self.out_size = out_shape # without batch dimension
         self.additional = additional
+        self.relative_range = relative_range
 
         self.weights_rank = in_rank + len(out_shape) # implied rank of W
 
@@ -456,7 +459,7 @@ class HyperLayer(nn.Module):
 
         return means, sigmas, weights, snode
 
-    def discretize(self, means, sigmas, values, rng=None, additional=16, use_cuda=False):
+    def discretize(self, means, sigmas, values, rng=None, additional=16, use_cuda=False, relative_range=None):
         """
         Takes the output of a hypernetwork (real-valued indices and corresponding values) and turns it into a list of
         integer indices, by "distributing" the values to the nearest neighboring integer indices.
@@ -529,7 +532,9 @@ class HyperLayer(nn.Module):
                 ints_fl = ints.float().cuda() if use_cuda else ints.float()
 
             else:
-
+                """
+                Sample uniformly from all possible index-tuples, with replacement
+                """
                 sampled_ints = torch.cuda.FloatTensor(batchsize, n, additional, rank) if use_cuda else FloatTensor(batchsize, n, additional, rank)
 
                 sampled_ints.uniform_()
@@ -540,8 +545,33 @@ class HyperLayer(nn.Module):
 
                 sampled_ints = torch.floor(sampled_ints * rng).long()
 
-                ints = torch.cat((neighbor_ints, sampled_ints), dim=2)
 
+                if relative_range is not None:
+                    RRA  = 32
+
+                    """
+                    Sample uniformly from a small range around the given index tuple
+                    """
+                    rr_ints = torch.cuda.FloatTensor(batchsize, n, RRA, rank) if use_cuda else FloatTensor(batchsize, n, additional, rank)
+
+                    rr_ints.uniform_()
+                    rr_ints *= (1.0 - EPSILON)
+
+                    rng = torch.cuda.FloatTensor(relative_range) if use_cuda else FloatTensor(relative_range)
+                    rng = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
+
+                    rr_ints = torch.floor((rr_ints-0.5) * rng).long()
+
+                    rr_ints = means.unsqueeze(2).round().long() + rr_ints
+
+                    # Correct (crudely) for sampling over the edges
+                    rr_ints[rr_ints < 0] = 0
+                    rngl = rng.long()
+                    rr_ints[rr_ints > rngl] = rngl[rr_ints > rngl]
+
+
+                samples = [neighbor_ints, sampled_ints, rr_ints] if relative_range is not None else [neighbor_ints, sampled_ints]
+                ints = torch.cat(samples, dim=2)
                 ints_fl = ints.float()
 
             logging.info('  sampling: {} seconds'.format(time.time() - t0))
@@ -617,7 +647,8 @@ class HyperLayer(nn.Module):
 
         if not self.reinforce:
             if self.subsample is None:
-                indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+                indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional,
+                use_cuda=self.use_cuda, relative_range=self.relative_range)
 
                 values = values * props
             else: # select a small proportion of the indices to learn over
@@ -766,9 +797,10 @@ class ParamASHLayer(HyperLayer):
     """
 
     def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False,
-                 subsample=None, min_sigma=0.0, reinforce=False):
+                 subsample=None, min_sigma=0.0, reinforce=False, relative_range=None):
         super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape,
-                         bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample, reinforce=reinforce)
+                         bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample,
+                         reinforce=reinforce, relative_range=relative_range)
 
         self.k = k
         self.in_shape = in_shape

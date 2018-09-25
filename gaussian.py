@@ -24,7 +24,7 @@ PROPER_SAMPLING = False # NB: set to true for very small tranformations.
 BATCH_NEIGHBORS = True
 SIGMA_BOOST = 2.0
 
-SINKHORN_ITS = 3
+SINKHORN_ITS = None
 """
 
 """

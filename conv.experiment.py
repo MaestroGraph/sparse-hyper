@@ -398,10 +398,10 @@ class MatrixHyperlayerConst(nn.Module):
         self.params = Parameter(torch.randn(k * out_num, 3))
 
         outs = torch.arange(out_num).unsqueeze(1).expand(out_num, k * (2 + radditional + gadditional)).contiguous().view(-1, 1)
-        self.register_buffer('outs', outs)
+        self.register_buffer('outs', outs.long())
 
         outs_inf = torch.arange(out_num).unsqueeze(1).expand(out_num, k).contiguous().view(-1, 1)
-        self.register_buffer('outs_inf', outs_inf)
+        self.register_buffer('outs_inf', outs_inf.long())
 
     def size(self):
         return (self.out_num, self.in_num)
@@ -534,7 +534,7 @@ class MatrixHyperlayerConst(nn.Module):
             values = values * props
 
             assert indices.size(0) == self.outs.size(0)
-            indices = torch.cat([self.outs, indices], dim=1)
+            indices = torch.cat([self.outs, indices.long()], dim=1)
 
         else:
             indices = means.round().long()
@@ -542,7 +542,7 @@ class MatrixHyperlayerConst(nn.Module):
             values = values.squeeze()
 
             assert indices.size(0) == self.outs_inf.size(0)
-            indices = torch.cat([self.outs_inf, indices], dim=1)
+            indices = torch.cat([self.outs_inf, indices.long()], dim=1)
 
         if self.use_cuda:
             indices = indices.cuda()

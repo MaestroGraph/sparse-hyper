@@ -233,17 +233,26 @@ class MatrixHyperlayer(nn.Module):
             rr_ints.uniform_()
             rr_ints *= (1.0 - gaussian.EPSILON)
 
-            rng = torch.cuda.FloatTensor(relative_range) if use_cuda else torch.FloatTensor(relative_range)
-            rng = rng.unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
+            rng = torch.cuda.FloatTensor(rng) if use_cuda else torch.FloatTensor(rng)
 
-            rr_ints = torch.floor((rr_ints - 0.5) * rng).long()
+            rngxp = rng.unsqueeze(0).unsqueeze(0).expand_as(rr_ints)  # bounds of the tensor
+            rrng = torch.cuda.FloatTensor(relative_range) if use_cuda else torch.FloatTensor(relative_range)  # bounds of the range from which to sample
+            rrng = rrng.unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
 
-            rr_ints = means.unsqueeze(1).round().long() + rr_ints
+            mns_expand = means.round().unsqueeze(2).expand_as(rr_ints)
 
-            # Correct (crudely) for sampling over the edges
-            rr_ints[rr_ints < 0] = 0
-            rngl = rng.long()
-            rr_ints[rr_ints > rngl] = rngl[rr_ints > rngl]
+            # upper and lower bounds
+            lower = mns_expand - rrng * 0.5
+            upper = mns_expand + rrng * 0.5
+
+            # check for any ranges that are out of bounds
+            idxs = lower < 0.0
+            lower[idxs] = 0.0
+
+            idxs = upper > rngxp
+            lower[idxs] = rngxp[idxs] - rrng[idxs]
+
+            rr_ints = (rr_ints * rrng + lower).long()
 
             ints = torch.cat([neighbor_ints, rr_ints], dim=1)
             ints_fl = ints.float()

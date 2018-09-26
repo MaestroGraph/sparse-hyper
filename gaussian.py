@@ -541,14 +541,13 @@ class HyperLayer(nn.Module):
                 sampled_ints *= (1.0 - EPSILON)
 
                 rng = torch.cuda.FloatTensor(rng) if use_cuda else FloatTensor(rng)
-                rng = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
+                rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
 
-                sampled_ints = torch.floor(sampled_ints * rng).long()
+                sampled_ints = torch.floor(sampled_ints * rngxp).long()
 
 
                 if relative_range is not None:
-                    RRA  = 32
-
+                    RRA = 4
                     """
                     Sample uniformly from a small range around the given index tuple
                     """
@@ -557,18 +556,27 @@ class HyperLayer(nn.Module):
                     rr_ints.uniform_()
                     rr_ints *= (1.0 - EPSILON)
 
-                    rng = torch.cuda.FloatTensor(relative_range) if use_cuda else FloatTensor(relative_range)
-                    rng = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
+                    rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints) # bounds of the tensor
+                    rrng = torch.cuda.FloatTensor(relative_range) if use_cuda else FloatTensor(relative_range) # bounds of the range from which to sample
+                    rrng = rrng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
 
-                    rr_ints = torch.floor((rr_ints-0.5) * rng).long()
+                    mns_expand = means.round().unsqueeze(2).expand_as(rr_ints)
 
-                    rr_ints = means.unsqueeze(2).round().long() + rr_ints
+                    # upper and lower bounds
+                    lower = mns_expand - rrng * 0.5
+                    upper = mns_expand + rrng * 0.5
 
-                    # Correct (crudely) for sampling over the edges
-                    rr_ints[rr_ints < 0] = 0
-                    rngl = rng.long()
-                    rr_ints[rr_ints > rngl] = rngl[rr_ints > rngl]
+                    # check for any ranges that are out of bounds
+                    idxs = lower < 0.0
+                    lower[idxs] = 0.0
 
+                    idxs = upper > rngxp
+                    lower[idxs] = rngxp[idxs] - rrng[idxs]
+
+                    # print('means', means.round().long())
+                    # print('lower', lower)
+
+                    rr_ints = (rr_ints * rrng + lower).long()
 
                 samples = [neighbor_ints, sampled_ints, rr_ints] if relative_range is not None else [neighbor_ints, sampled_ints]
                 ints = torch.cat(samples, dim=2)

@@ -901,11 +901,16 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
 
     elif (task == 'image-folder-bw'):
 
-        if final:
-            raise Exception('not implemented yet')
-        else:
+        tr = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
 
-            tr = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
+        if final:
+            train = torchvision.datasets.ImageFolder(root=data + '/train/', transform=tr)
+            test  = torchvision.datasets.ImageFolder(root=data + '/test/', transform=tr)
+
+            trainloader = DataLoader(train, batch_size=batch, shuffle=True)
+            testloader = DataLoader(train, batch_size=batch, shuffle=True)
+
+        else:
 
             NUM_TRAIN = 45000
             NUM_VAL = 5000

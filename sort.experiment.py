@@ -338,6 +338,11 @@ if __name__ == "__main__":
                         help="How many iterations per dot in the loss curves.",
                         default=1000, type=int)
 
+    parser.add_argument("-D", "--depth",
+                        dest="depth",
+                        help="Depth of the sorting network.",
+                        default=4, type=int)
+
     parser.add_argument("-S", "--sigma-scale",
                         dest="sigma_scale",
                         help="Sigma scale.",

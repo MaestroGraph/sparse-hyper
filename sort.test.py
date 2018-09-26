@@ -22,7 +22,7 @@ LOG = logging.getLogger()
 """
 Check if the sort function is learnable directly
 """
-w = SummaryWriter()
+# w = SummaryWriter()
 
 def go(arg):
 
@@ -106,7 +106,7 @@ def go(arg):
 
         optimizer.step()
 
-        w.add_scalar('sort-direct/loss', loss.data[0], i*arg.batch)
+        # w.add_scalar('sort-direct/loss', loss.data[0], i*arg.batch)
 
         if i % 1000 == 0:
             plt.clf()

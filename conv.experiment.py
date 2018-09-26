@@ -378,8 +378,6 @@ class MatrixHyperlayerConst(nn.Module):
         self.use_cuda = True
         super().cuda(device_id)
 
-        self.floor_mask = self.floor_mask.cuda()
-
     def __init__(self, in_num, out_num, k, radditional=0, gadditional=0, region=128,
                  sigma_scale=0.2, min_sigma=0.0, fix_value=False):
         super().__init__()

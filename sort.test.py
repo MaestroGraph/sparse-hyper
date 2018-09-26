@@ -26,8 +26,7 @@ Check if the sort function is learnable directly
 
 def go(arg):
 
-    HIDDENBIG = arg.size * arg.size ** 2
-
+    HIDDENBIG = arg.size * arg.size * 2
 
     torch.manual_seed(arg.seed)
     activation = nn.ReLU()

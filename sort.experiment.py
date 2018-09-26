@@ -50,7 +50,7 @@ class SortLayer(HyperLayer):
     """
 
     """
-    def __init__(self, size, k,  additional=0, sigma_scale=0.1, fix_values=False, sigma_floor=0.0):
+    def __init__(self, size, k,  additional=0, sigma_scale=0.1, fix_values=False, sigma_floor=0.0, depth=4):
 
         if size < 8:
             gaussian.PROPER_SAMPLING = True
@@ -68,10 +68,8 @@ class SortLayer(HyperLayer):
         self.fix_values = fix_values
 
         outsize = 4 * k
-
-        activation = nn.Sigmoid()
-        hiddenbig = size * 9
-        hidden = size * 6
+        h = size * size * 2
+        activation = nn.ReLU()
 
         # self.source = nn.Sequential(
         #     nn.Linear(size, hiddenbig),
@@ -89,15 +87,18 @@ class SortLayer(HyperLayer):
         #     nn.Linear(hidden, outsize),
         # )
 
-        h = size * size * 2
-        self.source = nn.Sequential(
-            nn.Linear(size, h),
-            activation,
-            nn.Linear(h, h),
-            activation,
+        layers = []
+        layers.append(nn.Linear(size, h))
+        layers.append(activation)
 
-            nn.Linear(h, outsize),
-        )
+        for _ in range(depth):
+            layers.append(nn.Linear(h, h, bias=True))
+            # layers.append(nn.BatchNorm1d(HIDDENBIG))
+            layers.append(activation)
+
+        layers.append(nn.Linear(h, outsize))
+
+        self.source = nn.Sequential(*layers)
 
     def hyper(self, input):
         """

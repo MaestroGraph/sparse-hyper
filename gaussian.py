@@ -317,7 +317,7 @@ class HyperLayer(nn.Module):
 
     def __init__(self,
                  in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False,
-                 subsample=None, reinforce=False, relative_range=None):
+                 subsample=None, reinforce=False, relative_range=None, rr_additional=None):
         super().__init__()
 
         self.reinforce = reinforce
@@ -326,6 +326,7 @@ class HyperLayer(nn.Module):
         self.out_size = out_shape # without batch dimension
         self.additional = additional
         self.relative_range = relative_range
+        self.rr_additional = rr_additional
 
         self.weights_rank = in_rank + len(out_shape) # implied rank of W
 
@@ -547,11 +548,10 @@ class HyperLayer(nn.Module):
 
 
                 if relative_range is not None:
-                    RRA = 4
                     """
                     Sample uniformly from a small range around the given index tuple
                     """
-                    rr_ints = torch.cuda.FloatTensor(batchsize, n, RRA, rank) if use_cuda else FloatTensor(batchsize, n,RRA, rank)
+                    rr_ints = torch.cuda.FloatTensor(batchsize, n, self.rr_additional, rank) if use_cuda else FloatTensor(batchsize, n, self.rr_additional, rank)
 
                     rr_ints.uniform_()
                     rr_ints *= (1.0 - EPSILON)
@@ -805,10 +805,11 @@ class ParamASHLayer(HyperLayer):
     """
 
     def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False,
-                 subsample=None, min_sigma=0.0, reinforce=False, relative_range=None):
+                 subsample=None, min_sigma=0.0, reinforce=False, relative_range=None, rr_additional=None):
         super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape,
                          bias_type=Bias.DENSE if has_bias else Bias.NONE, subsample=subsample,
-                         reinforce=reinforce, relative_range=relative_range)
+                         reinforce=reinforce, relative_range=relative_range,
+                         rr_additional=rr_additional)
 
         self.k = k
         self.in_shape = in_shape

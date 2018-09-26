@@ -51,7 +51,8 @@ def go(arg):
             SHAPE, SHAPE, k=arg.size, additional=additional,
             sigma_scale=arg.sigma_scale if not arg.reinforce else arg.size/7.0,
             has_bias=False, fix_values=arg.fix_values, min_sigma=arg.min_sigma, reinforce=arg.reinforce,
-            relative_range=None if arg.rr is None else (arg.rr, arg.rr))
+            relative_range=None if arg.rr is None else (arg.rr, arg.rr),
+            rr_additional=arg.ca)
 
         if arg.cuda:
             model.cuda()
@@ -203,8 +204,14 @@ if __name__ == "__main__":
 
     parser.add_argument("-C", "--chunk-size",
                         dest="rr",
-                        help="Size of the sampling region around the index tuple (if None, uniform over all tuples).",
+                        help="Size of the sampling region around the index tuple (if None, only uniform sampling is used).",
                         default=None, type=int)
+
+    parser.add_argument("-A", "--chunk-additional",
+                        dest="ca",
+                        help="Number of points to sample for sampling region.",
+                        default=None, type=int)
+
 
     parser.add_argument("-B", "--use_reinforce", dest="reinforce",
                         help="Use reinforce instead of the backprop approach.",

@@ -239,7 +239,7 @@ class MatrixHyperlayer(nn.Module):
             rrng = torch.cuda.FloatTensor(relative_range) if use_cuda else torch.FloatTensor(relative_range)  # bounds of the range from which to sample
             rrng = rrng.unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
 
-            mns_expand = means.round().unsqueeze(2).expand_as(rr_ints)
+            mns_expand = means.round().unsqueeze(1).expand_as(rr_ints)
 
             # upper and lower bounds
             lower = mns_expand - rrng * 0.5

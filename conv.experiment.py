@@ -368,6 +368,240 @@ class MatrixHyperlayer(nn.Module):
 
         return means, sigmas, values * 0.0 + 1.0 if self.fix_value else F.tanh(values)
 
+class MatrixHyperlayerConst(nn.Module):
+    """
+    Constrained version of the matrix hyperlayer. Each output get exactly k inputs
+    """
+
+    def __init__(self, in_num, out_num, k, radditional=0, gadditional=0, region=128,
+                 sigma_scale=0.2, min_sigma=0.0, fix_value=False):
+        super().__init__()
+
+        self.min_sigma = min_sigma
+        self.use_cuda = False
+        self.in_num = in_num
+        self.out_num = out_num
+        self.k = k
+        self.radditional = radditional
+        self.region = region
+        self.gadditional = gadditional
+        self.sigma_scale = sigma_scale
+        self.fix_value = fix_value
+
+        self.weights_rank = 2 # implied rank of W
+
+        self.params = Parameter(torch.randn(k * out_num, 3))
+
+        outs = torch.arange(out_num).unsqueeze(1).expand(out_num, k * (2 + radditional + gadditional)).contiguous().view(-1, 1)
+        self.register_buffer('outs', outs)
+
+        outs_inf = torch.arange(out_num).unsqueeze(1).expand(out_num, k).contiguous().view(-1, 1)
+        self.register_buffer('outs_inf', outs_inf)
+
+    def size(self):
+        return (self.out_num, self.in_num)
+
+    def discretize(self, means, sigmas, values, rng=None, use_cuda=False):
+        """
+        Takes the output of a hypernetwork (real-valued indices and corresponding values) and turns it into a list of
+        integer indices, by "distributing" the values to the nearest neighboring integer indices.
+
+        NB: the returned ints is not a Variable (just a plain LongTensor). autograd of the real valued indices passes
+        through the values alone, not the integer indices used to instantiate the sparse matrix.
+
+        :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
+        :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
+        :return: a triple (ints, props, vals). ints is an N*2^K by K matrix representing the N*2^K integer index-tuples that can
+            be made by flooring or ceiling the indices in 'ind'. 'props' is a vector of length N*2^K, which indicates how
+            much of the original value each integer index-tuple receives (based on the distance to the real-valued
+            index-tuple). vals is vector of length N*2^K, containing the value of the corresponding real-valued index-tuple
+            (ie. vals just repeats each value in the input 'val' 2^K times).
+        """
+
+        n, rank = means.size()
+        assert rank == 1
+
+        # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^rank
+        # integerized index-tuples we can make from that one real-valued index-tuple
+        # ints = torch.cuda.FloatTensor(batchsize, n, 2 ** rank + additional, rank) if use_cuda else FloatTensor(batchsize, n, 2 ** rank, rank)
+        t0 = time.time()
+
+        dv = 'cuda' if use_cuda else 'cpu'
+
+        """
+        Sample the 2 nearest points
+        """
+        floor_mask = torch.tensor([1, 0], device=dv, dtype=torch.uint8)
+        fm = floor_mask.unsqueeze(0).unsqueeze(2).expand(n, 2, 1)
+
+        neighbor_ints = means.data.unsqueeze(1).expand(n, 2, 1).contiguous()
+
+        neighbor_ints[fm] = neighbor_ints[fm].floor()
+        neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
+
+        neighbor_ints = neighbor_ints.long()
+
+        # print('neighbor_ints', neighbor_ints)
+
+        """
+        Sample uniformly from a small range around the given index tuple
+        """
+        relative_range = (self.region,)
+
+        rr_ints = torch.cuda.FloatTensor(n, self.radditional, 1) if use_cuda else torch.FloatTensor(n, self.radditional, 1)
+
+        rr_ints.uniform_()
+        rr_ints *= (1.0 - gaussian.EPSILON)
+
+        rng = torch.cuda.FloatTensor(rng) if use_cuda else torch.FloatTensor(rng)
+
+        rngxp = rng.unsqueeze(0).unsqueeze(0).expand_as(rr_ints)  # bounds of the tensor
+        rrng = torch.cuda.FloatTensor(relative_range) if use_cuda else torch.FloatTensor(relative_range)  # bounds of the range from which to sample
+        rrng = rrng.unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
+
+        mns_expand = means.round().unsqueeze(1).expand_as(rr_ints)
+
+        # upper and lower bounds
+        lower = mns_expand - rrng * 0.5
+        upper = mns_expand + rrng * 0.5
+
+        # check for any ranges that are out of bounds
+        idxs = lower < 0.0
+        lower[idxs] = 0.0
+
+        idxs = upper > rngxp
+        lower[idxs] = rngxp[idxs] - rrng[idxs]
+
+        rr_ints = (rr_ints * rrng + lower).long()
+
+        """
+        Sample uniformly from all index tuples
+        """
+        g_ints = torch.cuda.FloatTensor(n, self.gadditional, 1) if use_cuda else torch.FloatTensor(n, self.gadditional, 1)
+        rngxp = rng.unsqueeze(0).unsqueeze(0).expand_as(g_ints)  # bounds of the tensor
+
+        g_ints.uniform_()
+        g_ints *= (1.0 - gaussian.EPSILON) * rngxp
+        g_ints = g_ints.long()
+
+        ints = torch.cat([neighbor_ints, rr_ints, g_ints], dim=1)
+        ints_fl = ints.float()
+
+        ints_fl = Variable(ints_fl)  # leaf node in the comp graph, gradients go through values
+
+        # compute the proportion of the value each integer index tuple receives
+        props = densities(ints_fl, means, sigmas)
+
+        # -- normalize the proportions for each index tuple
+        sums = torch.sum(props + gaussian.EPSILON, dim=1, keepdim=True).expand_as(props)
+        props = props / sums
+
+        # repeat each value 2^rank+A times, so it matches the new indices
+        val = values.expand_as(props).contiguous()
+
+        # 'Unroll' the ints tensor into a long list of integer index tuples (ie. a matrix of (n*(2^rank+add)) by rank)
+        ints = ints.view(-1, 1)
+
+        # ... and reshape the proportions and values the same way
+        props = props.view(-1)
+        val = val.view(-1)
+
+        return ints, props, val
+
+    def forward(self, input, train=True):
+
+        ### Compute and unpack output of hypernetwork
+
+        means, sigmas, values = self.hyper(input)
+
+        t0total = time.time()
+
+        rng = (self.in_num, )
+
+        assert input.size(0) == self.in_num
+
+        # turn the real values into integers in a differentiable way
+        t0 = time.time()
+
+        if train:
+            indices, props, values = self.discretize(means, sigmas, values, rng=rng, use_cuda=self.use_cuda)
+
+            values = values * props
+
+            assert indices.size(0) == self.outs.size(0)
+            indices = torch.cat([self.outs, indices], dim=1)
+
+        else:
+            indices = means.round().long()
+
+            values = values.squeeze()
+
+            assert indices.size(0) == self.outs_inf.size(0)
+            indices = torch.cat([self.outs_inf, indices], dim=1)
+
+        if self.use_cuda:
+            indices = indices.cuda()
+
+        # # diagonal
+        # dindices = torch.tensor(range(self.in_num), device='cuda' if self.use_cuda else 'cpu').unsqueeze(1).expand(self.in_num, 2)
+        #
+        # indices = torch.cat([indices, dindices], dim=0)
+        # values = torch.cat([values, self.diagonal], dim=0)
+
+        # Kill anything on the diagonal
+        values[indices[:, 0] == indices[:, 1]] = 0.0
+
+        # if self.symmetric:
+        #     # Add reverse direction automatically
+        #     flipped_indices = torch.cat([indices[:, 1].unsqueeze(1), indices[:, 0].unsqueeze(1)], dim=1)
+        #     indices         = torch.cat([indices, flipped_indices], dim=0)
+        #     values          = torch.cat([values, values], dim=0)
+        # this might actually work...
+
+        ### Create the sparse weight tensor
+
+        t0 = time.time()
+
+        # Prevent segfault
+        assert not util.contains_nan(values.data)
+
+        # print(vindices.size(), bfvalues.size(), bfsize, bfx.size())
+        vindices = Variable(indices.t())
+        sz = Variable(torch.tensor((self.out_num, self.in_num)))
+
+        spmm = sparsemult(self.use_cuda)
+        output = spmm(vindices, values, sz, input)
+
+        return output
+
+    def hyper(self, input=None):
+        """
+        Evaluates hypernetwork.
+        """
+        k, width = self.params.size()
+
+        means = F.sigmoid(self.params[:, 0:1])
+
+        # Limits for each of the w_rank indices
+        # and scales for the sigmas
+        s = torch.cuda.FloatTensor((self.in_num,)) if self.use_cuda else torch.FloatTensor((self.in_num,))
+        s = Variable(s.contiguous())
+
+        ss = s.unsqueeze(0)
+        sm = s - 1
+        sm = sm.unsqueeze(0)
+
+        means = means * sm.expand_as(means)
+
+        sigmas = nn.functional.softplus(self.params[:, 1:2] + gaussian.SIGMA_BOOST) + gaussian.EPSILON
+
+        values = self.params[:, 2:] # * 0.0 + 1.0
+
+        sigmas = sigmas.expand_as(means)
+        sigmas = sigmas * ss.expand_as(sigmas)
+        sigmas = sigmas * self.sigma_scale + self.min_sigma
+
+        return means, sigmas, values * 0.0 + 1.0 if self.fix_value else values
 
 class GraphConvolution(Module):
     """
@@ -397,7 +631,7 @@ class GraphConvolution(Module):
         if self.bias is not None:
             self.bias.data.zero_() # different from the default implementation
 
-    def forward(self, input, adj : MatrixHyperlayer, train=True):
+    def forward(self, input, adj, train=True):
 
         if input is None: # The input is the identity matrix
             support = self.weight
@@ -415,7 +649,7 @@ class GraphConvolution(Module):
 
 class ConvModel(nn.Module):
 
-    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0, directed=True, fix_value=False):
+    def __init__(self, data_size, k, emb_size = 16, radd=32, gadd=32, range=128, min_sigma=0.0, directed=True, fix_value=False):
         super().__init__()
 
         self.data_shape = data_size
@@ -446,8 +680,8 @@ class ConvModel(nn.Module):
             nn.Sigmoid(), util.Reshape((1, 28, 28))
         )
 
-        self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma,
-                                    symmetric=not directed, fix_value=fix_value)
+        self.adj = MatrixHyperlayerConst(n, n, k, radditional=radd, gadditional=gadd, region=range,
+                            min_sigma=min_sigma, fix_value=fix_value)
         self.embedding = Parameter(torch.randn(n, emb_size))
 
         # self.embedding_conv = GraphConvolution(n, emb_size, bias=False)
@@ -510,30 +744,19 @@ def go(arg):
 
     w = SummaryWriter()
 
-    SHAPE = (1, 28, 28)
-
     mnist = torchvision.datasets.MNIST(root=arg.data, train=True, download=True, transform=transforms.ToTensor())
     data = util.totensor(mnist, shuffle=True)
-
-    clusters = [[0, 3, 4, 14], [1, 7, 10, 11], [8, 15]]
-    gold = []
-
-    for c in clusters:
-        for ii, i in enumerate(c):
-            for j in c[ii+1:]:
-                gold.append([i, j])
-
-    gold = Variable(torch.tensor(gold, dtype=torch.float))
 
     assert data.min() == 0 and data.max() == 1.0
 
     if arg.limit is not None:
         data = data[:arg.limit]
 
-    model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size, additional=arg.additional, min_sigma=arg.min_sigma,
-                      directed=not arg.undirected, fix_value=arg.fix_value)
+    model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size,
+                      gadd=arg.gadditional, radd=arg.radditional, range=arg.range,
+                      min_sigma=arg.min_sigma, fix_value=arg.fix_value)
 
-    if arg.cuda: # This probably won't work (but maybe with small data)
+    if arg.cuda:
         model.cuda()
         data = data.cuda()
 
@@ -554,11 +777,6 @@ def go(arg):
 
         loss = losses.sum()
 
-        # means, sigmas, values = model.adj.hyper()
-        # cheatloss = F.mse_loss(means, gold)
-        #
-        # (loss * 0.00001 + cheatloss).backward()  # compute the gradients
-
         loss.backward()
         optimizer.step()
 
@@ -575,91 +793,94 @@ def go(arg):
                        interpolation='nearest')
             plt.savefig('./conv/inp.{:03d}.png'.format(epoch))
 
-            outputs = model(depth=arg.depth, train=False)
-
-            for d, o in enumerate(outputs):
-
-                plt.cla()
-                plt.imshow(np.transpose(torchvision.utils.make_grid(o.data[:16, :]).cpu().numpy(), (1, 2, 0)),
-                           interpolation='nearest')
-                plt.savefig('./conv/rec.{:03d}.{:02d}.png'.format(epoch, d))
-
-            plt.figure(figsize=(7, 7))
-
-            means, sigmas, values = model.adj.hyper()
-
-            plt.cla()
-
-            s = model.adj.size()
-            util.plot(means.unsqueeze(0), sigmas.unsqueeze(0), values.unsqueeze(0).squeeze(2), shape=s)
-            plt.xlim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
-            plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
-
-            plt.savefig('./conv/means{:03}.pdf'.format(epoch))
-            if arg.draw_graph:
-
-                # Plot the graph
+            with torch.no_grad():
                 outputs = model(depth=arg.depth, train=False)
 
-                g = nx.MultiGraph() if arg.undirected else nx.MultiDiGraph()
-                g.add_nodes_from(range(data.size(0)))
+                for d, o in enumerate(outputs):
+                    plt.cla()
+                    plt.imshow(np.transpose(torchvision.utils.make_grid(o.data[:16, :]).cpu().numpy(), (1, 2, 0)),
+                               interpolation='nearest')
+                    plt.savefig('./conv/rec.{:03d}.{:02d}.png'.format(epoch, d))
 
-                means, _, values = model.adj.hyper()
+                plt.figure(figsize=(7, 7))
 
-                print('Drawing graph at ', epoch, 'epochs')
-                elist = []
-                for i in range(means.size(0)):
-                    m = means[i, :].round().long()
-                    v = values[i]
+                means, sigmas, values = model.adj.hyper()
+                means, sigmas, values = means.data, sigmas.data, values.data
+                means = torch.cat([model.adj.outs_inf.data.float(), means], dim=1)
 
-                    g.add_edge(m[1].item(), m[0].item(), weight=v.item() )
-                    # print(m[1].item(), m[0].item(), v.item())
+                # sys.exit()
+                plt.cla()
 
-                plt.figure(figsize=(8,8))
-                ax = plt.subplot(111)
+                s = model.adj.size()
+                util.plot1d(means, sigmas, values.squeeze(), shape=s)
+                plt.xlim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
+                plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
 
-                pos = nx.spring_layout(g, iterations=1000)
-                # pos = nx.circular_layout(g)
+                plt.savefig('./conv/means{:03}.pdf'.format(epoch))
 
-                nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
-                # edges = nx.draw_networkx_edges(g, pos, edge_color=values.data.view(-1), edge_vmin=0.0, edge_vmax=1.0, cmap='bone')
+                graph = np.concatenate([means.round().long().cpu().numpy(), values.cpu().numpy()], axis=1)
+                np.savetxt('graph.{:05}.csv', graph)
 
-                weights = [d['weight'] for (_, _, d) in g.edges(data=True)]
+                if arg.draw_graph:
+                    # Plot the graph
+                    outputs = model(depth=arg.depth, train=False)
 
-                norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0) # doing this manually, the nx code produces very strange results
-                map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.RdYlBu)
+                    g = nx.MultiDiGraph()
+                    g.add_nodes_from(range(data.size(0)))
 
-                colors = map.to_rgba(weights)
+                    print('Drawing graph at ', epoch, 'epochs')
+                    for i in range(means.size(0)):
+                        m = means[i, :].round().long()
+                        v = values[i]
 
-                nx.draw_networkx_edges(g, pos, width=1.0, edge_color=colors, axes=ax)
+                        g.add_edge(m[1].item(), m[0].item(), weight=v.item() )
+                        # print(m[1].item(), m[0].item(), v.item())
 
-                ims = 0.03
-                xmin, xmax = float('inf'), float('-inf')
-                ymin, ymax = float('inf'), float('-inf')
+                    plt.figure(figsize=(8,8))
+                    ax = plt.subplot(111)
 
-                out0 = outputs[1].data
-                # out1 = outputs[1].data
+                    pos = nx.spring_layout(g, iterations=50000, k=5/math.sqrt(data.size(0)))
+                    # pos = nx.circular_layout(g)
 
-                for i, coords in pos.items():
+                    nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
+                    # edges = nx.draw_networkx_edges(g, pos, edge_color=values.data.view(-1), edge_vmin=0.0, edge_vmax=1.0, cmap='bone')
 
-                    extent  = (coords[0] - ims, coords[0] + ims, coords[1] - ims, coords[1] + ims)
-                    extent0 = (coords[0] - ims, coords[0] + ims, coords[1] + ims, coords[1] + 3 * ims)
-                    # extent1 = (coords[0] - ims, coords[0] + ims, coords[1] + 3 * ims, coords[1] + 5 * ims)
+                    weights = [d['weight'] for (_, _, d) in g.edges(data=True)]
 
-                    ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent,  zorder=100, alpha=0.85)
-                    ax.imshow(out0[i].cpu().squeeze(),  cmap='pink_r', extent=extent0, zorder=100, alpha=0.85)
-                    # ax.imshow(out1[i].cpu().squeeze(),  cmap='pink_r', extent=extent1, zorder=100)
+                    norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0) # doing this manually, the nx code produces very strange results
+                    map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.RdYlBu)
 
-                    xmin, xmax = min(coords[0], xmin), max(coords[0], xmax)
-                    ymin, ymax = min(coords[1], ymin), max(coords[1], ymax)
+                    colors = map.to_rgba(weights)
 
-                MARGIN = 0.3
-                ax.set_xlim(xmin-MARGIN, xmax+MARGIN)
-                ax.set_ylim(ymin-MARGIN, ymax+MARGIN)
+                    nx.draw_networkx_edges(g, pos, width=1.0, edge_color=colors, axes=ax)
 
-                plt.axis('off')
+                    ims = 0.03
+                    xmin, xmax = float('inf'), float('-inf')
+                    ymin, ymax = float('inf'), float('-inf')
 
-                plt.savefig('./conv/graph{:03}.pdf'.format(epoch), dpi=300)
+                    out0 = outputs[1].data
+                    # out1 = outputs[1].data
+
+                    for i, coords in pos.items():
+
+                        extent  = (coords[0] - ims, coords[0] + ims, coords[1] - ims, coords[1] + ims)
+                        # extent0 = (coords[0] - ims, coords[0] + ims, coords[1] + ims, coords[1] + 3 * ims)
+                        # extent1 = (coords[0] - ims, coords[0] + ims, coords[1] + 3 * ims, coords[1] + 5 * ims)
+
+                        ax.imshow(data[i].cpu().squeeze(), cmap='gray_r', extent=extent,  zorder=100, alpha=1)
+                        # ax.imshow(out0[i].cpu().squeeze(),  cmap='pink_r', extent=extent0, zorder=100, alpha=0.85)
+                        # ax.imshow(out1[i].cpu().squeeze(),  cmap='pink_r', extent=extent1, zorder=100)
+
+                        xmin, xmax = min(coords[0], xmin), max(coords[0], xmax)
+                        ymin, ymax = min(coords[1], ymin), max(coords[1], ymax)
+
+                    MARGIN = 0.3
+                    ax.set_xlim(xmin-MARGIN, xmax+MARGIN)
+                    ax.set_ylim(ymin-MARGIN, ymax+MARGIN)
+
+                    plt.axis('off')
+
+                    plt.savefig('./conv/graph{:03}.pdf'.format(epoch), dpi=300)
 
     print('Finished Training.')
 
@@ -772,9 +993,19 @@ if __name__ == "__main__":
                         help="Number of data points",
                         default=None, type=int)
 
-    parser.add_argument("-a", "--additional",
-                        dest="additional",
-                        help="Number of additional points sampled oper index-tuple",
+    parser.add_argument("-a", "--gadditional",
+                        dest="gadditional",
+                        help="Number of additional points sampled globally per index-tuple",
+                        default=32, type=int)
+
+    parser.add_argument("-A", "--radditional",
+                        dest="radditional",
+                        help="Number of additional points sampled locally per index-tuple",
+                        default=16, type=int)
+
+    parser.add_argument("-R", "--range",
+                        dest="range",
+                        help="Range in which the local points are samples",
                         default=128, type=int)
 
     parser.add_argument("-d", "--depth",
@@ -800,10 +1031,10 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
                         action="store_true")
-
-    parser.add_argument("-S", "--undirected", dest="undirected",
-                        help="Use an undirected graph",
-                        action="store_true")
+    #
+    # parser.add_argument("-S", "--undirected", dest="undirected",
+    #                     help="Use an undirected graph",
+    #                     action="store_true")
 
     parser.add_argument("-G", "--draw-graph", dest="draw_graph",
                         help="Draw the graph",

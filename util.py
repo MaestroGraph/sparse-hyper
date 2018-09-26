@@ -139,7 +139,7 @@ def plot1d(means, sigmas, values, shape=None, axes=None):
         axes.add_patch(Rectangle(xy=(means[i, 1]  - sigmas[i, 0]*0.5, means[i, 0] - h*0.5), width=sigmas[i,0] , height=h, color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 
-    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=1, edgecolor='k')
+    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=0, s=5)
 
     if shape is not None:
 
@@ -154,6 +154,7 @@ def plot1d(means, sigmas, values, shape=None, axes=None):
     axes.spines['top'].set_visible(False)
     axes.spines['bottom'].set_visible(False)
     axes.spines['left'].set_visible(False)
+
 
 def plot1d(means, sigmas, values, shape=None, axes=None):
 
@@ -179,7 +180,7 @@ def plot1d(means, sigmas, values, shape=None, axes=None):
         axes.add_patch(Rectangle(xy=(means[i, 1]  - sigmas[i, 0]*0.5, means[i, 0] - h*0.5), width=sigmas[i,0] , height=h, color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 
-    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=1, edgecolor='k')
+    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=0, s=3)
 
     if shape is not None:
 

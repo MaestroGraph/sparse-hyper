@@ -59,7 +59,8 @@ class HyperLayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_rank, out_size, temp_indices, learn_cols, additional=0, bias_type=Bias.DENSE, sparse_input=False, subsample=None):
+    def __init__(self, in_rank, out_size, temp_indices, learn_cols, gadditional=0, radditional=0, region=None,
+                 bias_type=Bias.DENSE, sparse_input=False, subsample=None):
         """
 
         :param in_rank:
@@ -75,7 +76,9 @@ class HyperLayer(nn.Module):
         self.use_cuda = False
         self.in_rank = in_rank
         self.out_size = out_size # without batch dimension
-        self.additional = additional
+        self.gadditional = gadditional
+        self.radditional = radditional
+        self.region = region
 
         self.bias_type = bias_type
         self.sparse_input = sparse_input
@@ -140,7 +143,7 @@ class HyperLayer(nn.Module):
 
         return means, sigmas, values
 
-    def discretize(self, means, sigmas, values, rng=None, additional=16, use_cuda=False):
+    def discretize(self, means, sigmas, values, rng=None, use_cuda=False, relative_range=None):
         """
         Takes the output of a hypernetwork (real-valued indices and corresponding values) and turns it into a list of
         integer indices, by "distributing" the values to the nearest neighboring integer indices.
@@ -194,7 +197,7 @@ class HyperLayer(nn.Module):
 
             if PROPER_SAMPLING:
 
-                ints_flat = torch.LongTensor(batchsize, n, 2 ** rank + additional)
+                ints_flat = torch.LongTensor(batchsize, n, 2 ** rank + self.gadditional )
 
                 # flatten
                 neighbor_ints = fi(neighbor_ints.view(-1, rank), rng, use_cuda=False)
@@ -202,27 +205,61 @@ class HyperLayer(nn.Module):
 
                 for b in range(batchsize):
                     for m in range(n):
-                        sample = util.sample(range(total), additional + 2 ** rank, list(neighbor_ints[b, m, :]))
+                        sample = util.sample(range(total), self.gadditional + 2 ** rank, list(neighbor_ints[b, m, :]))
                         ints_flat[b, m, :] = torch.LongTensor(sample)
 
                 ints = tup(ints_flat.view(-1), rng, use_cuda=False)
-                ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + additional, rank)
+                ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + self.gadditional, rank)
                 ints_fl = ints.float().cuda() if use_cuda else ints.float()
 
             else:
 
-                sampled_ints = torch.cuda.FloatTensor(batchsize, n, additional, rank) if use_cuda else torch.FloatTensor(batchsize, n, additional, rank)
+                sampled_ints = torch.cuda.FloatTensor(batchsize, n, self.gadditional, rank) if use_cuda \
+                    else torch.FloatTensor(batchsize, n, self.gadditional, rank)
 
                 sampled_ints.uniform_()
                 sampled_ints *= (1.0 - EPSILON)
 
                 rng = torch.cuda.FloatTensor(rng) if use_cuda else torch.FloatTensor(rng)
-                rng = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
+                rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
 
-                sampled_ints = torch.floor(sampled_ints * rng).long()
+                sampled_ints = torch.floor(sampled_ints * rngxp).long()
 
-                ints = torch.cat((neighbor_ints, sampled_ints), dim=2)
+                if relative_range is not None:
+                    """
+                    Sample uniformly from a small range around the given index tuple
+                    """
+                    rr_ints = torch.cuda.FloatTensor(batchsize, n, self.radditional, rank) if use_cuda \
+                        else torch.FloatTensor(batchsize, n, self.radditional, rank)
 
+                    rr_ints.uniform_()
+                    rr_ints *= (1.0 - EPSILON)
+
+                    rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints) # bounds of the tensor
+                    rrng = torch.cuda.FloatTensor(relative_range) if use_cuda \
+                        else torch.FloatTensor(relative_range) # bounds of the range from which to sample
+                    rrng = rrng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
+
+                    mns_expand = means.round().unsqueeze(2).expand_as(rr_ints)
+
+                    # upper and lower bounds
+                    lower = mns_expand - rrng * 0.5
+                    upper = mns_expand + rrng * 0.5
+
+                    # check for any ranges that are out of bounds
+                    idxs = lower < 0.0
+                    lower[idxs] = 0.0
+
+                    idxs = upper > rngxp
+                    lower[idxs] = rngxp[idxs] - rrng[idxs]
+
+                    # print('means', means.round().long())
+                    # print('lower', lower)
+
+                    rr_ints = (rr_ints * rrng + lower).long()
+
+                samples = [neighbor_ints, sampled_ints, rr_ints] if relative_range is not None else [neighbor_ints, sampled_ints]
+                ints = torch.cat(samples, dim=2)
                 ints_fl = ints.float()
 
             logging.info('  sampling: {} seconds'.format(time.time() - t0))
@@ -299,7 +336,8 @@ class HyperLayer(nn.Module):
         subrange = [fullrange[r] for r in self.learn_cols]
 
         if self.subsample is None:
-            indices, props, values = self.discretize(means, sigmas, values, rng=subrange, additional=self.additional, use_cuda=self.use_cuda)
+            indices, props, values = self.discretize(means, sigmas, values, rng=subrange,
+                                                     use_cuda=self.use_cuda, relative_range=self.region)
             b, l, r = indices.size()
 
             # pr = indices.view(-1, r)
@@ -308,10 +346,10 @@ class HyperLayer(nn.Module):
             #         print(pr[i, :])
 
             h, w = self.temp_indices.size()
-            template = self.temp_indices.unsqueeze(0).unsqueeze(2).expand(b, h, 2**r + self.additional, w)
+            template = self.temp_indices.unsqueeze(0).unsqueeze(2).expand(b, h, (2**r + self.gadditional + self.radditional), w)
             template = template.contiguous().view(b, l, w)
 
-            template[:, :, self.learn_cols] = indices # will this work?
+            template[:, :, self.learn_cols] = indices
             indices = template
 
             values = values * props

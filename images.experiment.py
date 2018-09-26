@@ -260,7 +260,9 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
      across a bounding box
     """
 
-    def __init__(self, in_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, subsample=None, preprocess=None):
+    def __init__(self, in_size, k, adaptive=True, gadditional=0, radditional=0, region=None, sigma_scale=0.1,
+                 num_values=-1, min_sigma=0.0,
+                 subsample=None, preprocess=None):
 
         ci, hi, wi = in_size
         out_size = co, ho, wo = ci, k, k
@@ -280,7 +282,8 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
         self.lc = [4, 5]
         self.lc_sizes = [(out_size+in_size)[i] for i in self.lc]
 
-        super().__init__(in_rank=3, out_size=(co, ho, wo), temp_indices=indices, learn_cols=self.lc, additional=additional, subsample=subsample)
+        super().__init__(in_rank=3, out_size=(co, ho, wo), temp_indices=indices, learn_cols=self.lc,
+                         gadditional=gadditional, radditional=radditional, region=region, subsample=subsample)
 
         # scale to [0,1] in each dim
         pixel_indices = pixel_indices.float() / torch.FloatTensor([k, k]).unsqueeze(0).expand_as(pixel_indices)
@@ -466,7 +469,8 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 
 class ASHModel(nn.Module):
 
-    def __init__(self, shape, k, glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes, reinforce=False):
+    def __init__(self, shape, k, glimpses, gadditional, radditional, region, num_values, min_sigma, subsample, hidden,
+                 num_classes, reinforce=False):
         super().__init__()
 
         self.reinforce = reinforce
@@ -529,9 +533,10 @@ class ASHModel(nn.Module):
         self.hyperlayers = []
 
         for _ in range(glimpses):
-            self.hyperlayers.append(SimpleImageLayer(shape, k=k, adaptive=True, additional=additional,
-                                             num_values=num_values,
-                                             min_sigma=min_sigma, subsample=subsample))
+            self.hyperlayers.append(SimpleImageLayer(shape, k=k, adaptive=True,
+                                            gadditional=gadditional, radditional=radditional, region=region,
+                                            num_values=num_values,
+                                            min_sigma=min_sigma, subsample=subsample))
 
         self.lin1 = nn.Linear(k * k * shape[0] * glimpses, hidden)
         self.lin2 = nn.Linear(hidden, num_classes)
@@ -857,13 +862,9 @@ class ASHModel(nn.Module):
 PLOT = True
 COLUMN = 13
 
-def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cuda=False,
+def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
        seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
        tb_dir=None, data='./data', hidden=32, task='mnist', final=False, dropout=0.0, plot_every=1):
-
-    DROPOUT = dropout
-
-    FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
     if seed < 0:
         seed = random.randint(0, 1000000)
@@ -1011,7 +1012,10 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
     elif modelname == 'ash':
 
-        model = ASHModel(shape, k, args.num_glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes, reinforce=False)
+        model = ASHModel(shape=shape, k=k, glimpses=args.num_glimpses, num_values=num_values, min_sigma=min_sigma,
+                         subsample=subsample, hidden=hidden, num_classes=num_classes,
+                         gadditional=args.gadditional, radditional=args.radditional, region=(args.chunk, args.chunk),
+                         reinforce=False)
 
         # model = nn.Sequential(
         #     hyperlayer,
@@ -1023,25 +1027,25 @@ def go(args, batch=64, epochs=350, k=3, additional=64, modelname='baseline', cud
 
     elif modelname == 'ash-reinforce':
 
-        model = ASHModel(shape, k, args.num_glimpses, additional, num_values, min_sigma, subsample, hidden, num_classes, reinforce=True)
+        model = ASHModel(shape, k, args.num_glimpses, num_values, min_sigma, subsample, hidden, num_classes, reinforce=True)
         reinforce = True
 
-    elif modelname == 'nas':
-        C = 1
-        hyperlayer = SimpleImageLayer(shape, out_channels=C, k=k, adaptive=False, additional=additional, num_values=num_values,
-                                min_sigma=min_sigma, subsample=subsample)
-        #
-        # if rec_lambda is not None:
-        #     reconstruction = ToImageLayer((C, k, k), out_size=shape, k=k, adaptive=False, additional=additional, num_values=num_values,
-        #                         min_sigma=min_sigma, subsample=subsample, pre=pre)
-
-        model = nn.Sequential(
-            hyperlayer,
-            util.Flatten(),
-            nn.Linear(k*k*C, hidden),
-            activation,
-            nn.Linear(hidden, num_classes),
-            nn.Softmax())
+    # elif modelname == 'nas':
+    #     C = 1
+    #     hyperlayer = SimpleImageLayer(shape, out_channels=C, k=k, adaptive=False, additional=additional, num_values=num_values,
+    #                             min_sigma=min_sigma, subsample=subsample)
+    #     #
+    #     # if rec_lambda is not None:
+    #     #     reconstruction = ToImageLayer((C, k, k), out_size=shape, k=k, adaptive=False, additional=additional, num_values=num_values,
+    #     #                         min_sigma=min_sigma, subsample=subsample, pre=pre)
+    #
+    #     model = nn.Sequential(
+    #         hyperlayer,
+    #         util.Flatten(),
+    #         nn.Linear(k*k*C, hidden),
+    #         activation,
+    #         nn.Linear(hidden, num_classes),
+    #         nn.Softmax())
 
     # elif modelname == 'ash-conv':
     #     C = 1
@@ -1239,10 +1243,20 @@ if __name__ == "__main__":
                         help="Number of index tuples in the decoder layer",
                         default=3, type=int)
 
-    parser.add_argument("-a", "--additional",
-                        dest="additional",
-                        help="Number of additional points sampled",
-                        default=64, type=int)
+    parser.add_argument("-a", "--gadditional",
+                        dest="gadditional",
+                        help="Number of additional points sampled globally",
+                        default=8, type=int)
+
+    parser.add_argument("-A", "--radditional",
+                        dest="radditional",
+                        help="Number of additional points sampled locally",
+                        default=8, type=int)
+
+    parser.add_argument("-C", "--chunk",
+                        dest="chunk",
+                        help="Size of the (square) region to sample from.",
+                        default=8, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
@@ -1314,11 +1328,11 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(epochs=options.epochs, batch=options.batch_size, k=options.k,
-       additional=options.additional, modelname=options.model, cuda=options.cuda,
+    go(args=options, epochs=options.epochs, batch=options.batch_size, k=options.k,
+       modelname=options.model, cuda=options.cuda,
        lr=options.lr, subsample=options.subsample,
        num_values=options.num_values, min_sigma=options.min_sigma,
        tb_dir=options.tb_dir, data=options.data, task=options.task,
        final=options.final, hidden=options.hidden,
-       dropout=options.dropout, seed=options.seed, args=options,
+       dropout=options.dropout, seed=options.seed,
        plot_every=options.plot_every)

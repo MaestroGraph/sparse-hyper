@@ -662,9 +662,58 @@ def normalize(indices, values, size, row=True, cuda=None, epsilon=0.00000001):
 
     return (values/div).view(b, k)
 
-if __name__ == "__main__":
-    tind = torch.tensor([[[0, 0],[0, 1], [4, 4], [4, 3]], [[0, 1],[1, 0],[0, 2], [2, 0]]])
-    tv = torch.tensor([[0.5, 0.5, 0.4, 0.6], [0.5, 1, 0.5, 1]])
+# if __name__ == "__main__":
+#     tind = torch.tensor([[[0, 0],[0, 1], [4, 4], [4, 3]], [[0, 1],[1, 0],[0, 2], [2, 0]]])
+#     tv = torch.tensor([[0.5, 0.5, 0.4, 0.6], [0.5, 1, 0.5, 1]])
+#
+#     print(normalize(tind, tv, (5, 5)))
+#     print(normalize(tind, tv, (5, 5), row=False))
 
-    print(normalize(tind, tv, (5, 5)))
-    print(normalize(tind, tv, (5, 5), row=False))
+
+PRIMES = torch.tensor(torch.tensor(
+        [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97]
+))
+def duplicates(tuples):
+    """
+    Takes a list of tuples, and for each tuple that occurs mutiple times marks all but one of the occurences.
+
+    :param tuples: A size (batch, k, rank) tensor of integer tuples
+    :return: A size (batch, k) mask indicating the duplicates
+    """
+    b, k, r = tuples.size()
+
+    primes = PRIMES[:r]
+    primes = primes.unsqueeze(0).unsqueeze(0).expand(b, k, r)
+    unique = ((tuples+1) ** primes).prod(dim=2) # unique identifier for each tuple
+
+    sorted, sort_idx = torch.sort(unique, dim=1)
+    _, unsort_idx = torch.sort(sort_idx, dim=1)
+
+    mask = sorted[:, 1:] == sorted[:, :-1]
+
+    mask = torch.cat([torch.zeros(b, 1, dtype=torch.uint8), mask], dim=1)
+
+    return torch.gather(mask, 1, unsort_idx)
+
+if __name__ == "__main__":
+    # tuples = torch.tensor([
+    #     [[5, 5], [1, 1], [2, 3], [1, 1]],
+    #     [[3, 2], [3, 2], [5, 5], [5, 5]]
+    # ])
+    #
+    # print(tuples)
+    # dup = duplicates(tuples)
+    # tuples[dup, :] = tuples[dup, :] * 0
+    # print(tuples)
+
+    tuples = torch.tensor([[
+            [3, 1],
+            [3, 2],
+            [3, 1],
+            [0, 3],
+            [0, 2],
+            [3, 0],
+            [0, 3],
+            [0, 0]]])
+
+    print(duplicates(tuples))

@@ -1,4 +1,4 @@
-import gaussian
+import gaussian, globalsampling
 import torch, random, sys
 from torch.autograd import Variable
 import torch.nn.functional as F
@@ -47,12 +47,21 @@ def go(arg):
         SHAPE = (arg.size,)
 
         gaussian.PROPER_SAMPLING = arg.size < 8
-        model = gaussian.ParamASHLayer(
-            SHAPE, SHAPE, k=arg.size, additional=additional,
-            sigma_scale=arg.sigma_scale if not arg.reinforce else arg.size/7.0,
-            has_bias=False, fix_values=arg.fix_values, min_sigma=arg.min_sigma, reinforce=arg.reinforce,
-            relative_range=None if arg.rr is None else (arg.rr, arg.rr),
-            rr_additional=arg.ca)
+
+        if arg.global_sampling:
+            model = globalsampling.ParamASHLayer(
+                SHAPE, SHAPE, k=arg.size, additional=additional,
+                sigma_scale=arg.sigma_scale,
+                has_bias=False, fix_values=arg.fix_values, min_sigma=arg.min_sigma,
+                relative_range=(arg.rr, arg.rr),
+                rr_additional=arg.ca)
+        else:
+            model = gaussian.ParamASHLayer(
+                SHAPE, SHAPE, k=arg.size, additional=additional,
+                sigma_scale=arg.sigma_scale if not arg.reinforce else arg.size/7.0,
+                has_bias=False, fix_values=arg.fix_values, min_sigma=arg.min_sigma, reinforce=arg.reinforce,
+                relative_range=None if arg.rr is None else (arg.rr, arg.rr),
+                rr_additional=arg.ca)
 
         if arg.cuda:
             model.cuda()
@@ -212,9 +221,12 @@ if __name__ == "__main__":
                         help="Number of points to sample for sampling region.",
                         default=None, type=int)
 
-
-    parser.add_argument("-B", "--use_reinforce", dest="reinforce",
+    parser.add_argument("-B", "--use-reinforce", dest="reinforce",
                         help="Use reinforce instead of the backprop approach.",
+                        action="store_true")
+
+    parser.add_argument("-G", "--use-global-sampling", dest="global_sampling",
+                        help="Use the global sampling approach.",
                         action="store_true")
 
     options = parser.parse_args()

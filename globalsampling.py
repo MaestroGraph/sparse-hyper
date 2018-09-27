@@ -92,7 +92,8 @@ class HyperLayer(nn.Module):
 
         mask = sorted[:, 1:] == sorted[:, :-1]
 
-        mask = torch.cat([torch.zeros(b, 1, dtype=torch.uint8), mask], dim=1)
+        zs = torch.zeros(b, 1, dtype=torch.uint8, device='cuda' if self.use_cuda else 'cpu')
+        mask = torch.cat([zs, mask], dim=1)
 
         return torch.gather(mask, 1, unsort_idx)
 

@@ -124,6 +124,7 @@ class HyperLayer(nn.Module):
         self.gadditional = additional
         self.region = relative_range
         self.radditional = rr_additional
+        self.subsample = subsample
 
         self.weights_rank = in_rank + len(out_shape) # implied rank of W
 
@@ -195,7 +196,6 @@ class HyperLayer(nn.Module):
         sigmas = sigmas * ss.expand_as(sigmas)
 
         return means, sigmas, values
-
 
     def split_shared(self, res, input_size, output_size, values):
         """
@@ -346,10 +346,6 @@ class HyperLayer(nn.Module):
         # NB: due to batching, real_indices has shape batchsize x K x rank(W)
         #     real_values has shape batchsize x K
 
-        # print('--------------------------------')
-        # for i in range(util.prod(sigmas.size())):
-        #     print(sigmas.view(-1)[i].data[0])
-
         # turn the real values into integers in a differentiable way
         t0 = time.time()
 
@@ -358,15 +354,45 @@ class HyperLayer(nn.Module):
         # Mask for duplicate indices
         dups = self.duplicates(indices)
 
-        # NOTE: for large matrices, this step should be performed in blocks to reduce memory consumption
-        props = densities(indices.float(), means, sigmas) # result has size (b, indices.size(1), means.size(1))
-        props[dups] == 0
-        props = props / props.sum(dim=1, keepdim=True)
+        indfl = indices.float()
+        if self.subsample is None:
+            props = densities(indfl, means, sigmas) # result has size (b, indices.size(1), means.size(1))
+            props[dups] == 0
+            props = props / props.sum(dim=1, keepdim=True)
 
-        values = values.unsqueeze(1).expand(batchsize, indices.size(1), means.size(1))
+            values = values.unsqueeze(1).expand(batchsize, indices.size(1), means.size(1))
 
-        values = props * values
-        values = values.sum(dim=2)
+            values = props * values
+            values = values.sum(dim=2)
+
+        else:
+            # For large matrices we need to subsample the means we backpropagate for
+            b, nm, rank = means.size()
+
+            sample = random.sample(range(nm), self.subsample) # the means we will learn for
+            ids = torch.zeros((nm,), dtype=torch.uint8, device='cuda' if self.use_cuda else 'cpu')
+            ids[sample] = 1
+
+            means_in, means_out = means[:, ids, :], means[:, ~ids, :]
+            sigmas_in, sigmas_out = sigmas[:, ids, :], sigmas[:, ~ids, :]
+            values_in, values_out = values[:, ids], values[:, ~ids]
+
+            props = densities(indfl, means_in, sigmas_in) # result has size (b, indices.size(1), means.size(1))
+            props[dups] == 0
+            props = props / props.sum(dim=1, keepdim=True)
+
+            values_in = values_in.unsqueeze(1).expand(batchsize, indices.size(1), means_in.size(1))
+
+            values_in = props * values_in
+            values_in = values_in.sum(dim=2)
+
+            means_out = means_out.detach()
+            values_out = values_out.detach()
+
+            indices_out = means_out.data.round().long()
+
+            indices = torch.cat([indices, indices_out], dim=1)
+            values = torch.cat([values_in, values_out], dim=1)
 
         # print(values.sum(dim=1))
 
@@ -443,11 +469,11 @@ class ParamASHLayer(HyperLayer):
     """
 
     def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False,
-                min_sigma=0.0, relative_range=None, rr_additional=None):
+                min_sigma=0.0, relative_range=None, rr_additional=None, subsample=None):
         super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape,
                          bias_type=Bias.DENSE if has_bias else Bias.NONE,
                         relative_range=relative_range,
-                         rr_additional=rr_additional)
+                         rr_additional=rr_additional, subsample=subsample)
 
         self.k = k
         self.in_shape = in_shape

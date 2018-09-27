@@ -54,7 +54,7 @@ def go(arg):
                 sigma_scale=arg.sigma_scale,
                 has_bias=False, fix_values=arg.fix_values, min_sigma=arg.min_sigma,
                 relative_range=(arg.rr, arg.rr),
-                rr_additional=arg.ca)
+                rr_additional=arg.ca, subsample=arg.subsample)
         else:
             model = gaussian.ParamASHLayer(
                 SHAPE, SHAPE, k=arg.size, additional=additional,
@@ -195,6 +195,11 @@ if __name__ == "__main__":
                         dest="plot_every",
                         help="Plot every x iterations",
                         default=50, type=int)
+
+    parser.add_argument("-Q", "--subsample",
+                        dest="subsample",
+                        help="The number of index tuples to subsample for learning",
+                        default=None, type=int)
 
     parser.add_argument("-d", "--dot-every",
                         dest="dot_every",

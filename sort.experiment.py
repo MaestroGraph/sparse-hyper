@@ -154,7 +154,7 @@ def go(arg):
         gaussian.PROPER_SAMPLING = arg.size < 8
 
         model = SortLayer(arg.size, k=arg.size, additional=additional, sigma_scale=arg.sigma_scale, fix_values=arg.fix_values,
-                          sigma_floor=arg.min_sigma)
+                          sigma_floor=arg.min_sigma, depth=arg.depth)
 
         if arg.cuda:
            model.cuda()

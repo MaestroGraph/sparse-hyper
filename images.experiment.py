@@ -696,9 +696,6 @@ class ASHModel(nn.Module):
 
         plt.gcf()
 
-
-
-
 # class ToImageLayer(gaussian_out.HyperLayer):
 #     """
 #     Simple hyperlayer for the 1D MNIST experiment

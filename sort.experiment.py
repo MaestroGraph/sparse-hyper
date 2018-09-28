@@ -1,4 +1,4 @@
-import gaussian
+import gaussian, globalsampling
 import torch, random, sys
 from torch.autograd import Variable
 from torch.nn import Parameter
@@ -46,16 +46,18 @@ def penalty(means):
 
     return penalty.mean()
 
-class SortLayer(HyperLayer):
+class SortLayer(globalsampling.HyperLayer):
     """
 
     """
-    def __init__(self, size, k,  additional=0, sigma_scale=0.1, fix_values=False, sigma_floor=0.0, depth=4):
+    def __init__(self, size, k, gadditional=0, radditional=0, region=(4,4), sigma_scale=0.1, fix_values=False, sigma_floor=0.0, depth=4):
 
         if size < 8:
             gaussian.PROPER_SAMPLING = True
 
-        super().__init__(in_rank=1, out_shape=(size,), additional=additional, bias_type=gaussian.Bias.NONE, subsample=None)
+        super().__init__(in_rank=1, out_shape=(size,),
+                         additional=gadditional, bias_type=gaussian.Bias.NONE, subsample=None,
+                        relative_range=region, rr_additional=radditional)
 
         class NoActivation(nn.Module):
             def forward(self, input):
@@ -140,11 +142,11 @@ def go(arg):
 
     ndots = arg.iterations // arg.dot_every
 
-    additional = int(np.floor(np.log2(arg.size)) * arg.size) if arg.additional is None else arg.additional
+    # additional = int(np.floor(np.log2(arg.size)) * arg.size) if arg.additional is None else arg.additional
 
     results = np.zeros((arg.reps, ndots))
 
-    print('Starting size {} with {} additional samples '.format(arg.size, additional))
+    print('Starting size {} '.format(arg.size))
 
     for r in range(arg.reps):
         print('starting {} out of {} repetitions'.format(r, arg.reps))
@@ -153,7 +155,9 @@ def go(arg):
 
         gaussian.PROPER_SAMPLING = arg.size < 8
 
-        model = SortLayer(arg.size, k=arg.size, additional=additional, sigma_scale=arg.sigma_scale, fix_values=arg.fix_values,
+        model = SortLayer(arg.size, k=arg.size,
+                          gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.chunk, arg.chunk),
+                          sigma_scale=arg.sigma_scale, fix_values=arg.fix_values,
                           sigma_floor=arg.min_sigma, depth=arg.depth)
 
         if arg.cuda:
@@ -266,10 +270,10 @@ def go(arg):
     if results.shape[0] > 1:
         ax.errorbar(x=np.arange(ndots) * arg.dot_every, y=np.mean(results[:, :], axis=0),
                         yerr=np.std(results[:, :], axis=0),
-                        label='size {0}x{0}, a={1}, r={2}'.format(arg.size, additional, arg.reps))
+                        label='size {0}x{0}, r={2}'.format(arg.size, arg.reps))
     else:
         ax.plot(np.arange(ndots) * arg.dot_every, np.mean(results[:, :], axis=0),
-                        label='size {0}x{0}, a={1}'.format(arg.size, additional))
+                        label='size {0}x{0}'.format(arg.size))
 
     ax.legend()
 
@@ -306,9 +310,19 @@ if __name__ == "__main__":
                         default=8000, type=int)
 
     parser.add_argument("-a", "--additional",
-                        dest="additional",
-                        help="Number of additional points sampled",
-                        default=None, type=int)
+                        dest="gadditional",
+                        help="Number of additional points sampled globally",
+                        default=2, type=int)
+
+    parser.add_argument("-A", "--radditional",
+                        dest="radditional",
+                        help="Number of additional points sampled regionally",
+                        default=2, type=int)
+
+    parser.add_argument("-C", "--chunk",
+                        dest="chunk",
+                        help="Size of the sampling region",
+                        default=4, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",

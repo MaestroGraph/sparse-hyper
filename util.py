@@ -670,9 +670,8 @@ def normalize(indices, values, size, row=True, cuda=None, epsilon=0.00000001):
 #     print(normalize(tind, tv, (5, 5), row=False))
 
 
-PRIMES = torch.tensor(torch.tensor(
-        [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97]
-))
+PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97]
+
 def duplicates(tuples):
     """
     Takes a list of tuples, and for each tuple that occurs mutiple times marks all but one of the occurences.
@@ -682,7 +681,7 @@ def duplicates(tuples):
     """
     b, k, r = tuples.size()
 
-    primes = PRIMES[:r]
+    primes = torch.tensor(PRIMES[:r])
     primes = primes.unsqueeze(0).unsqueeze(0).expand(b, k, r)
     unique = ((tuples+1) ** primes).prod(dim=2) # unique identifier for each tuple
 

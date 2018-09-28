@@ -38,6 +38,14 @@ Graph convolution experiment. Given output vectors, learn both the convolution w
 MNIST.
 """
 
+def clean(axes=None):
+
+    if axes is None:
+        axes = plt.gca()
+
+    [s.set_visible(False) for s in axes.spines.values()]
+    axes.tick_params(top=False, bottom=False, left=False, right=False, labelbottom=False, labelleft=False)
+
 def sparsemult(use_cuda):
     return SparseMultGPU.apply if use_cuda else SparseMultCPU.apply
 
@@ -589,15 +597,15 @@ def go(arg):
                 means, sigmas, values = means.data, sigmas.data, values.data
                 means = torch.cat([model.adj.outs_inf.data.float(), means], dim=1)
 
-                # sys.exit()
-                plt.cla()
+                if arg.draw_matrix:
+                    plt.cla()
 
-                s = model.adj.size()
-                util.plot1d(means, sigmas, values.squeeze(), shape=s)
-                plt.xlim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
-                plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
+                    s = model.adj.size()
+                    util.plot1d(means, sigmas, values.squeeze(), shape=s)
+                    plt.xlim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
+                    plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
 
-                plt.savefig('./conv/means{:03}.pdf'.format(epoch))
+                    plt.savefig('./conv/means{:03}.pdf'.format(epoch))
 
                 graph = np.concatenate([means.round().long().cpu().numpy(), values.cpu().numpy()], axis=1)
                 np.savetxt('graph.{:05}.csv', graph)
@@ -607,7 +615,7 @@ def go(arg):
                 Plot the data, together with its components
                 """
 
-                w, h = 12, 1 + arg.depth + arg.k
+                w, h = 24, 1 + arg.depth + arg.k
                 mround = means.round().long()
 
                 fig = plt.figure(figsize=(w, h))
@@ -626,9 +634,9 @@ def go(arg):
                     ax.imshow(im, interpolation='nearest', origin='upper', cmap='gray_r')
 
                     if i == 0:
-                        ax.set_ylabel('im')
+                        ax.set_ylabel('image')
 
-                    plt.axis('off')
+                    clean(ax)
 
                     # plot the reconstructions
                     for r, output in enumerate(outputs):
@@ -639,9 +647,9 @@ def go(arg):
                         ax.imshow(im, interpolation='nearest', origin='upper', cmap='gray_r')
 
                         if i == 0:
-                            ax.set_ylabel('r{}'.format(r))
+                            ax.set_ylabel('rec. {}'.format(r))
 
-                        plt.axis('off')
+                        clean(ax)
 
                     # plot the components
                     for c in range(arg.k):
@@ -661,17 +669,17 @@ def go(arg):
                                   interpolation='nearest',
                                   origin='upper')
 
-                        plt.axis('off')
+                        clean(ax)
 
-                        #if i == 0:
-                        #ax.set_title('c{}, {:}, {:.2}'.format(c, comp, mult))
+                        if i == 0:
+                            ax.set_ylabel('comp. {}'.format(c+1))
 
                 plt.subplots_adjust(wspace=None, hspace=None)
                 #fig.tight_layout()
-                plt.savefig('./conv/examples{:03}.pdf'.format(epoch), di=600)
+                plt.savefig('./conv/examples{:03}.pdf'.format(epoch), dpi=72)
 
                 """
-                Plot the graph (resonable results for small datasets)
+                Plot the graph (reasonable results for small datasets)
                 """
                 if arg.draw_graph:
                     # Plot the graph
@@ -691,7 +699,7 @@ def go(arg):
                     plt.figure(figsize=(8,8))
                     ax = plt.subplot(111)
 
-                    pos = nx.spring_layout(g, iterations=50000, k=5/math.sqrt(data.size(0)))
+                    pos = nx.spring_layout(g, iterations=100, k=5/math.sqrt(data.size(0)))
                     # pos = nx.circular_layout(g)
 
                     nx.draw_networkx_nodes(g, pos, node_size=30, node_color='w', node_shape='s', axes=ax)
@@ -884,6 +892,10 @@ if __name__ == "__main__":
     # parser.add_argument("-S", "--undirected", dest="undirected",
     #                     help="Use an undirected graph",
     #                     action="store_true")
+
+    parser.add_argument("-J", "--draw-matrix", dest="draw_matrix",
+                        help="Draw the adjacency matrix",
+                        action="store_true")
 
     parser.add_argument("-G", "--draw-graph", dest="draw_graph",
                         help="Draw the graph",

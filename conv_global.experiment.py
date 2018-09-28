@@ -607,7 +607,7 @@ def go(arg):
                 Plot the data, together with its components
                 """
 
-                h, w = 12, 1 + arg.depth + arg.k
+                w, h = 12, 1 + arg.depth + arg.k
                 mround = means.round().long()
 
                 fig = plt.figure(figsize=(w, h))
@@ -616,36 +616,36 @@ def go(arg):
                                             vmax=1.0)  # doing this manually, the nx code produces very strange results
                 map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.RdYlBu)
 
-                for i in range(h):
+                for i in range(w):
 
                     # plot the image
-                    ax = plt.subplot(h, w, i*w + 1)
+                    ax = plt.subplot(h, w, i + 1)
                     im = np.transpose(data[i, :, :, :].cpu().numpy(), (1, 2, 0))
                     im = np.squeeze(im)
 
                     ax.imshow(im, interpolation='nearest', origin='upper', cmap='gray_r')
 
                     if i == 0:
-                        ax.set_title('im')
+                        ax.set_ylabel('im')
 
                     plt.axis('off')
 
                     # plot the reconstructions
                     for r, output in enumerate(outputs):
-                        ax = plt.subplot(h, w, i * w + r + 2)
+                        ax = plt.subplot(h, w, w*(r+1) +(i + 1))
                         im = np.transpose(output[i, :, :, :].cpu().numpy(), (1, 2, 0))
                         im = np.squeeze(im)
 
                         ax.imshow(im, interpolation='nearest', origin='upper', cmap='gray_r')
 
                         if i == 0:
-                            ax.set_title('r{}'.format(r))
+                            ax.set_ylabel('r{}'.format(r))
 
                         plt.axis('off')
 
                     # plot the components
                     for c in range(arg.k):
-                        ax = plt.subplot(h, w, i * w + len(outputs) + c + 2)
+                        ax = plt.subplot(h, w, w*(c+1+len(outputs)) +(i + 1))
 
                         comp = mround.view(-1, arg.k, 2)[i, c, 1]
                         mult = values.view(-1, arg.k)[i, c]

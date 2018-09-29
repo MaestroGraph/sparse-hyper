@@ -39,7 +39,6 @@ LOG.addHandler(fh)
 
 DROPOUT = 0.0
 SIGMA_BOOST_REINFORCE = 10.0 # ensure that first sigmas are large enough
-MEAN_BOOST_REINFORCE = 2.0 # ensure that first bounding boxes are large enough
 
 def inv(i, max):
     sc = (i/max) * 0.999 + 0.0005
@@ -471,10 +470,11 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 class ASHModel(nn.Module):
 
     def __init__(self, shape, k, glimpses,  num_values, min_sigma, subsample, hidden,
-                 num_classes, reinforce=False, gadditional=None, radditional=None, region=None):
+                 num_classes, reinforce=False, gadditional=None, radditional=None, region=None, rfboost=2.0):
         super().__init__()
 
         self.reinforce = reinforce
+        self.rfboost = rfboost
         self.num_glimpses = glimpses
 
         activation = nn.ReLU()
@@ -546,7 +546,7 @@ class ASHModel(nn.Module):
         self.is_cuda = False
 
         if self.reinforce:
-            b = MEAN_BOOST_REINFORCE
+            b = rfboost
             self.register_buffer('bbox_offset', torch.FloatTensor([-b, b, -b, b]))
 
     def cuda(self):
@@ -1036,7 +1036,7 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
     elif modelname == 'ash-reinforce':
 
         model = ASHModel(shape=shape, k=k, glimpses=args.num_glimpses, num_values=num_values, min_sigma=min_sigma,
-                         subsample=subsample, hidden=hidden, num_classes=num_classes, reinforce=True)
+                         subsample=subsample, hidden=hidden, num_classes=num_classes, reinforce=True, rfboost=args.rfboost)
         reinforce = True
 
     # elif modelname == 'nas':
@@ -1318,6 +1318,10 @@ if __name__ == "__main__":
     parser.add_argument("-Q", "--dropout", dest="dropout",
                         help="Dropout of the baseline and hypernetwork.",
                         default=0.0, type=float)
+
+    parser.add_argument("--reinforce-boost", dest="rfboost",
+                        help="boost the means of the reinforce method.",
+                        default=2.0, type=float)
 
     parser.add_argument("-R", "--reconstruction-loss", dest="rec_loss",
                         help="Reconstruction loss parameter.",

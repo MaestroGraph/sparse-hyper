@@ -438,7 +438,7 @@ class GraphConvolution(Module):
 
 class ConvModel(nn.Module):
 
-    def __init__(self, data_size, k, emb_size = 16, radd=32, gadd=32, range=128, min_sigma=0.0, directed=True, fix_value=False):
+    def __init__(self, data_size, k, emb_size = 16, radd=32, gadd=32, range=128, min_sigma=0.0, directed=True, fix_value=False, encoder=False):
         super().__init__()
 
         self.data_shape = data_size
@@ -469,14 +469,25 @@ class ConvModel(nn.Module):
             nn.Sigmoid(), util.Reshape((1, 28, 28))
         )
 
+        self.encoder = None
+        if encoder:
+            self.encoder = nn.Sequential(
+                util.Flatten(),
+                nn.Linear(28*28, 400), nn.Sigmoid(),
+                nn.Linear(400, 200), nn.Sigmoid(),
+                nn.Linear(200, emb_size)
+            )
+
         self.adj = MatrixHyperlayer(n, n, k, radditional=radd, gadditional=gadd, region=(range,),
                             min_sigma=min_sigma, fix_value=fix_value)
-        self.embedding = Parameter(torch.randn(n, emb_size))
+
+        if not encoder:
+            self.embedding = Parameter(torch.randn(n, emb_size))
 
         # self.embedding_conv = GraphConvolution(n, emb_size, bias=False)
         # self.weightless_conv = GraphConvolution(emb_size, emb_size, has_weight=False, bias=False)
 
-    def forward(self, depth=1, train=True):
+    def forward(self, depth=1, train=True, data=None):
 
         # x0 = self.embedding_conv.weight
         # x = self.embedding_conv(input=None, adj=self.adj, train=train) # identity matrix input
@@ -485,7 +496,11 @@ class ConvModel(nn.Module):
         #     x = self.weightless_conv(input=x, adj=self.adj, train=train)
         #     results.append(x)
 
-        x = self.embedding
+        if self.encoder is None:
+            x = self.embedding
+        else:
+            x = self.encoder(data)
+
         results =[x]
         for _ in range(1, depth):
             x = self.adj(x, train=train)
@@ -525,6 +540,8 @@ class ConvModelFlat(nn.Module):
 
         self.adj.apply(lambda t: t.cuda())
 
+PLOT_MAX = 2000 # max number of data points for the latent space plot
+
 def go(arg):
 
     MARGIN = 0.1
@@ -543,7 +560,7 @@ def go(arg):
 
     model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size,
                       gadd=arg.gadditional, radd=arg.radditional, range=arg.range,
-                      min_sigma=arg.min_sigma, fix_value=arg.fix_value)
+                      min_sigma=arg.min_sigma, fix_value=arg.fix_value, encoder=arg.encoder)
 
     if arg.cuda:
         model.cuda()
@@ -558,7 +575,7 @@ def go(arg):
 
         optimizer.zero_grad()
 
-        outputs = model(depth=arg.depth)
+        outputs = model(depth=arg.depth, data=data if arg.encoder else None)
 
         losses = torch.zeros((len(outputs),), device='cuda' if arg.cuda else 'cpu')
         for i, o in enumerate(outputs):
@@ -585,7 +602,7 @@ def go(arg):
 
             with torch.no_grad():
 
-                outputs = model(depth=arg.depth, train=False)
+                outputs = model(depth=arg.depth, train=False, data=data if arg.encoder else None)
 
                 for d, o in enumerate(outputs):
                     plt.cla()
@@ -678,6 +695,23 @@ def go(arg):
                 plt.subplots_adjust(wspace=None, hspace=None)
                 #fig.tight_layout()
                 plt.savefig('./conv/examples{:03}.pdf'.format(epoch), dpi=72)
+
+                """
+                Plot the embeddings
+                """
+
+                latents =  model.encoder(data) if arg.encoder else model.embedding.data
+                latents = latents[:PLOT_MAX, :]
+
+                # first two dimensions
+                latents = latents[:, :2]
+
+                rng = float(torch.max(latents[:, 0]) - torch.min(latents[:, 0]))
+
+                n_test = latents.shape[0]
+                images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
+                util.scatter_imgs(latents.cpu().numpy(), images,
+                          filename='./conv/latent_space.{:04}.pdf'.format(epoch), invert=True)
 
                 """
                 Plot the graph (reasonable results for small datasets)
@@ -904,6 +938,10 @@ if __name__ == "__main__":
 
     parser.add_argument("-F", "--fix-value", dest="fix_value",
                         help="Fix the values of the matrix to 1",
+                        action="store_true")
+
+    parser.add_argument("-N", "--use-encoder", dest="encoder",
+                        help="Whether to use an encoder",
                         action="store_true")
 
     parser.add_argument("-D", "--data", dest="data",

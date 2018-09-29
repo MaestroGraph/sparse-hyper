@@ -716,3 +716,38 @@ if __name__ == "__main__":
             [0, 0]]])
 
     print(duplicates(tuples))
+
+
+def scatter_imgs(latents, images, size=None, filename='latent_space.pdf', invert=False):
+
+    assert(latents.shape[0] == images.shape[0])
+
+    xmn, ymn = np.min(latents, axis=0)
+    xmx, ymx = np.max(latents, axis=0)
+
+    if size is None:
+        size = (xmx - xmn)/np.sqrt(latents.shape[0])
+        size *= 0.5
+
+    n, h, w, c = images.shape
+
+    aspect = h/w
+
+    fig = plt.figure(figsize=(16,16))
+    ax = fig.add_subplot(111)
+
+    for i in range(n):
+        x, y = latents[i, 0:2]
+
+        im = images[i, :]
+        ax.imshow(im if c > 1 else im.squeeze(2), extent=(x, x + size, y, y + size*aspect), cmap='gray_r' if invert else 'gray')
+
+    # ax.scatter(latents[:, 0], latents[:, 1], linewidth=0, s=2)
+
+    ax.set_xlim(xmn, xmx)
+    ax.set_ylim(ymn, ymx)
+
+    clean()
+
+    plt.savefig(filename)
+    plt.close(fig)

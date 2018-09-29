@@ -270,7 +270,7 @@ def go(arg):
     if results.shape[0] > 1:
         ax.errorbar(x=np.arange(ndots) * arg.dot_every, y=np.mean(results[:, :], axis=0),
                         yerr=np.std(results[:, :], axis=0),
-                        label='size {0}x{0}, r={2}'.format(arg.size, arg.reps))
+                        label='size {0}x{0}, r={1}'.format(arg.size, arg.reps))
     else:
         ax.plot(np.arange(ndots) * arg.dot_every, np.mean(results[:, :], axis=0),
                         label='size {0}x{0}'.format(arg.size))

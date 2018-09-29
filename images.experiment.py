@@ -39,6 +39,7 @@ LOG.addHandler(fh)
 
 DROPOUT = 0.0
 SIGMA_BOOST_REINFORCE = 10.0 # ensure that first sigmas are large enough
+MEAN_BOOST_REINFORCE = 2.0 # ensure that first bounding boxes are large enough
 
 def inv(i, max):
     sc = (i/max) * 0.999 + 0.0005
@@ -359,7 +360,7 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
             #     )
 
             self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
-            # self.register_buffer('bbox_offset', torch.FloatTensor([0, 5, 1, 2]))
+            # boost the size of the glimpse window for the reinforce option (so it has something to start with)
 
         else: # if not adaptive
             self.bound = Parameter(torch.FloatTensor([-1, 1, -1, 1]))
@@ -544,6 +545,10 @@ class ASHModel(nn.Module):
         self.k = k
         self.is_cuda = False
 
+        if self.reinforce:
+            b = MEAN_BOOST_REINFORCE
+            self.register_buffer('bbox_offset', torch.FloatTensor([-b, b, -b, b]))
+
     def cuda(self):
 
         super().cuda()
@@ -576,7 +581,7 @@ class ASHModel(nn.Module):
             samples = []
             for i in range(self.num_glimpses):
                 ps = prep[:, i * 8: (i + 1) * 8]
-                bbox  = ps[:, :4]
+                bbox  = ps[:, :4] + self.bbox_offset
                 sigs  = F.softplus(ps[:, 4:] + SIGMA_BOOST_REINFORCE)
 
                 # print('bbox', bbox.mean(dim=0))
@@ -669,7 +674,7 @@ class ASHModel(nn.Module):
                 for j in range(self.num_glimpses):
 
                     ps = prep[:, j * 8: (j + 1) * 8]
-                    bbox = ps[:, :4]
+                    bbox = ps[:, :4] + self.bbox_offset
 
                     bbox = F.sigmoid(bbox)
                     bbox[:, :2] = (bbox[:, :2] - gaussian.EPSILON) * h
@@ -1107,6 +1112,8 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
         model.train()
 
         for i, data in tqdm(enumerate(trainloader, 0)):
+            if i > 100:
+                break
 
             # get the inputs
             inputs, labels = data

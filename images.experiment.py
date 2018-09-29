@@ -545,9 +545,11 @@ class ASHModel(nn.Module):
         self.k = k
         self.is_cuda = False
 
-        if self.reinforce:
-            b = rfboost
-            self.register_buffer('bbox_offset', torch.FloatTensor([-b, b, -b, b]))
+        # if self.reinforce:
+        #     b = rfboost
+        #     self.register_buffer('bbox_offset', torch.FloatTensor([-b, b, -b, b]))
+
+        self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
 
     def cuda(self):
 
@@ -581,7 +583,7 @@ class ASHModel(nn.Module):
             samples = []
             for i in range(self.num_glimpses):
                 ps = prep[:, i * 8: (i + 1) * 8]
-                bbox  = ps[:, :4] + self.bbox_offset
+                bbox  = ps[:, :4] * self.rfboost + self.bbox_offset
                 sigs  = F.softplus(ps[:, 4:] + SIGMA_BOOST_REINFORCE)
 
                 # print('bbox', bbox.mean(dim=0))
@@ -674,7 +676,7 @@ class ASHModel(nn.Module):
                 for j in range(self.num_glimpses):
 
                     ps = prep[:, j * 8: (j + 1) * 8]
-                    bbox = ps[:, :4] + self.bbox_offset
+                    bbox = ps[:, :4] * self.rfboost + self.bbox_offset
                     print(bbox[:3])
 
                     bbox = F.sigmoid(bbox)

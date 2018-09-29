@@ -469,8 +469,8 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
 
 class ASHModel(nn.Module):
 
-    def __init__(self, shape, k, glimpses, gadditional, radditional, region, num_values, min_sigma, subsample, hidden,
-                 num_classes, reinforce=False):
+    def __init__(self, shape, k, glimpses,  num_values, min_sigma, subsample, hidden,
+                 num_classes, reinforce=False, gadditional=None, radditional=None, region=None):
         super().__init__()
 
         self.reinforce = reinforce

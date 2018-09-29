@@ -1112,8 +1112,6 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
         model.train()
 
         for i, data in tqdm(enumerate(trainloader, 0)):
-            if i > 100:
-                break
 
             # get the inputs
             inputs, labels = data

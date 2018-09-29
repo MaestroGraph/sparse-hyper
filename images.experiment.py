@@ -1029,7 +1029,8 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
 
     elif modelname == 'ash-reinforce':
 
-        model = ASHModel(shape, k, args.num_glimpses, num_values, min_sigma, subsample, hidden, num_classes, reinforce=True)
+        model = ASHModel(shape=shape, k=k, glimpses=args.num_glimpses, num_values=num_values, min_sigma=min_sigma,
+                         subsample=subsample, hidden=hidden, num_classes=num_classes, reinforce=True)
         reinforce = True
 
     # elif modelname == 'nas':

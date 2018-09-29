@@ -675,6 +675,7 @@ class ASHModel(nn.Module):
 
                     ps = prep[:, j * 8: (j + 1) * 8]
                     bbox = ps[:, :4] + self.bbox_offset
+                    print(bbox[:3])
 
                     bbox = F.sigmoid(bbox)
                     bbox[:, :2] = (bbox[:, :2] - gaussian.EPSILON) * h

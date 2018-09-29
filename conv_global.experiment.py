@@ -572,6 +572,7 @@ def go(arg):
         writer.add_scalar('conv/train-loss', loss.item(), epoch)
 
         if epoch % arg.plot_every == 0:
+            plt.figure(figsize=(8, 2))
 
             print('{:03}   '.format(epoch), losses)
             print('    adj', model.adj.params.grad.mean().item())
@@ -583,6 +584,7 @@ def go(arg):
             plt.savefig('./conv/inp.{:03d}.png'.format(epoch))
 
             with torch.no_grad():
+
                 outputs = model(depth=arg.depth, train=False)
 
                 for d, o in enumerate(outputs):
@@ -591,7 +593,7 @@ def go(arg):
                                interpolation='nearest')
                     plt.savefig('./conv/rec.{:03d}.{:02d}.png'.format(epoch, d))
 
-                plt.figure(figsize=(7, 7))
+                plt.figure(figsize=(8, 8))
 
                 means, sigmas, values = model.adj.hyper()
                 means, sigmas, values = means.data, sigmas.data, values.data
@@ -610,7 +612,6 @@ def go(arg):
                 graph = np.concatenate([means.round().long().cpu().numpy(), values.cpu().numpy()], axis=1)
                 np.savetxt('graph.{:05}.csv', graph)
 
-
                 """
                 Plot the data, together with its components
                 """
@@ -618,7 +619,7 @@ def go(arg):
                 w, h = 24, 1 + arg.depth + arg.k
                 mround = means.round().long()
 
-                fig = plt.figure(figsize=(w, h))
+                plt.figure(figsize=(w, h))
 
                 norm = mpl.colors.Normalize(vmin=-1.0,
                                             vmax=1.0)  # doing this manually, the nx code produces very strange results

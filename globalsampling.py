@@ -59,6 +59,9 @@ def densities(points, means, sigmas):
     points = points - means
     points = points * sigmas_squared
 
+    # print(points.size())
+    # sys.exit()
+
     # Compute dot products for all points
     # -- unroll the batch/n dimensions
     points = points.view(-1, 1, rank)
@@ -310,6 +313,8 @@ class HyperLayer(nn.Module):
         ints = torch.cat([neighbor_ints, sampled_ints, rr_ints], dim=2)
         # ints = sampled_ints
 
+        # print(ints.size(), ints.view(batchsize, -1, rank).size())
+
         return ints.view(batchsize, -1, rank)
 
     def forward(self, input):
@@ -349,13 +354,13 @@ class HyperLayer(nn.Module):
         # turn the real values into integers in a differentiable way
         t0 = time.time()
 
-        indices = self.generate_integer_tuples(means, rng=rng, use_cuda=self.use_cuda, relative_range=self.region)
-
-        # Mask for duplicate indices
-        dups = self.duplicates(indices)
-
-        indfl = indices.float()
         if self.subsample is None:
+            indices = self.generate_integer_tuples(means, rng=rng, use_cuda=self.use_cuda, relative_range=self.region)
+            indfl = indices.float()
+
+            # Mask for duplicate indices
+            dups = self.duplicates(indices)
+
             props = densities(indfl, means, sigmas) # result has size (b, indices.size(1), means.size(1))
             props[dups] == 0
             props = props / props.sum(dim=1, keepdim=True)
@@ -376,6 +381,11 @@ class HyperLayer(nn.Module):
             means_in, means_out = means[:, ids, :], means[:, ~ids, :]
             sigmas_in, sigmas_out = sigmas[:, ids, :], sigmas[:, ~ids, :]
             values_in, values_out = values[:, ids], values[:, ~ids]
+
+            indices = self.generate_integer_tuples(means_in, rng=rng, use_cuda=self.use_cuda, relative_range=self.region)
+            indfl = indices.float()
+
+            dups = self.duplicates(indices)
 
             props = densities(indfl, means_in, sigmas_in) # result has size (b, indices.size(1), means.size(1))
             props[dups] == 0

@@ -26,6 +26,8 @@ import math
 
 tics = []
 
+DEBUG = False
+
 def tic():
     tics.append(time())
 
@@ -178,6 +180,46 @@ def plot1d(means, sigmas, values, shape=None, axes=None):
         color = map.to_rgba(values[i])
         alpha = 0.7 # max(0.05, (sigmas[i, 0]+1.0)**-1)
         axes.add_patch(Rectangle(xy=(means[i, 1]  - sigmas[i, 0]*0.5, means[i, 0] - h*0.5), width=sigmas[i,0] , height=h, color=color, alpha=alpha, linewidth=0))
+        colors.append(color)
+
+    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=0, s=3)
+
+    if shape is not None:
+
+        m = max(shape)
+        step = 1 if m < 100 else m//25
+
+        # gray points for the integer index tuples
+        x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
+        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.1)
+
+    axes.spines['right'].set_visible(False)
+    axes.spines['top'].set_visible(False)
+    axes.spines['bottom'].set_visible(False)
+    axes.spines['left'].set_visible(False)
+
+def plot1dvert(means, sigmas, values, shape=None, axes=None):
+
+    h = 0.1
+
+    n, d = means.size()
+
+    means = means.cpu().numpy()
+    sigmas = sigmas.cpu().numpy()
+    values = nn.functional.tanh(values).data.cpu().numpy()
+
+    norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0)
+    cmap = mpl.cm.RdYlBu
+    map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
+
+    if axes is None:
+        axes = plt.gca()
+
+    colors = []
+    for i in range(n):
+        color = map.to_rgba(values[i])
+        alpha = 0.7 # max(0.05, (sigmas[i, 0]+1.0)**-1)
+        axes.add_patch(Rectangle(xy=(means[i, 1]  - h*0.5, means[i, 0] - sigmas[i, 0]*0.5), width=h , height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
         colors.append(color)
 
     axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=0, s=3)
@@ -693,29 +735,29 @@ def duplicates(tuples):
     mask = torch.cat([torch.zeros(b, 1, dtype=torch.uint8), mask], dim=1)
 
     return torch.gather(mask, 1, unsort_idx)
-
-if __name__ == "__main__":
-    # tuples = torch.tensor([
-    #     [[5, 5], [1, 1], [2, 3], [1, 1]],
-    #     [[3, 2], [3, 2], [5, 5], [5, 5]]
-    # ])
-    #
-    # print(tuples)
-    # dup = duplicates(tuples)
-    # tuples[dup, :] = tuples[dup, :] * 0
-    # print(tuples)
-
-    tuples = torch.tensor([[
-            [3, 1],
-            [3, 2],
-            [3, 1],
-            [0, 3],
-            [0, 2],
-            [3, 0],
-            [0, 3],
-            [0, 0]]])
-
-    print(duplicates(tuples))
+#
+# if __name__ == "__main__":
+#     # tuples = torch.tensor([
+#     #     [[5, 5], [1, 1], [2, 3], [1, 1]],
+#     #     [[3, 2], [3, 2], [5, 5], [5, 5]]
+#     # ])
+#     #
+#     # print(tuples)
+#     # dup = duplicates(tuples)
+#     # tuples[dup, :] = tuples[dup, :] * 0
+#     # print(tuples)
+#
+#     tuples = torch.tensor([[
+#             [3, 1],
+#             [3, 2],
+#             [3, 1],
+#             [0, 3],
+#             [0, 2],
+#             [3, 0],
+#             [0, 3],
+#             [0, 0]]])
+#
+#     print(duplicates(tuples))
 
 
 def scatter_imgs(latents, images, size=None, filename='latent_space.pdf', invert=False):
@@ -751,3 +793,37 @@ def scatter_imgs(latents, images, size=None, filename='latent_space.pdf', invert
 
     plt.savefig(filename)
     plt.close(fig)
+
+def linmoid(x, inf_in, up):
+    """
+    Squeeze the given input into the range (0, up). All points are translated linearly, except those above and below the
+    inflection points (on the input range), which are squeezed through a sigmoid function.
+
+    :param input:
+    :param inflections:
+    :param range:
+    :return:
+    """
+
+    ilow  = x < inf_in[0]
+    ihigh = x > inf_in[1]
+
+    # linear transform
+    s = (up - 1)/(inf_in[1] - inf_in[0])
+    y = x * s + 0.5 - inf_in[0] * s
+
+    scale = s * 4
+    y[ilow]  = torch.sigmoid((x[ilow] - inf_in[0])*scale)
+    y[ihigh] = torch.sigmoid((x[ihigh] - inf_in[1])*scale) - 0.5 + (up - 0.5)
+
+    return y
+
+if __name__ == "__main__":
+    x = torch.linspace(-0.5, 1.5, 1000)
+    y = linmoid(x, inf_in=(0.25, 0.75), up=3)
+
+    plt.scatter(x.numpy(), y.numpy(), s=2)
+    plt.ylim([0, 3])
+
+    clean()
+    plt.savefig('test_linmoid.png')

@@ -238,6 +238,7 @@ class HyperLayer(nn.Module):
                     rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints) # bounds of the tensor
                     rrng = torch.cuda.FloatTensor(relative_range) if use_cuda \
                         else torch.FloatTensor(relative_range) # bounds of the range from which to sample
+
                     rrng = rrng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
 
                     mns_expand = means.round().unsqueeze(2).expand_as(rr_ints)
@@ -259,7 +260,9 @@ class HyperLayer(nn.Module):
                     rr_ints = (rr_ints * rrng + lower).long()
 
                 samples = [neighbor_ints, sampled_ints, rr_ints] if relative_range is not None else [neighbor_ints, sampled_ints]
+
                 ints = torch.cat(samples, dim=2)
+
                 ints_fl = ints.float()
 
             logging.info('  sampling: {} seconds'.format(time.time() - t0))
@@ -409,6 +412,7 @@ class HyperLayer(nn.Module):
         t0 = time.time()
 
         # Prevent segfault
+        assert mindices.min() >= 0
         assert not util.contains_nan(values.data)
 
         # Then we flatten the batch dimension as well
@@ -428,13 +432,10 @@ class HyperLayer(nn.Module):
         bfvalues = values.view(1, -1).squeeze(0)
         bfx = x_flat.view(1, -1).squeeze(0)
 
-        # print(vindices.size(), bfvalues.size(), bfsize, bfx.size())
 
         bfy = sparsemult(vindices, bfvalues, bfsize, bfx)
 
         y_flat = bfy.unsqueeze(0).view(batchsize, -1)
-
-        logging.info('sparse mult: {} seconds'.format(time.time() - t0))
 
         y_shape = [batchsize]
         y_shape.extend(self.out_size)
@@ -446,7 +447,5 @@ class HyperLayer(nn.Module):
             y = y + bias
         if self.bias_type == Bias.SPARSE:
             raise Exception('Not implemented yet.')
-
-        logging.info('total: {} seconds'.format(time.time() - t0total))
 
         return y

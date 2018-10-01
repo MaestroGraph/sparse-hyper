@@ -256,11 +256,15 @@ def go(arg):
 
                     if arg.cuda:
                         x, t = x.cuda(), t.cuda()
+
                     x, t = Variable(x), Variable(t)
 
                     means, sigmas, values = model.hyper(x)
                     m = means.squeeze().round().long()
                     _, m = m.sort()
+
+                    if arg.cuda:
+                        m = m.cuda()
 
                     # print('x', x[0])
                     # print('t', gold[0], x[0, gold[0]])

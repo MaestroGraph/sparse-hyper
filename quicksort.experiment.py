@@ -256,6 +256,7 @@ def go(arg):
 
                     if arg.cuda:
                         x, t = x.cuda(), t.cuda()
+                        gold = gold.cuda()
 
                     x, t = Variable(x), Variable(t)
 

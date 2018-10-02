@@ -46,7 +46,6 @@ def flatten(input):
     return input.view(input.size(0), -1)
 
 def fi_matrix(indices, shape):
-
     batchsize, rows, rank = indices.size()
 
     prod = torch.LongTensor(rank).fill_(1)

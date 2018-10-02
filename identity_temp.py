@@ -1,4 +1,4 @@
-import gaussian_temp
+import global_temp
 import torch, random, sys
 from torch.autograd import Variable
 from torch.nn import Parameter
@@ -23,13 +23,15 @@ Template version of the identity experiment
 """
 w = SummaryWriter()
 
-class Layer(gaussian_temp.HyperLayer):
+class Layer(global_temp.HyperLayer):
 
-    def __init__(self, size=8, learn=1, additional=16):
+    def __init__(self, size=8, learn=1, gadditional=0, radditional=0, region=None):
 
         temp = torch.LongTensor(range(size)).unsqueeze(1).expand(size, 2)
 
-        super().__init__(in_rank=1, out_size=(size,), temp_indices=temp, learn_cols=(learn,), additional=additional, subsample=None, bias_type=Bias.NONE)
+        super().__init__(in_rank=1, out_size=(size,), temp_indices=temp, learn_cols=(learn,),
+                         gadditional=gadditional, radditional=radditional, region=region, subsample=None,
+                         bias_type=Bias.NONE, chunk_size=1)
 
         self.size = size
         self.params = nn.Parameter(torch.randn((size, 3)))
@@ -57,13 +59,12 @@ class Layer(gaussian_temp.HyperLayer):
         return means, sigmas, values
 
 
-def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every=50,
-       lr=0.01, fv=False, sigma_scale=0.1, min_sigma=0.0, seed=0):
+def go(arg):
 
-    SHAPE = (size,)
+    SHAPE = (arg.size,)
     MARGIN = 0.1
 
-    torch.manual_seed(seed)
+    torch.manual_seed(arg.seed)
 
     nzs = util.prod(SHAPE)
 
@@ -71,21 +72,20 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
     params = None
 
-    gaussian_temp.PROPER_SAMPLING = False
-    model = Layer(size=size, additional=additional)
+    model = Layer(size=arg.size, gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, ))
 
-    if cuda:
+    if arg.cuda:
         model.cuda()
 
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=arg.lr)
 
 
-    for i in trange(iterations):
+    for i in trange(arg.iterations):
 
-        x = torch.zeros((batch,) + SHAPE) + (1.0/16.0)
+        x = torch.zeros((arg.batch,) + SHAPE) + (1.0/16.0)
         x = torch.bernoulli(x)
-        if cuda:
+        if arg.cuda:
             x = x.cuda()
         x = Variable(x)
 
@@ -100,9 +100,9 @@ def go(iterations=30000, additional=64, batch=4, size=32, cuda=False, plot_every
 
         optimizer.step()
 
-        w.add_scalar('identity-temp/loss', loss.data.item(), i*batch)
+        w.add_scalar('identity-temp/loss', loss.data.item(), i*arg.batch)
 
-        if plot_every > 0 and i % plot_every == 0:
+        if arg.plot_every > 0 and i % arg.plot_every == 0:
             plt.figure(figsize=(7, 7))
 
             means, sigmas, values = model.hyper(x)
@@ -133,7 +133,7 @@ if __name__ == "__main__":
                         default=32, type=int)
 
     parser.add_argument("-b", "--batch-size",
-                        dest="batch_size",
+                        dest="batch",
                         help="The batch size.",
                         default=64, type=int)
 
@@ -142,10 +142,20 @@ if __name__ == "__main__":
                         help="The number of iterations (ie. the nr of batches).",
                         default=3000, type=int)
 
-    parser.add_argument("-a", "--additional",
-                        dest="additional",
+    parser.add_argument("-a", "--gadditional",
+                        dest="gadditional",
                         help="Number of additional points sampled",
-                        default=512, type=int)
+                        default=4, type=int)
+
+    parser.add_argument("-A", "--radditional",
+                        dest="radditional",
+                        help="Number of additional points sampled",
+                        default=4, type=int)
+
+    parser.add_argument("-C", "--region",
+                        dest="region",
+                        help="Size of local sampling region",
+                        default=4, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
@@ -185,7 +195,4 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(batch=options.batch_size, size=options.size,
-        additional=options.additional, iterations=options.iterations, cuda=options.cuda,
-        lr=options.lr, plot_every=options.plot_every, fv=options.fix_values,
-        sigma_scale=options.sigma_scale, min_sigma=options.min_sigma, seed=options.seed)
+    go(options)

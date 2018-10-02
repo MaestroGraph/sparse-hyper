@@ -25,7 +25,7 @@ from enum import Enum
 
 from tqdm import trange
 
-from gaussian import Bias, fi_matrix, flatten_indices_mat, densities, tup, fi
+from gaussian import Bias, fi_matrix, flatten_indices_mat, tup, fi
 
 # added to the sigmas to prevent NaN
 EPSILON = 10e-7
@@ -34,11 +34,62 @@ BATCH_NEIGHBORS = True # Faster way of finding neighbor index-tuples
 SIGMA_BOOST = 2.0
 
 """
-Version of the hyperlayer that learns only over a subset of the columns of the index matrix. The rest of the matrix is hardwired.
+Version of the hyperlayer that learns only over a subset of the columns of the matrix. The rest of the matrix is hardwired.
 
 This can, for instance, be used to create a layer that has 3 incoming connections for each node in the output layer, with
 the connections to the input nodes beaing learned.
+
+This version comnbines samples for all index tuples that have the same fixed indices. For instance, is we have fixed
+ columns and we are learning across rows, we sample and distribute globally within each row.
+
+ This required that the template have equal-sized, contiguous chunks of index tuples for which the fixed values are the
+   same.
 """
+
+
+def densities(points, means, sigmas):
+    """
+    Compute the unnormalized PDFs of the points under the given MVNs
+
+    (with sigma a diagonal matrix per MVN)
+
+    :param means:
+    :param sigmas:
+    :param points:
+    :return:
+    """
+
+    # n: number of MVNs
+    # d: number of points per MVN
+    # rank: dim of points
+
+    b, k, l, rank = points.size()
+    b, k, c, rank = means.size()
+
+    #--
+    points = points.unsqueeze(3).expand(b, k, l, c, rank)
+    means  = means.unsqueeze(2).expand_as(points)
+    sigmas = sigmas.unsqueeze(2).expand_as(points)
+
+    sigmas_squared = torch.sqrt(1.0/(EPSILON+sigmas))
+
+    points = points - means
+    points = points * sigmas_squared
+
+    # print(points.size())
+    # sys.exit()
+
+    # Compute dot products for all points
+    # -- unroll the batch/k/l/c dimensions
+    points = points.view(-1, 1, rank)
+    # -- dot prod
+    products = torch.bmm(points, points.transpose(1, 2))
+    # -- reconstruct shape
+    products = products.view(b, k, l, c)
+
+    num = torch.exp(- 0.5 * products) # the numerator of the Gaussian density
+
+    return num
 
 class HyperLayer(nn.Module):
     """
@@ -59,7 +110,7 @@ class HyperLayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_rank, out_size, temp_indices, learn_cols, gadditional=0, radditional=0, region=None,
+    def __init__(self, in_rank, out_size, temp_indices, learn_cols, chunk_size, gadditional=0, radditional=0, region=None,
                  bias_type=Bias.DENSE, sparse_input=False, subsample=None):
         """
 
@@ -84,6 +135,7 @@ class HyperLayer(nn.Module):
         self.sparse_input = sparse_input
         self.subsample = subsample
         self.learn_cols = learn_cols
+        self.chunk_size = chunk_size
 
         # create a tensor with all binary sequences of length 'out_rank' as rows
         # (this will be used to compute the nearby integer-indices of a float-index).
@@ -95,6 +147,33 @@ class HyperLayer(nn.Module):
         assert temp_indices.size(1) == in_rank + len(out_size)
 
         self.register_buffer('temp_indices', temp_indices)
+
+        self.register_buffer('primes', torch.tensor(
+        [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97]))
+
+    def duplicates(self, tuples):
+        """
+        Takes a list of tuples, and for each tuple that occurs mutiple times
+        marks all but one of the occurences (in the mask that is returned), across dim 2.
+
+        :param tuples: A size (batch, k, rank) tensor of integer tuples
+        :return: A size (batch, k) mask indicating the duplicates
+        """
+        b, k, l, r = tuples.size()
+
+        primes = self.primes[:r]
+        primes = primes[None, None, None, :].expand(b, k, l, r)
+        unique = ((tuples+1) ** primes).prod(dim=3)  # unique identifier for each tuple
+
+        sorted, sort_idx = torch.sort(unique, dim=2)
+        _, unsort_idx = torch.sort(sort_idx, dim=2) # get the idx required to reverse the sort
+
+        mask = sorted[:, :, 1:] == sorted[:, :, :-1]
+
+        zs = torch.zeros(b, k, 1, dtype=torch.uint8, device='cuda' if self.use_cuda else 'cpu')
+        mask = torch.cat([zs, mask], dim=2)
+
+        return torch.gather(mask, 2, unsort_idx)
 
     def split_out(self, res, size):
         """
@@ -143,7 +222,7 @@ class HyperLayer(nn.Module):
 
         return means, sigmas, values
 
-    def discretize(self, means, sigmas, values, rng=None, use_cuda=False, relative_range=None):
+    def generate_integer_tuples(self, means, rng=None, use_cuda=False, relative_range=None):
         """
         Takes the output of a hypernetwork (real-valued indices and corresponding values) and turns it into a list of
         integer indices, by "distributing" the values to the nearest neighboring integer indices.
@@ -160,140 +239,76 @@ class HyperLayer(nn.Module):
             (ie. vals just repeats each value in the input 'val' 2^K times).
         """
 
-        batchsize, n, rank = means.size()
+        b, k, c, rank = means.size()
 
         # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^rank
         # integerized index-tuples we can make from that one real-valued index-tuple
         # ints = torch.cuda.FloatTensor(batchsize, n, 2 ** rank + additional, rank) if use_cuda else FloatTensor(batchsize, n, 2 ** rank, rank)
-        t0 = time.time()
 
-        if BATCH_NEIGHBORS:
-            fm = self.floor_mask.unsqueeze(0).unsqueeze(0).expand(batchsize, n, 2 ** rank, rank)
+        """
+        Generate nearby tuples
+        """
+        fm = self.floor_mask[None, None, None, :].expand(b, k, c, 2 ** rank, rank)
 
-            neighbor_ints = means.data.unsqueeze(2).expand(batchsize, n, 2 ** rank, rank).contiguous()
+        neighbor_ints = means.data[:, :, :, None, :].expand(b, k, c, 2 ** rank, rank).contiguous()
 
-            neighbor_ints[fm] = neighbor_ints[fm].floor()
-            neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
+        neighbor_ints[fm] = neighbor_ints[fm].floor()
+        neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
 
-            neighbor_ints = neighbor_ints.long()
+        neighbor_ints = neighbor_ints.long()
 
-        else:
-            neighbor_ints = torch.LongTensor(batchsize, n, 2 ** rank, rank)
+        """
+        Sample uniformly from all integer tuples
+        """
 
-            # produce all integer index-tuples that neighbor the means
-            for row in range(n):
-                for t, bools in enumerate(itertools.product([True, False], repeat=rank)):
+        sampled_ints = torch.cuda.FloatTensor(b, k, c, self.gadditional, rank) if use_cuda \
+            else torch.FloatTensor(b, k, c, self.gadditional, rank)
 
-                    for col, bool in enumerate(bools):
-                        r = means[:, row, col].data
-                        neighbor_ints[:, row, t, col] = torch.floor(r) if bool else torch.ceil(r)
+        sampled_ints.uniform_()
+        sampled_ints *= (1.0 - EPSILON)
 
-        logging.info('  neighbors: {} seconds'.format(time.time() - t0))
+        rng = torch.cuda.FloatTensor(rng) if use_cuda else torch.FloatTensor(rng)
+        rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
 
-        # Sample additional points
-        if rng is not None:
-            t0 = time.time()
-            total = util.prod(rng)
+        sampled_ints = torch.floor(sampled_ints * rngxp).long()
 
-            if PROPER_SAMPLING:
+        """
+        Sample uniformly from a small range around the given index tuple
+        """
+        rr_ints = torch.cuda.FloatTensor(b, k, c, self.radditional, rank) if use_cuda \
+            else torch.FloatTensor(b, k, c,  self.radditional, rank)
 
-                ints_flat = torch.LongTensor(batchsize, n, 2 ** rank + self.gadditional )
+        rr_ints.uniform_()
+        rr_ints *= (1.0 - EPSILON)
 
-                # flatten
-                neighbor_ints = fi(neighbor_ints.view(-1, rank), rng, use_cuda=False)
-                neighbor_ints = neighbor_ints.unsqueeze(0).view(batchsize, n, 2 ** rank)
+        rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints) # bounds of the tensor
+        rrng = torch.cuda.FloatTensor(relative_range) if use_cuda \
+            else torch.FloatTensor(relative_range) # bounds of the range from which to sample
 
-                for b in range(batchsize):
-                    for m in range(n):
-                        sample = util.sample(range(total), self.gadditional + 2 ** rank, list(neighbor_ints[b, m, :]))
-                        ints_flat[b, m, :] = torch.LongTensor(sample)
+        rrng = rrng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
 
-                ints = tup(ints_flat.view(-1), rng, use_cuda=False)
-                ints = ints.unsqueeze(0).unsqueeze(0).view(batchsize, n, 2 ** rank + self.gadditional, rank)
-                ints_fl = ints.float().cuda() if use_cuda else ints.float()
+        # print(means.size())
+        mns_expand = means.round().unsqueeze(3).expand_as(rr_ints)
 
-            else:
+        # upper and lower bounds
+        lower = mns_expand - rrng * 0.5
+        upper = mns_expand + rrng * 0.5
 
-                sampled_ints = torch.cuda.FloatTensor(batchsize, n, self.gadditional, rank) if use_cuda \
-                    else torch.FloatTensor(batchsize, n, self.gadditional, rank)
+        # check for any ranges that are out of bounds
+        idxs = lower < 0.0
+        lower[idxs] = 0.0
 
-                sampled_ints.uniform_()
-                sampled_ints *= (1.0 - EPSILON)
+        idxs = upper > rngxp
+        lower[idxs] = rngxp[idxs] - rrng[idxs]
 
-                rng = torch.cuda.FloatTensor(rng) if use_cuda else torch.FloatTensor(rng)
-                rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
+        # print('means', means.round().long())
+        # print('lower', lower)
 
-                sampled_ints = torch.floor(sampled_ints * rngxp).long()
+        rr_ints = (rr_ints * rrng + lower).long()
 
-                if relative_range is not None:
-                    """
-                    Sample uniformly from a small range around the given index tuple
-                    """
-                    rr_ints = torch.cuda.FloatTensor(batchsize, n, self.radditional, rank) if use_cuda \
-                        else torch.FloatTensor(batchsize, n, self.radditional, rank)
+        all = torch.cat([neighbor_ints, sampled_ints, rr_ints] , dim=3)
 
-                    rr_ints.uniform_()
-                    rr_ints *= (1.0 - EPSILON)
-
-                    rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints) # bounds of the tensor
-                    rrng = torch.cuda.FloatTensor(relative_range) if use_cuda \
-                        else torch.FloatTensor(relative_range) # bounds of the range from which to sample
-
-                    rrng = rrng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
-
-                    mns_expand = means.round().unsqueeze(2).expand_as(rr_ints)
-
-                    # upper and lower bounds
-                    lower = mns_expand - rrng * 0.5
-                    upper = mns_expand + rrng * 0.5
-
-                    # check for any ranges that are out of bounds
-                    idxs = lower < 0.0
-                    lower[idxs] = 0.0
-
-                    idxs = upper > rngxp
-                    lower[idxs] = rngxp[idxs] - rrng[idxs]
-
-                    # print('means', means.round().long())
-                    # print('lower', lower)
-
-                    rr_ints = (rr_ints * rrng + lower).long()
-
-                samples = [neighbor_ints, sampled_ints, rr_ints] if relative_range is not None else [neighbor_ints, sampled_ints]
-
-                ints = torch.cat(samples, dim=2)
-
-                ints_fl = ints.float()
-
-            logging.info('  sampling: {} seconds'.format(time.time() - t0))
-
-        ints_fl = Variable(ints_fl)  # leaf node in the comp graph, gradients go through values
-
-        t0 = time.time()
-        # compute the proportion of the value each integer index tuple receives
-        props = densities(ints_fl, means, sigmas)
-        # props is batchsize x K x 2^rank+a, giving a weight to each neighboring or sampled integer-index-tuple
-
-        # -- normalize the proportions of the neigh points and the
-        sums = torch.sum(props + EPSILON, dim=2, keepdim=True).expand_as(props)
-        props = props / sums
-
-        logging.info('  densities: {} seconds'.format(time.time() - t0))
-        t0 = time.time()
-
-        # repeat each value 2^rank+A times, so it matches the new indices
-        val = torch.unsqueeze(values, 2).expand_as(props).contiguous()
-
-        # 'Unroll' the ints tensor into a long list of integer index tuples (ie. a matrix of n*2^rank by rank for each
-        # instance in the batch) ...
-        ints = ints.view(batchsize, -1, rank, 1).squeeze(3)
-
-        # ... and reshape the props and vals the same way
-        props = props.view(batchsize, -1)
-        val = val.view(batchsize, -1)
-        logging.info('  reshaping: {} seconds'.format(time.time() - t0))
-
-        return ints, props, val
+        return all.view(b, k, -1, rank) # combine all indices sampled within a chunk
 
     def forward(self, input, **kwargs):
 
@@ -320,85 +335,52 @@ class HyperLayer(nn.Module):
 
     def forward_inner(self, input, means, sigmas, values, bias):
 
-        t0total = time.time()
+        b, n, r = means.size()
+
+        k = n//self.chunk_size
+        c = self.chunk_size
+        means, sigmas, values = means.view(b, k, c, r), sigmas.view(b, k, c, r), values.view(b, k, c)
 
         batchsize = input.size()[0]
 
-        # NB: due to batching, real_indices has shape batchsize x K x rank(W)
-        #     real_values has shape batchsize x K
-
-        # print('--------------------------------')
-        # for i in range(util.prod(sigmas.size())):
-        #     print(sigmas.view(-1)[i].data[0])
-
         # turn the real values into integers in a differentiable way
-        t0 = time.time()
-
         # max values allowed for each colum in the index matrix
         fullrange = self.out_size + input.size()[1:]
         subrange = [fullrange[r] for r in self.learn_cols]
 
-        if self.subsample is None:
-            indices, props, values = self.discretize(means, sigmas, values, rng=subrange,
-                                                     use_cuda=self.use_cuda, relative_range=self.region)
-            b, l, r = indices.size()
+        indices = self.generate_integer_tuples(means, rng=subrange, use_cuda=self.use_cuda, relative_range=self.region)
+        indfl = indices.float()
 
-            # pr = indices.view(-1, r)
-            # if torch.sum(pr > torch.cuda.LongTensor(subrange).unsqueeze(0).expand_as(pr)) > 0:
-            #     for i in range(b*l):
-            #         print(pr[i, :])
+        # Mask for duplicate indices
+        dups = self.duplicates(indices)
 
-            h, w = self.temp_indices.size()
-            template = self.temp_indices.unsqueeze(0).unsqueeze(2).expand(b, h, (2**r + self.gadditional + self.radditional), w)
-            template = template.contiguous().view(b, l, w)
+        props = densities(indfl, means, sigmas).clone()  # result has size (b, k, l, c), l = indices[2]
+        props[dups, :] = 0
+        props = props / props.sum(dim=2, keepdim=True)
 
-            template[:, :, self.learn_cols] = indices
-            indices = template
+        values = values[:, :, None, :].expand_as(props)
 
-            values = values * props
+        values = props * values
+        values = values.sum(dim=3)
 
-        else: # select a small proportion of the indices to learn over
-            raise Exception('Not supported yet.')
+        indices, values = indices.view(b, -1 , r), values.view(b, -1)
 
-            # b, k, r = means.size()
-            #
-            # prop = torch.cuda.FloatTensor([self.subsample]) if self.use_cuda else torch.FloatTensor([self.subsample])
-            #
-            # selection = None
-            # while (selection is None) or (float(selection.sum()) < 1):
-            #     selection = torch.bernoulli(prop.expand(k)).byte()
-            #
-            # mselection = selection.unsqueeze(0).unsqueeze(2).expand_as(means)
-            # sselection = selection.unsqueeze(0).unsqueeze(2).expand_as(sigmas)
-            # vselection = selection.unsqueeze(0).expand_as(values)
-            #
-            # means_in, means_out = means[mselection].view(b, -1, r), means[~ mselection].view(b, -1, r)
-            # sigmas_in, sigmas_out = sigmas[sselection].view(b, -1, r), sigmas[~ sselection].view(b, -1, r)
-            # values_in, values_out = values[vselection].view(b, -1), values[~ vselection].view(b, -1)
-            #
-            # means_out = means_out.detach()
-            # values_out = values_out.detach()
-            #
-            # indices_in, props, values_in = self.discretize(means_in, sigmas_in, values_in, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
-            # values_in = values_in * props
-            #
-            # indices_out = means_out.data.round().long()
-            #
-            # indices = torch.cat([indices_in, indices_out], dim=1)
-            # values = torch.cat([values_in, values_out], dim=1)
+        # stitch it into the template
+        b, l, r = indices.size()
+        h, w = self.temp_indices.size()
+        template = self.temp_indices[None, :, None, :].expand(b, h, l//h, w)
+        template = template.contiguous().view(b, l, w)
 
-        logging.info('discretize: {} seconds'.format(time.time() - t0))
+        template[:, :, self.learn_cols] = indices
+        indices = template
 
         if self.use_cuda:
             indices = indices.cuda()
 
         # translate tensor indices to matrix indices
-        t0 = time.time()
 
         # mindices, flat_size = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
         mindices, flat_size = flatten_indices_mat(indices, input.size()[1:], self.out_size)
-
-        logging.info('flatten: {} seconds'.format(time.time() - t0))
 
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
         #     through 'values', which are a function of both the real_indices and the real_values.
@@ -408,8 +390,6 @@ class HyperLayer(nn.Module):
         x_flat = input.view(batchsize, -1)
 
         sparsemult = util.sparsemult(self.use_cuda)
-
-        t0 = time.time()
 
         # Prevent segfault
         assert mindices.min() >= 0
@@ -431,7 +411,6 @@ class HyperLayer(nn.Module):
 
         bfvalues = values.view(1, -1).squeeze(0)
         bfx = x_flat.view(1, -1).squeeze(0)
-
 
         bfy = sparsemult(vindices, bfvalues, bfsize, bfx)
 

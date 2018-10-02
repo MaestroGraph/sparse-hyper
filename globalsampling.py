@@ -362,7 +362,7 @@ class HyperLayer(nn.Module):
             dups = self.duplicates(indices)
 
             props = densities(indfl, means, sigmas) # result has size (b, indices.size(1), means.size(1))
-            props[dups] == 0
+            props[dups] == 0!!!!!
             props = props / props.sum(dim=1, keepdim=True)
 
             values = values.unsqueeze(1).expand(batchsize, indices.size(1), means.size(1))

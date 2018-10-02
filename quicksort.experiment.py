@@ -1,4 +1,4 @@
-import gaussian, gaussian_temp
+import gaussian, global_temp
 import torch, random, sys
 from torch.autograd import Variable
 from torch.nn import Parameter
@@ -31,6 +31,7 @@ Experiment: learn a mapping from a random x, to x sorted.
 w = SummaryWriter()
 
 util.DEBUG = False
+BUCKET_SIGMA = 0.05
 
 class Split(nn.Module):
 
@@ -41,33 +42,36 @@ class Split(nn.Module):
         self.depth = depth
 
         if global_size is None:
-            global_size = 4 * int(np.log2(size))
+            global_size = 2 * size
 
         if offset_hidden is None:
-            offset_hidden = 2 * global_size
+            offset_hidden = 4 * int(np.log2(size))
 
         # Computes a global representation of the input sequence (for instance containing the pivots)
         self.globalrep = nn.Sequential(
-            nn.Linear(size * 2, 2* global_size),
+            nn.Linear(size, 2*global_size),
             nn.ReLU(),
-            nn.Linear(2* global_size, global_size)
+            nn.Linear(2 * global_size, 2 * global_size),
+            nn.ReLU(),
+            nn.Linear(2*global_size, global_size)
         )
+
+        self.topivot = nn.Linear(size, 1, bias=False)
+        self.topivot.weight.data = torch.randn(self.topivot.weight.data.size())
 
         # Computes the 'offset' indicating whether an element should be sorted in to the top or bottom half of its current
         # interval
         self.offset = nn.Sequential(
-            nn.Linear(global_size+1, offset_hidden*2),
-            nn.ReLU(),
-            nn.Linear(offset_hidden*2, offset_hidden),
-            nn.ReLU(),
-            nn.Linear(offset_hidden, 1),
-            #util.Lambda(lambda x : x * 0.0001),
-            nn.Sigmoid()
+            nn.Linear(2, 1),
+            nn.Sigmoid(),
         )
 
         self.register_buffer('buckets0', torch.zeros(1, size))
+        self.register_buffer('mins0', torch.zeros(1, 1))
+        self.register_buffer('rngs0', torch.ones(1, 1))
+        self.register_buffer('prop0', torch.zeros(1, size))
 
-    def forward(self, i, x, buckets=None):
+    def forward(self, i, x, buckets=None, mins=None, rngs=None, pivots=None):
         """
         :param i: (batched) vector of values in (0, 1), representing indices in the first column
          of the permutation matrix
@@ -78,50 +82,142 @@ class Split(nn.Module):
         :return:
         """
 
-        # SQ: These snippets show code that computes quicksort explicitly
+        # print(self.depth, '------------------')
+        # print('x', x)
+
         b, s = x.size()
 
         if buckets is None:
             buckets = self.buckets0.expand(b, s)
 
-        rng = 2 ** - self.depth
-        mins = torch.floor(i * 2 ** self.depth) / 2 ** self.depth
+        # print('b', buckets)
+
+        if mins is None:
+            mins = self.mins0.expand(b, 1)
+
+        if rngs is None:
+            rngs = self.rngs0.expand(b, 1)
+
+        if pivots is None:
+            pivots = x.mean(dim=1, keepdim=True).expand(b, s)
+        else:
+            pivots = torch.zeros(b, s)
+            for bucket in range(2 ** self.depth):
+                # The extent to which each point 'belongs' to the current bucket
+                # (the point belongs to the two nearest buckets with extent
+                #   proportional to distance)
+                weight = 1.0 - torch.abs(buckets - bucket)
+                idx = weight > 0.0
+                weight[~idx] = 0.0
+
+                # bucketmean = (weight * x).sum(dim=1, keepdim=True).expand(b, s)
+                # sum = weight.sum(dim=1, keepdim=True).expand(b, s) + 1e-10
+                #
+                # bucketmean = bucketmean / sum
+                sum = weight.sum(dim=1, keepdim=True).expand(b, s) + 1e-10
+                bucketpiv = self.topivot(x * weight) / sum
+
+                pivots = pivots + weight * bucketpiv.expand(b, s)
+
+        # print('p', pivots)
+
+        # rng = 2 ** - self.depth
+        # mins = torch.floor(i * 2 ** self.depth) / 2 ** self.depth
+
         # - lower bound of each value's dyadic interval
 
         # compute 'offset': Vector of values in (0, 1) indicating whether points should be moved to the top or bottom half of the
         # rng (expected to converge to values close to 0 or 1)
-        gr = self.globalrep( torch.cat((x, buckets), dim=1) )
-        b, g = gr.size()
-
-        # expand for each element in each instance
-        gr = gr.unsqueeze(1).expand(b, s, g)
+        # gr = self.globalrep(x * buckets) # torch.cat((x, buckets), dim=1) )
+        # b, g = gr.size()
+        #
+        # # expand for each element in each instance
+        # gr = gr.unsqueeze(1).expand(b, s, g)
 
         # fold the size dimension into the batch dimension and concatenate
-        inp = torch.cat([x.contiguous().view(-1, 1), gr.contiguous().view(-1, g)], dim = 1)
+        inp = torch.cat([
+            x.contiguous().view(-1, 1),
+            pivots.contiguous().view(-1, 1)], dim = 1)
         offset = self.offset(inp).view(b, s)
+        # offset = torch.sigmoid(offset - offset.median(dim=1, keepdim=True)[0])
 
-        # QS: if pivots is None:
-        #     pivots = x.median(dim=1, keepdim=True)[0].expand(b, s)
+        # QS: Uncomment this to compute quicksort explicitly
+        #     (this works, and sorts correctly immediately, without training)
 
-        # QS: offset = (x > pivots).float()
+        # print('b', buckets)
 
-        i = i - mins
-        i = (i + offset * rng)/2.0
-        i = i + mins
+        # stores the median/mean of the bucket each element is in
+        # pivots = torch.zeros(b, s)
+        # for ba in range(b):
+        #     for bu in range(2**(self.depth)):
+        #         ids = buckets[ba] == bu
+        #         mean_b = x[ba, ids].mean() #[0]
+        #         pivots[ba, ids] = mean_b
+
+        # print('x', x)
+        # print('p', pivots)
+        # offset =  (x > pivots).float()
+
+        # print('o', offset)
+        #
+        # print('i', i)
+
+        # compute, for each point, the propotion of its bucket that is sorted
+
+        # into the lower bucket
+        upscale = self.prop0.expand(b, s).contiguous()
+
+        nwmins = mins[:, :, None].expand(b, mins.size(1), 2).contiguous()
+        nwrngs = rngs[:, :, None].expand(b, rngs.size(1), 2).contiguous()
+
+        pointmins = torch.zeros(b, s)
+        pointrngs = torch.zeros(b, s)
+
+        for bucket in range(2**self.depth):
+            # The extent to which each point 'belongs' to the current bucket
+            # (the point belongs to the two nearest buckets with extent
+            #   proportional to distance)
+            weight = 1.0 - torch.abs(buckets - bucket)
+            weight[weight < 0] = 0.0
+
+            propup = (weight * offset).sum(dim=1)
+            propdown = (weight * (1.0 - offset)).sum(dim=1)
+
+            sum = propup + propdown
+            idx = sum > 0.0
+            propup[idx], propdown[idx] = propup[idx]/sum[idx], propdown[idx]/sum[idx]
+
+            upscale = upscale + weight * propup[:, None]
+
+            nwmins[:, bucket, 0] = mins[:, bucket]
+            nwmins[:, bucket, 1] = mins[:, bucket] + propdown * rngs[:, bucket]
+
+            nwrngs[:, bucket, 0] = rngs[:, bucket] * propdown
+            nwrngs[:, bucket, 1] = rngs[:, bucket] * propup
+
+            # mins of each point's current bucket
+            pointmins = pointmins + weight * mins[:, bucket:bucket+1]
+            pointrngs = pointrngs + weight * rngs[:, bucket:bucket+1]
+
+        nwmins = nwmins.view(b, -1)
+        nwrngs = nwrngs.view(b, -1)
+
+        i = i - pointmins
+
+        ia = (1.0 - offset) * i * (1.0 - upscale)
+        ib = offset * i * upscale + offset * (1.0-upscale) * pointrngs
+        i = ia + ib + pointmins
+
+        # print('i', i)
 
         buckets = buckets * 2 + offset
 
-        # QS: stores the mean of the bucket each element is in
-        # pivots = torch.zeros(b, s, self.f)
-        # for ba in range(b):
-        #     for bu in range(2**(self.depth+1)):
-        #         ids = buckets[ba] == bu
-        #         mean_b = x[ba, ids].median()[0]
-        #         pivots[ba, ids] = mean_b
+        # if self.depth == 3:
+        #      sys.exit()
 
-        return i, buckets #, pivots
+        return i, buckets, nwmins, nwrngs, pivots
 
-class SortLayer(gaussian_temp.HyperLayer):
+class SortLayer(global_temp.HyperLayer):
     """
 
     """
@@ -133,7 +229,7 @@ class SortLayer(gaussian_temp.HyperLayer):
         super().__init__(in_rank=1, out_size=(size,),
                          temp_indices=init, learn_cols=(learn,),
                          gadditional=gadditional, radditional=radditional, region=region,
-                         bias_type=gaussian.Bias.NONE, subsample=None)
+                         bias_type=gaussian.Bias.NONE, subsample=None, chunk_size=1)
 
         self.register_buffer('init', init)
 
@@ -147,10 +243,8 @@ class SortLayer(gaussian_temp.HyperLayer):
         self.sigma_floor = sigma_floor
 
         self.splits = nn.ModuleList()
-        for d in range(int(np.ceil(np.log2(size)))):
+        for d in range(size): # int(np.ceil(np.log2(size))) + 2):
             self.splits.append(Split(size=size, depth=d))
-
-        # print('depth ', len(self.splits))
 
         self.sigmas = nn.Parameter(torch.randn(size))
         self.register_buffer('values', torch.ones(size))
@@ -161,13 +255,16 @@ class SortLayer(gaussian_temp.HyperLayer):
         """
         b, s = input.size()
 
+        # print('i ', input)
+
         means = self.init[:, 0].float() / s + 1/(2*s)
         # unsqueeze batch
         means = means[None, :].expand(b, s)
 
-        buckets = None
+        buckets, mins, rngs, pivots = None, None, None, None
         for split in self.splits:
-            means, buckets = split(means, input, buckets)
+            means, buckets, mins, rngs, pivots = split(means, input, buckets, mins, rngs, pivots)
+            # print('m',means)
 
         sigmas = F.softplus(self.sigmas)
         sigmas = sigmas * self.sigma_scale + self.sigma_floor
@@ -180,7 +277,15 @@ class SortLayer(gaussian_temp.HyperLayer):
 
         d = int(np.ceil(np.log2(s)))
         inf = (0.5 ** d, 1.0 - 0.5 ** d)
+
+        # print('m ', means)
+
         means = util.linmoid(means, inf_in=inf, up=s-1)
+
+        # print('m ', means)
+        # print('m ', means.round())
+        # print('  ', input.sort()[1])
+        # sys.exit()
 
         return means[:, :, None], sigmas[:, :, None], values
 
@@ -302,6 +407,7 @@ def go(arg):
                 plt.figure(figsize=(5, 5))
 
                 means, sigmas, values = model.hyper(x)
+
                 means, sigmas, values = means.data, sigmas.data, values.data
 
                 template = model.init.float().unsqueeze(0).expand(means.size(0), means.size(1), 2)

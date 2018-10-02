@@ -70,6 +70,9 @@ class Split(nn.Module):
         self.register_buffer('mins0', torch.zeros(1, 1))
         self.register_buffer('rngs0', torch.ones(1, 1))
         self.register_buffer('prop0', torch.zeros(1, size))
+        self.register_buffer('pivots0', torch.zeros(1, size))
+        self.register_buffer('pm0', torch.zeros(1, size))
+        self.register_buffer('pr0', torch.zeros(1, size))
 
     def forward(self, i, x, buckets=None, mins=None, rngs=None, pivots=None):
         """
@@ -98,26 +101,23 @@ class Split(nn.Module):
         if rngs is None:
             rngs = self.rngs0.expand(b, 1)
 
-        if pivots is None:
-            pivots = x.mean(dim=1, keepdim=True).expand(b, s)
-        else:
-            pivots = torch.zeros(b, s)
-            for bucket in range(2 ** self.depth):
-                # The extent to which each point 'belongs' to the current bucket
-                # (the point belongs to the two nearest buckets with extent
-                #   proportional to distance)
-                weight = 1.0 - torch.abs(buckets - bucket)
-                idx = weight > 0.0
-                weight[~idx] = 0.0
+        pivots = self.pivots0.expand(b, s)
+        for bucket in range(2 ** self.depth):
+            # The extent to which each point 'belongs' to the current bucket
+            # (the point belongs to the two nearest buckets with extent
+            #   proportional to distance)
+            weight = 1.0 - torch.abs(buckets - bucket)
+            idx = weight > 0.0
+            weight[~idx] = 0.0
 
-                # bucketmean = (weight * x).sum(dim=1, keepdim=True).expand(b, s)
-                # sum = weight.sum(dim=1, keepdim=True).expand(b, s) + 1e-10
-                #
-                # bucketmean = bucketmean / sum
-                sum = weight.sum(dim=1, keepdim=True).expand(b, s) + 1e-10
-                bucketpiv = self.topivot(x * weight) / sum
+            # bucketmean = (weight * x).sum(dim=1, keepdim=True).expand(b, s)
+            # sum = weight.sum(dim=1, keepdim=True).expand(b, s) + 1e-10
+            #
+            # bucketmean = bucketmean / sum
+            sum = weight.sum(dim=1, keepdim=True).expand(b, s) + 1e-10
+            bucketpiv = self.topivot(x * weight) / sum
 
-                pivots = pivots + weight * bucketpiv.expand(b, s)
+            pivots = pivots + weight * bucketpiv.expand(b, s)
 
         # print('p', pivots)
 
@@ -170,8 +170,8 @@ class Split(nn.Module):
         nwmins = mins[:, :, None].expand(b, mins.size(1), 2).contiguous()
         nwrngs = rngs[:, :, None].expand(b, rngs.size(1), 2).contiguous()
 
-        pointmins = torch.zeros(b, s)
-        pointrngs = torch.zeros(b, s)
+        pointmins = self.pm0.expand(b, s)
+        pointrngs = self.pr0.expand(b, s)
 
         for bucket in range(2**self.depth):
             # The extent to which each point 'belongs' to the current bucket
@@ -348,78 +348,79 @@ def go(arg):
 
             # Compute accuracy estimate
             if i % arg.dot_every == 0:
+                with torch.no_grad():
 
-                # print(x[0])
-                # print(t[0])
-                # print(y[0])
+                    # print(x[0])
+                    # print(t[0])
+                    # print(y[0])
 
-                correct = 0
-                tot = 0
-                for ii in range(10000//arg.batch_size):
-                    x = torch.randn((arg.batch_size,) + SHAPE)
-                    t, gold = x.sort()
+                    correct = 0
+                    tot = 0
+                    for ii in range(10000//arg.batch_size):
+                        x = torch.randn((arg.batch_size,) + SHAPE)
+                        t, gold = x.sort()
 
-                    if arg.cuda:
-                        x, t = x.cuda(), t.cuda()
-                        gold = gold.cuda()
+                        if arg.cuda:
+                            x, t = x.cuda(), t.cuda()
+                            gold = gold.cuda()
 
-                    x, t = Variable(x), Variable(t)
+                        x, t = Variable(x), Variable(t)
+
+                        means, sigmas, values = model.hyper(x)
+                        m = means.squeeze().round().long()
+                        _, m = m.sort()
+
+                        if arg.cuda:
+                            m = m.cuda()
+
+                        # print('x', x[0])
+                        # print('t', gold[0], x[0, gold[0]])
+                        # print('m', id[0], x[0, id[0]], means[0, :, 0])
+                        # print()
+                        # sys.exit()
+
+                        # print(m[0])
+                        # print(gold[0])
+
+                        # mo = torch.LongTensor(arg.batch_size, arg.size, 2)
+                        # for b in range(arg.batch_size):
+                        #     mo[b, :, :] = m[b, id[b], :]
+                        # m = mo
+
+                        tot += x.size(0)
+                        correct += ((gold != m).sum(dim=1) == 0).sum().item()
+
+                        # if ii == 0:
+                        #     print( (gold.view(batch, -1) != m.view(batch, -1) ).sum(dim=1) )
+                        #
+                        #     print(x[0])
+                        #     print(gold[0])
+                        #     print(means[0])
+
+
+                    print('acc', correct/tot)
+
+                    results[r, i//arg.dot_every] = 1.0 - (correct/tot)
+
+                    w.add_scalar('quicksort/accuracy/{}/{}'.format(arg.size, r), correct/tot, i * arg.batch_size)
+
+                if i % arg.plot_every == 0:
+                    plt.figure(figsize=(5, 5))
 
                     means, sigmas, values = model.hyper(x)
-                    m = means.squeeze().round().long()
-                    _, m = m.sort()
 
-                    if arg.cuda:
-                        m = m.cuda()
+                    means, sigmas, values = means.data, sigmas.data, values.data
 
-                    # print('x', x[0])
-                    # print('t', gold[0], x[0, gold[0]])
-                    # print('m', id[0], x[0, id[0]], means[0, :, 0])
-                    # print()
-                    # sys.exit()
+                    template = model.init.float().unsqueeze(0).expand(means.size(0), means.size(1), 2)
+                    template[:, :, model.learn_cols] = means
+                    means = template
 
-                    # print(m[0])
-                    # print(gold[0])
+                    plt.cla()
+                    util.plot1dvert(means[0], sigmas[0], values[0], shape=(SHAPE[0], SHAPE[0]))
+                    plt.xlim((-MARGIN * (SHAPE[0] - 1), (SHAPE[0] - 1) * (1.0 + MARGIN)))
+                    plt.ylim((-MARGIN * (SHAPE[0] - 1), (SHAPE[0] - 1) * (1.0 + MARGIN)))
 
-                    # mo = torch.LongTensor(arg.batch_size, arg.size, 2)
-                    # for b in range(arg.batch_size):
-                    #     mo[b, :, :] = m[b, id[b], :]
-                    # m = mo
-
-                    tot += x.size(0)
-                    correct += ((gold != m).sum(dim=1) == 0).sum().item()
-
-                    # if ii == 0:
-                    #     print( (gold.view(batch, -1) != m.view(batch, -1) ).sum(dim=1) )
-                    #
-                    #     print(x[0])
-                    #     print(gold[0])
-                    #     print(means[0])
-
-
-                print('acc', correct/tot)
-
-                results[r, i//arg.dot_every] = 1.0 - (correct/tot)
-
-                w.add_scalar('quicksort/accuracy/{}/{}'.format(arg.size, r), correct/tot, i * arg.batch_size)
-
-            if i % arg.plot_every == 0:
-                plt.figure(figsize=(5, 5))
-
-                means, sigmas, values = model.hyper(x)
-
-                means, sigmas, values = means.data, sigmas.data, values.data
-
-                template = model.init.float().unsqueeze(0).expand(means.size(0), means.size(1), 2)
-                template[:, :, model.learn_cols] = means
-                means = template
-
-                plt.cla()
-                util.plot1dvert(means[0], sigmas[0], values[0], shape=(SHAPE[0], SHAPE[0]))
-                plt.xlim((-MARGIN * (SHAPE[0] - 1), (SHAPE[0] - 1) * (1.0 + MARGIN)))
-                plt.ylim((-MARGIN * (SHAPE[0] - 1), (SHAPE[0] - 1) * (1.0 + MARGIN)))
-
-                plt.savefig('./quicksort/{}/means{:04}.pdf'.format(r, i))
+                    plt.savefig('./quicksort/{}/means{:04}.pdf'.format(r, i))
 
     np.save('results.{}.np'.format(arg.size), results)
     print('experiments finished')

@@ -317,8 +317,8 @@ class MatrixHyperlayer(nn.Module):
             # Mask for duplicate indices
             dups = self.duplicates(indices)
 
-            props = densities(indfl, means, sigmas) # result has size (c, indices.size(1), means.size(1))
-            props[dups] == 0
+            props = densities(indfl, means, sigmas).clone() # result has size (c, indices.size(1), means.size(1))
+            props[dups] = 0
             props = props / props.sum(dim=1, keepdim=True)
 
             values = values.unsqueeze(1).expand(c, indices.size(1), means.size(1))

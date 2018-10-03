@@ -42,39 +42,44 @@ class Split(nn.Module):
         self.depth = depth
 
         if global_size is None:
-            global_size = 2 * size
+            global_size = int(np.log2(size))
+
+        self.global_size = global_size
 
         if offset_hidden is None:
             offset_hidden = 4 * int(np.log2(size))
 
         # Computes a global representation of the input sequence (for instance containing the pivots)
-        self.globalrep = nn.Sequential(
-            nn.Linear(size, 2*global_size),
-            nn.ReLU(),
-            nn.Linear(2 * global_size, 2 * global_size),
-            nn.ReLU(),
-            nn.Linear(2*global_size, global_size)
+        self.topivot = nn.Sequential(
+            nn.Linear(size, global_size)
         )
 
-        self.topivot = nn.Linear(size, 1, bias=False)
-        self.topivot.weight.data = torch.randn(self.topivot.weight.data.size())
+        # self.topivot = nn.Linear(size, 1, bias=False)
+        # self.topivot.weight.data = torch.randn(self.topivot.weight.data.size())
 
         # Computes the 'offset' indicating whether an element should be sorted in to the top or bottom half of its current
         # interval
         self.offset = nn.Sequential(
-            nn.Linear(2, 1),
-            nn.Sigmoid(),
+            nn.Linear(1+global_size, offset_hidden),
+            nn.ReLU(),
+            nn.Linear(offset_hidden, 1),
+            nn.Sigmoid()
         )
+
+        # self.offset = nn.Sequential(
+        #     nn.Linear(2, 1),
+        #     nn.Sigmoid()
+        # )
 
         self.register_buffer('buckets0', torch.zeros(1, size))
         self.register_buffer('mins0', torch.zeros(1, 1))
         self.register_buffer('rngs0', torch.ones(1, 1))
         self.register_buffer('prop0', torch.zeros(1, size))
-        self.register_buffer('pivots0', torch.zeros(1, size))
+        self.register_buffer('pivots0', torch.zeros(1, size, 1))
         self.register_buffer('pm0', torch.zeros(1, size))
         self.register_buffer('pr0', torch.zeros(1, size))
 
-    def forward(self, i, x, buckets=None, mins=None, rngs=None, pivots=None):
+    def forward(self, i, x, buckets=None, mins=None, rngs=None):
         """
         :param i: (batched) vector of values in (0, 1), representing indices in the first column
          of the permutation matrix
@@ -89,6 +94,7 @@ class Split(nn.Module):
         # print('x', x)
 
         b, s = x.size()
+        g = self.global_size
 
         if buckets is None:
             buckets = self.buckets0.expand(b, s)
@@ -101,7 +107,7 @@ class Split(nn.Module):
         if rngs is None:
             rngs = self.rngs0.expand(b, 1)
 
-        pivots = self.pivots0.expand(b, s)
+        pivots = self.pivots0.expand(b, s, g)
         for bucket in range(2 ** self.depth):
             # The extent to which each point 'belongs' to the current bucket
             # (the point belongs to the two nearest buckets with extent
@@ -111,13 +117,15 @@ class Split(nn.Module):
             weight[~idx] = 0.0
 
             # bucketmean = (weight * x).sum(dim=1, keepdim=True).expand(b, s)
-            # sum = weight.sum(dim=1, keepdim=True).expand(b, s) + 1e-10
+            sum = weight.sum(dim=1, keepdim=True).expand(b, g) + 1e-10
             #
             # bucketmean = bucketmean / sum
-            sum = weight.sum(dim=1, keepdim=True).expand(b, s) + 1e-10
-            bucketpiv = self.topivot(x * weight) / sum
+            piv = self.topivot(x*weight) / sum
+            b, g = piv.size()
+            # sum = weight.sum(dim=1, keepdim=True).expand(b, g) + 1e-10
+            # bucketpiv =  piv / sum
 
-            pivots = pivots + weight * bucketpiv.expand(b, s)
+            pivots = pivots + weight[:, :, None].expand(b, s,g) * piv[:, None, :].expand(b, s, g)
 
         # print('p', pivots)
 
@@ -136,8 +144,8 @@ class Split(nn.Module):
 
         # fold the size dimension into the batch dimension and concatenate
         inp = torch.cat([
-            x.contiguous().view(-1, 1),
-            pivots.contiguous().view(-1, 1)], dim = 1)
+            x.contiguous().view(b*s, 1),
+            pivots.contiguous().view(b*s, g)], dim = 1)
         offset = self.offset(inp).view(b, s)
         # offset = torch.sigmoid(offset - offset.median(dim=1, keepdim=True)[0])
 
@@ -215,7 +223,7 @@ class Split(nn.Module):
         # if self.depth == 3:
         #      sys.exit()
 
-        return i, buckets, nwmins, nwrngs, pivots
+        return i, buckets, nwmins, nwrngs
 
 class SortLayer(global_temp.HyperLayer):
     """
@@ -243,7 +251,7 @@ class SortLayer(global_temp.HyperLayer):
         self.sigma_floor = sigma_floor
 
         self.splits = nn.ModuleList()
-        for d in range(size): # int(np.ceil(np.log2(size))) + 2):
+        for d in range( int(np.ceil(np.log2(size)))):
             self.splits.append(Split(size=size, depth=d))
 
         self.sigmas = nn.Parameter(torch.randn(size))
@@ -261,9 +269,9 @@ class SortLayer(global_temp.HyperLayer):
         # unsqueeze batch
         means = means[None, :].expand(b, s)
 
-        buckets, mins, rngs, pivots = None, None, None, None
+        buckets, mins, rngs = None, None, None
         for split in self.splits:
-            means, buckets, mins, rngs, pivots = split(means, input, buckets, mins, rngs, pivots)
+            means, buckets, mins, rngs = split(means, input, buckets, mins, rngs)
             # print('m',means)
 
         sigmas = F.softplus(self.sigmas)
@@ -288,6 +296,15 @@ class SortLayer(global_temp.HyperLayer):
         # sys.exit()
 
         return means[:, :, None], sigmas[:, :, None], values
+
+def gen(b, s):
+    t = torch.tensor(range(s), dtype=torch.float)[None, :].expand(b, s)/s
+
+    x = torch.zeros(b, s)
+    for row in range(b):
+        randind = torch.randperm(s)
+        x[row, :] = t[row, randind]
+    return x
 
 def go(arg):
 
@@ -318,15 +335,8 @@ def go(arg):
         optimizer = optim.Adam(model.parameters(), lr=arg.lr)
 
         for i in trange(arg.iterations):
-            #
-            # t = torch.tensor(range(size), dtype=torch.float).unsqueeze(0).expand(batch, size)/size
-            #
-            # x = torch.zeros(batch, size)
-            # for row in range(batch):
-            #     randind = torch.randperm(size)
-            #     x[row, :] = t[row, randind]
 
-            x = torch.randn((arg.batch_size,) + SHAPE)
+            x = gen(arg.batch_size, arg.size) # torch.randn((arg.batch_size,) + SHAPE)
 
             t, idxs = x.sort()
 
@@ -357,7 +367,7 @@ def go(arg):
                     correct = 0
                     tot = 0
                     for ii in range(10000//arg.batch_size):
-                        x = torch.randn((arg.batch_size,) + SHAPE)
+                        x = gen(arg.batch_size, arg.size)
                         t, gold = x.sort()
 
                         if arg.cuda:

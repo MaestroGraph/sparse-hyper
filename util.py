@@ -28,6 +28,24 @@ tics = []
 
 DEBUG = False
 
+def kl_loss(zmean, zlsig):
+    b, l = zmean.size()
+
+    kl = 0.5 * torch.sum(zlsig.exp() - zlsig + zmean.pow(2) - 1, dim=1)
+
+    assert kl.size() == (b,)
+
+    return kl
+
+def vae_sample(zmean, zlsig, eps=None):
+    b, l = zmean.size()
+
+    if eps is None:
+        eps = torch.randn(b, l, device='cuda' if zmean.is_cuda else 'cpu')
+        eps = Variable(eps)
+
+    return zmean + eps * (zlsig * 0.5).exp()
+
 def tic():
     tics.append(time())
 

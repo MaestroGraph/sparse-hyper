@@ -463,9 +463,10 @@ class ConvModel(nn.Module):
         # )
 
         self.decoder = nn.Sequential(
-            nn.Linear(emb_size, 200), nn.Sigmoid(),
-            nn.Linear(200, 400), nn.Sigmoid(),
-            nn.Linear(400, 28*28),
+            nn.Linear(emb_size, 200), nn.ReLU(),
+            nn.Linear(200, 400), nn.ReLU(),
+            nn.Linear(400, 600), nn.ReLU(),
+            nn.Linear(600, 28*28),
             nn.Sigmoid(), util.Reshape((1, 28, 28))
         )
 
@@ -473,9 +474,10 @@ class ConvModel(nn.Module):
         if encoder:
             self.encoder = nn.Sequential(
                 util.Flatten(),
-                nn.Linear(28*28, 400), nn.Sigmoid(),
-                nn.Linear(400, 200), nn.Sigmoid(),
-                nn.Linear(200, emb_size)
+                nn.Linear(28*28, 600), nn.ReLU(),
+                nn.Linear(600, 400), nn.ReLU(),
+                nn.Linear(400, 200), nn.ReLU(),
+                nn.Linear(200, emb_size * 2)
             )
 
         self.adj = MatrixHyperlayer(n, n, k, radditional=radd, gadditional=gadd, region=(range,),
@@ -483,6 +485,8 @@ class ConvModel(nn.Module):
 
         if not encoder:
             self.embedding = Parameter(torch.randn(n, emb_size))
+
+        self.emb_size = emb_size
 
         # self.embedding_conv = GraphConvolution(n, emb_size, bias=False)
         # self.weightless_conv = GraphConvolution(emb_size, emb_size, has_weight=False, bias=False)
@@ -499,14 +503,20 @@ class ConvModel(nn.Module):
         if self.encoder is None:
             x = self.embedding
         else:
-            x = self.encoder(data)
+            xraw = self.encoder(data)
+            xmean, xsig = xraw[:, :self.emb_size], xraw[:, self.emb_size:]
+            kl_loss = util.kl_loss(xmean, xsig)
+            x = util.vae_sample(xmean, xsig)
 
-        results =[x]
+        results = [x]
         for _ in range(1, depth):
             x = self.adj(x, train=train)
             results.append(x)
 
-        return [self.decoder(r) for r in results]
+        if self.encoder is None:
+            return [self.decoder(r) for r in results]
+        else:
+            return [self.decoder(r) for r in results], kl_loss
 
     def cuda(self):
 
@@ -570,16 +580,24 @@ def go(arg):
 
     ## SIMPLE
     optimizer = optim.Adam(model.parameters(), lr=arg.lr)
+    n, c, h, w = data.size()
 
     for epoch in trange(arg.epochs):
 
         optimizer.zero_grad()
 
-        outputs = model(depth=arg.depth, data=data if arg.encoder else None)
+        if not arg.encoder:
+            outputs = model(depth=arg.depth)
+        else:
+            outputs, kl_loss = model(depth=arg.depth, data=data)
 
-        losses = torch.zeros((len(outputs),), device='cuda' if arg.cuda else 'cpu')
+        losses = torch.zeros((n, len(outputs)), device='cuda' if arg.cuda else 'cpu')
         for i, o in enumerate(outputs):
-            losses[i] = (F.binary_cross_entropy(o, target))
+            losses[:, i] = F.binary_cross_entropy(o, target, reduce=False).view(n, -1).sum(dim=1)
+
+        if arg.encoder:
+            losses =  torch.cat([losses, kl_loss[:, None]], dim=1)
+            losses = losses.mean(dim=0)
 
         loss = losses.sum()
 
@@ -592,7 +610,8 @@ def go(arg):
             plt.figure(figsize=(8, 2))
 
             print('{:03}   '.format(epoch), losses)
-            print('    adj', model.adj.params.grad.mean().item())
+            if arg.depth > 1:
+                print('    adj', model.adj.params.grad.mean().item())
             #  print('    lin', next(model.decoder.parameters()).grad.mean().item())
 
             plt.cla()
@@ -602,7 +621,10 @@ def go(arg):
 
             with torch.no_grad():
 
-                outputs = model(depth=arg.depth, train=False, data=data if arg.encoder else None)
+                if arg.encoder:
+                    outputs, _ = model(depth=arg.depth, train=False, data=data)
+                else:
+                    outputs = model(deth=arg.depth, train=False)
 
                 for d, o in enumerate(outputs):
                     plt.cla()

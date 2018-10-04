@@ -549,7 +549,7 @@ class ASHModel(nn.Module):
         #     b = rfboost
         #     self.register_buffer('bbox_offset', torch.FloatTensor([-b, b, -b, b]))
 
-        self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
+        self.bbox_offset = Parameter(torch.FloatTensor([-1, 1, -1, 1]) * self.rfboost)
 
     def cuda(self):
 
@@ -583,7 +583,15 @@ class ASHModel(nn.Module):
             samples = []
             for i in range(self.num_glimpses):
                 ps = prep[:, i * 8: (i + 1) * 8]
-                bbox  = ps[:, :4] * self.rfboost + self.bbox_offset
+
+                bbox  = ps[:, :4]
+
+                # Center the x and y coordinates
+                bbox[:, :2] = bbox[:, :2] - bbox[:, :2].mean(dim=1, keepdim=True)
+                bbox[:, 2:] = bbox[:, 2:] - bbox[:, 2:].mean(dim=1, keepdim=True)
+
+                bbox = bbox + self.bbox_offset
+
                 sigs  = F.softplus(ps[:, 4:] + SIGMA_BOOST_REINFORCE)
 
                 # print('bbox', bbox.mean(dim=0))
@@ -677,7 +685,7 @@ class ASHModel(nn.Module):
 
                     ps = prep[:, j * 8: (j + 1) * 8]
                     bbox = ps[:, :4] * self.rfboost + self.bbox_offset
-                    print(bbox[:3])
+                    # print(bbox[:3])
 
                     bbox = F.sigmoid(bbox)
                     bbox[:, :2] = (bbox[:, :2] - gaussian.EPSILON) * h

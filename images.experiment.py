@@ -513,7 +513,7 @@ class ASHModel(nn.Module):
             nn.Linear(hidlin, hidlin),
             nn.Dropout(DROPOUT),
             activation,
-            nn.Linear(hidlin, (4 if not self.reinforce else 8) * glimpses)
+            nn.Linear(hidlin, (4 if not self.reinforce else 12) * glimpses)
         )
 
         # hid = max(1, floor(w / 5) * floor(h / 5) * c)
@@ -582,10 +582,10 @@ class ASHModel(nn.Module):
             stoch_nodes = []
             samples = []
             for i in range(self.num_glimpses):
-                ps = prep[:, i * 8: (i + 1) * 8]
+                ps = prep[:, i * 12: (i + 1) * 12]
 
                 bbox = self.get_bbox(ps)
-                sigs  = F.softplus(ps[:, 4:] + SIGMA_BOOST_REINFORCE)
+                sigs  = F.softplus(ps[:, 8:] + SIGMA_BOOST_REINFORCE)
 
                 # print('bbox', bbox.mean(dim=0))
                 # print('sigs', sigs.mean(dim=0))
@@ -644,12 +644,13 @@ class ASHModel(nn.Module):
     def get_bbox(self, ps):
 
         bbox = ps[:, :4]
+        bbox_offset = ps[:, 4:8] * 0.01
 
         # Center the x and y coordinates
         bbox[:, :2] = bbox[:, :2] - bbox[:, :2].mean(dim=1, keepdim=True)
         bbox[:, 2:] = bbox[:, 2:] - bbox[:, 2:].mean(dim=1, keepdim=True)
 
-        bbox = bbox + self.bbox_offset
+        bbox = bbox * self.rfboost + bbox_offset
 
         return bbox
 

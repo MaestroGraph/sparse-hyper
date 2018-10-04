@@ -392,8 +392,18 @@ class HyperLayer(nn.Module):
         sparsemult = util.sparsemult(self.use_cuda)
 
         # Prevent segfault
-        assert mindices.min() >= 0
-        assert not util.contains_nan(values.data)
+        try:
+            assert mindices.min() >= 0
+            assert not util.contains_nan(values.data)
+        except AssertionError as ae:
+            print('Nan in values or negative index in mindices.')
+            print('indices', mindices)
+            print('mindices', mindices)
+            print('means', means)
+            print('sigmas', sigmas)
+            print('props', props)
+            print('values', values)
+            raise ae
 
         # Then we flatten the batch dimension as well
         bm = util.bmult(flat_size[1], flat_size[0], mindices.size()[1], batchsize, self.use_cuda)

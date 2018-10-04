@@ -35,14 +35,14 @@ BUCKET_SIGMA = 0.05
 
 class Split(nn.Module):
 
-    def __init__(self, size, depth, global_size=None, offset_hidden=None):
+    def __init__(self, size, depth, global_size=None, offset_hidden=None, offset=None, topivot=None):
         super().__init__()
 
         self.size = size
         self.depth = depth
 
         if global_size is None:
-            global_size = int(np.log2(size))
+            global_size = 1 # int(np.log2(size))
 
         self.global_size = global_size
 
@@ -50,26 +50,20 @@ class Split(nn.Module):
             offset_hidden = 4 * int(np.log2(size))
 
         # Computes a global representation of the input sequence (for instance containing the pivots)
-        self.topivot = nn.Sequential(
-            nn.Linear(size, global_size)
-        )
-
-        # self.topivot = nn.Linear(size, 1, bias=False)
-        # self.topivot.weight.data = torch.randn(self.topivot.weight.data.size())
+        self.topivot = topivot
 
         # Computes the 'offset' indicating whether an element should be sorted in to the top or bottom half of its current
         # interval
-        self.offset = nn.Sequential(
-            nn.Linear(1+global_size, offset_hidden),
-            nn.ReLU(),
-            nn.Linear(offset_hidden, 1),
-            nn.Sigmoid()
-        )
-
         # self.offset = nn.Sequential(
-        #     nn.Linear(2, 1),
+        #     nn.Linear(1+global_size, offset_hidden),
+        #     nn.ReLU(),
+        #     nn.Linear(offset_hidden, 1),
         #     nn.Sigmoid()
         # )
+
+        self.offset = offset
+
+        self.offset_scale = Parameter(torch.tensor([50.0]))
 
         self.register_buffer('buckets0', torch.zeros(1, size))
         self.register_buffer('mins0', torch.zeros(1, 1))
@@ -108,6 +102,7 @@ class Split(nn.Module):
             rngs = self.rngs0.expand(b, 1)
 
         pivots = self.pivots0.expand(b, s, g)
+
         for bucket in range(2 ** self.depth):
             # The extent to which each point 'belongs' to the current bucket
             # (the point belongs to the two nearest buckets with extent
@@ -118,7 +113,7 @@ class Split(nn.Module):
 
             # bucketmean = (weight * x).sum(dim=1, keepdim=True).expand(b, s)
             sum = weight.sum(dim=1, keepdim=True).expand(b, g) + 1e-10
-            #
+
             # bucketmean = bucketmean / sum
             piv = self.topivot(x*weight) / sum
             b, g = piv.size()
@@ -147,6 +142,14 @@ class Split(nn.Module):
             x.contiguous().view(b*s, 1),
             pivots.contiguous().view(b*s, g)], dim = 1)
         offset = self.offset(inp).view(b, s)
+        # offset = (x > pivots.squeeze()).float()
+        # offset = torch.sigmoid((x - pivots.squeeze()) * self.offset_scale).float()
+
+        # if random.random() < 0.001:
+        #     print('os', self.offset_scale)
+        #     # print('pw', self.topivot.weight)
+        #     print('of', offset[0])
+
         # offset = torch.sigmoid(offset - offset.median(dim=1, keepdim=True)[0])
 
         # QS: Uncomment this to compute quicksort explicitly
@@ -250,9 +253,28 @@ class SortLayer(global_temp.HyperLayer):
         self.sigma_scale = sigma_scale
         self.sigma_floor = sigma_floor
 
+        global_size = 4
+
+        self.offset =  nn.Sequential(
+            nn.Linear(global_size + 1, 16), nn.ReLU(),
+            nn.Linear(16, 16), nn.ReLU(),
+            nn.Linear(16, 1),
+            #util.Lambda(lambda x : x - x.mean(dim=1, keepdim=True)),
+            nn.Sigmoid()
+        )
+
+        # topivot = nn.Linear(size, global_size, bias=False)
+        # topivot.weight.data = topivot.weight.data * 0.00001 + 1.0/global_size
+        topivot = nn.Sequential(
+            nn.Linear(size, global_size * 2), nn.ReLU(),
+            nn.Linear(global_size * 2, global_size * 2), nn.ReLU(),
+            nn.Linear(global_size * 2, global_size)
+        )
+
+
         self.splits = nn.ModuleList()
         for d in range( int(np.ceil(np.log2(size)))):
-            self.splits.append(Split(size=size, depth=d))
+            self.splits.append(Split(size=size, depth=d, offset=self.offset, topivot=topivot, global_size=global_size))
 
         self.sigmas = nn.Parameter(torch.randn(size))
         self.register_buffer('values', torch.ones(size))
@@ -261,6 +283,7 @@ class SortLayer(global_temp.HyperLayer):
         """
         Evaluates hypernetwork.
         """
+
         b, s = input.size()
 
         # print('i ', input)
@@ -272,7 +295,6 @@ class SortLayer(global_temp.HyperLayer):
         buckets, mins, rngs = None, None, None
         for split in self.splits:
             means, buckets, mins, rngs = split(means, input, buckets, mins, rngs)
-            # print('m',means)
 
         sigmas = F.softplus(self.sigmas)
         sigmas = sigmas * self.sigma_scale + self.sigma_floor
@@ -336,6 +358,9 @@ def go(arg):
 
         for i in trange(arg.iterations):
 
+            if i > 3000:
+                util.DEBUG = True
+
             x = gen(arg.batch_size, arg.size) # torch.randn((arg.batch_size,) + SHAPE)
 
             t, idxs = x.sort()
@@ -352,6 +377,13 @@ def go(arg):
             loss = F.mse_loss(y, t) # compute the loss
 
             loss.backward()
+
+            # print('s', model.sigmas.grad[0])
+            # for split in model.splits:
+            #     # print('--', split.last.grad)
+            #     print('tp', split.topivot.weight.grad)
+            # sys.exit()
+
             optimizer.step()
 
             w.add_scalar('quicksort/loss/{}/{}'.format(arg.size, r), loss.data.item(), i*arg.batch_size)

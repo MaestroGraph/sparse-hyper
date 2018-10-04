@@ -1156,7 +1156,7 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
 
                 # print(mloss.size(), rloss.size())
 
-                loss = rloss.sum(dim=1) + mloss
+                loss = rloss.sum(dim=1) # + mloss
             else:
                 loss = mloss
 
@@ -1198,9 +1198,9 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
 
             if epoch % plot_every == 0 and i == 0 and type(model) is ASHModel:
-
-                print('post', model.lin1.weight.grad.data.mean())
-                print('pre', list(model.preprocess.modules())[1].weight.grad.data.mean())
+                #
+                # print('post', model.lin1.weight.grad.data.mean())
+                # print('pre', list(model.preprocess.modules())[1].weight.grad.data.mean())
 
                 model.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.glimpses.{:03}.pdf'.format(epoch))

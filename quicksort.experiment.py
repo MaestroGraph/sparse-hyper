@@ -122,6 +122,12 @@ class Split(nn.Module):
 
             pivots = pivots + weight[:, :, None].expand(b, s,g) * piv[:, None, :].expand(b, s, g)
 
+            if util.contains_nan(pivots):
+                print('depth', self.depth)
+                print('pivots', pivots)
+                print('weight', weight)
+                sys.exit()
+
         # print('p', pivots)
 
         # rng = 2 ** - self.depth

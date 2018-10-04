@@ -465,7 +465,7 @@ class ConvModel(nn.Module):
         #     # util.Debug(lambda x : print(x.size()))
         # )
 
-        h1, h2, h3 = 300, 200, 100
+        h1, h2, h3 = 128, 64, 32
         self.decoder = nn.Sequential(
             nn.Linear(emb_size, h3), nn.ReLU(),
             nn.Linear(h3, h2), nn.ReLU(),

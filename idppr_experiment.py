@@ -23,7 +23,6 @@ LOG = logging.getLogger()
 """
 Simple experiment: learn the identity function from one tensor to another
 """
-w = SummaryWriter()
 
 def go(arg):
 
@@ -39,10 +38,16 @@ def go(arg):
     results = np.zeros((arg.reps, ndots))
 
     print('Starting size {} with {} additional samples (reinforce={})'.format(arg.size, additional, arg.reinforce))
-
+    w = None
     for r in range(arg.reps):
         print('repeat {} of {}'.format(r, arg.reps))
+
         util.makedirs('./identity/{}'.format(r))
+        util.makedirs('./runs/identity/{}'.format(r))
+
+        if w is not None:
+            w.close()
+        w = SummaryWriter(log_dir='./runs/identity/{}/'.format(r))
 
         SHAPE = (arg.size,)
 

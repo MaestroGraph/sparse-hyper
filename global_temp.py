@@ -397,12 +397,13 @@ class HyperLayer(nn.Module):
             assert not util.contains_nan(values.data)
         except AssertionError as ae:
             print('Nan in values or negative index in mindices.')
-            print('indices', mindices)
-            print('mindices', mindices)
             print('means', means)
             print('sigmas', sigmas)
             print('props', props)
             print('values', values)
+            print('indices', indices)
+            print('mindices', mindices)
+
             raise ae
 
         # Then we flatten the batch dimension as well

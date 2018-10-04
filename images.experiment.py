@@ -644,13 +644,17 @@ class ASHModel(nn.Module):
     def get_bbox(self, ps):
 
         bbox = ps[:, :4]
-        bbox_offset = ps[:, 4:8] * 0.01
+        bbox_offset = ps[:, 4:8] * 0.0001
 
         # Center the x and y coordinates
+        print(bbox[0])
         bbox[:, :2] = bbox[:, :2] - bbox[:, :2].mean(dim=1, keepdim=True)
         bbox[:, 2:] = bbox[:, 2:] - bbox[:, 2:].mean(dim=1, keepdim=True)
+        print(bbox[0])
 
         bbox = bbox * self.rfboost + bbox_offset
+        print(bbox[0])
+        sys.exit()
 
         return bbox
 

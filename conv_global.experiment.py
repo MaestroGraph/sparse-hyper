@@ -444,40 +444,52 @@ class ConvModel(nn.Module):
         self.data_shape = data_size
         n, c, h, w = data_size
 
-        ch1, ch2, ch3 = 128, 64, 32
-        # # decoder from embedding to images
-        # self.decoder= nn.Sequential(
-        #     nn.Linear(emb_size, 4 * 4 * ch1), nn.ReLU(),
-        #     util.Reshape((ch1, 4, 4)),
-        #     nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
-        #     nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
-        #     nn.ConvTranspose2d(ch1, ch2, (5, 5), padding=2), nn.ReLU(),
-        #     nn.Upsample(scale_factor=3, mode='bilinear'),
-        #     nn.ConvTranspose2d(ch2, ch2, (5, 5), padding=2), nn.ReLU(),
-        #     nn.ConvTranspose2d(ch2, ch2, (5, 5), padding=2), nn.ReLU(),
-        #     nn.ConvTranspose2d(ch2, ch1, (5, 5), padding=2), nn.ReLU(),
-        #     nn.Upsample(scale_factor=2, mode='bilinear'),
-        #     nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
-        #     nn.ConvTranspose2d(ch1, ch1, (5, 5), padding=2), nn.ReLU(),
-        #     nn.ConvTranspose2d(ch1, 1, (5, 5), padding=0), nn.Sigmoid()
-        # )
+        # - channel sizes
+        c1, c2, c3 = 2, 3, 4
 
+        upmode = 'bilinear'
         self.decoder = nn.Sequential(
-            nn.Linear(emb_size, 200), nn.ReLU(),
-            nn.Linear(200, 400), nn.ReLU(),
-            nn.Linear(400, 600), nn.ReLU(),
-            nn.Linear(600, 28*28),
-            nn.Sigmoid(), util.Reshape((1, 28, 28))
+            nn.Linear(emb_size, 4 * 4 * c3), nn.ReLU(),
+            util.Reshape((c3, 4, 4)),
+            nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            # nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.ConvTranspose2d(c3, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.Upsample(scale_factor=3, mode=upmode),
+            nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            # nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.ConvTranspose2d(c2, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode=upmode),
+            nn.ConvTranspose2d(c1, c1, (5, 5), padding=0), nn.ReLU(),
+            # nn.ConvTranspose2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.ConvTranspose2d(c1, 1,  (3, 3), padding=1), nn.Sigmoid(),
+            # util.Debug(lambda x : print(x.size()))
         )
+
+        # self.decoder = nn.Sequential(
+        #     nn.Linear(emb_size, 200), nn.ReLU(),
+        #     nn.Linear(200, 400), nn.ReLU(),
+        #     nn.Linear(400, 600), nn.ReLU(),
+        #     nn.Linear(600, 28*28),
+        #     nn.Sigmoid(), util.Reshape((1, 28, 28))
+        # )
 
         self.encoder = None
         if encoder:
             self.encoder = nn.Sequential(
+                nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
+                # nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+                nn.MaxPool2d((2, 2)),
+                nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
+                # nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+                nn.MaxPool2d((2, 2)),
+                nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
+                # nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+                nn.MaxPool2d((2, 2)),
                 util.Flatten(),
-                nn.Linear(28*28, 600), nn.ReLU(),
-                nn.Linear(600, 400), nn.ReLU(),
-                nn.Linear(400, 200), nn.ReLU(),
-                nn.Linear(200, emb_size * 2)
+                nn.Linear(9 * c3, 2 * emb_size)
             )
 
         self.adj = MatrixHyperlayer(n, n, k, radditional=radd, gadditional=gadd, region=(range,),

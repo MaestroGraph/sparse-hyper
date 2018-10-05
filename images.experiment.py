@@ -1149,16 +1149,24 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
             mloss = F.cross_entropy(outputs, labels, reduce=False)
 
             if reinforce:
+
                 rloss = 0.0
 
                 for node, action in zip(stoch_nodes, actions):
-                    rloss = rloss - node.log_prob(action) * - mloss.data.unsqueeze(1).expand_as(action)
+                    rloss = rloss - node.log_prob(action) * - mloss.detach().unsqueeze(1).expand_as(action)
 
                 # print(mloss.size(), rloss.size())
 
-                loss = rloss.sum(dim=1) # + mloss
+                loss = rloss.sum(dim=1) + mloss
+
+                tbw.add_scalar('mnist/train-loss', float(loss.mean().item()), step)
+                tbw.add_scalar('mnist/model-loss', float(rloss.sum(dim=1).mean().item()), step)
+                tbw.add_scalar('mnist/reinf-loss', float(mloss.mean().item()), step)
+
             else:
                 loss = mloss
+
+                tbw.add_scalar('mnist/train-loss', float(loss.data.item()), step)
 
             loss = loss.sum()
             loss.backward()  # compute the gradients
@@ -1168,8 +1176,6 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
             # print(hyperlayer.values, hyperlayer.values.grad)
 
             optimizer.step()
-
-            tbw.add_scalar('mnist/train-loss', float(loss.data.item()), step)
 
             step += inputs.size(0)
 

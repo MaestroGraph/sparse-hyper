@@ -5,24 +5,26 @@ import torch.nn.functional as F
 
 batch = 64
 iterations = 100000
-reinforce = False
+reinforce = True
 
 # Two layer MLP, producing means and sigmas for the output
 h = 128
 model = nn.Sequential(
-    nn.Linear(1, h), nn.Sigmoid(),
-    nn.Linear(h, h), nn.Sigmoid(),
+    nn.Linear(1, h), nn.ReLU(),
+    nn.Linear(h, h), nn.ReLU(),
     nn.Linear(h, 8)
 )
 
-opt = torch.optim.Adam(model.parameters(), lr = 0.0001)
+tomean = nn.Linear(4, 1, bias=False)
+
+opt = torch.optim.Adam(list(model.parameters()) + list(tomean.parameters()), lr = 0.0001)
 
 for i in range(iterations):
 
     x = torch.randn(batch, 1)
-    y = torch.cat([x, x ** 2, x ** 3, torch.sin(x)], dim=1)
+    t = torch.cat([x, x ** 2, x ** 3, torch.sin(x)], dim=1).mean(dim=1)
 
-    x, y = Variable(x), Variable(y)
+    x, t = Variable(x), Variable(t)
 
     res = model(x)
     means, sigs = res[:, :4], torch.exp(res[:, 4:])
@@ -30,21 +32,27 @@ for i in range(iterations):
     dists = torch.distributions.Normal(means, sigs)
     samples = dists.sample()
 
-    mloss = F.mse_loss(samples, y, reduce=False)
+    if reinforce:
+        y = tomean(samples).squeeze()
+    else:
+        y = tomean(means).squeeze()
 
     if reinforce:
-        loss = - dists.log_prob(samples) * - mloss
-        loss = loss.mean()
+        mloss = F.mse_loss(y, t, reduce=False)[:, None].expand_as(samples)
+
+        loss = - dists.log_prob(samples) * - mloss.detach()  # REINFORCE
+        loss = (loss + mloss).mean()
     else:
-        loss = F.mse_loss(means, y)
+        loss = F.mse_loss(y, t)
 
     opt.zero_grad()
     loss.backward()
     opt.step()
 
     if not i % 1000:
-        print('{: 6} grad'.format(i), list(model.parameters())[0].grad.mean())
-        print('      ', 'loss', F.mse_loss((samples if reinforce else means).data, y.data, reduce=False).mean(dim=0))
+        print('{: 6} tomean'.format(i), tomean.weight.data, tomean.weight.grad)
+        print('      ', 'grad'.format(i), list(model.parameters())[0].grad.mean())
+        print('      ', 'loss', F.mse_loss(y.data, t.data, reduce=False).mean(dim=0))
         if reinforce:
             print('      ', 'sigs', sigs.mean(dim=0))
 

@@ -250,14 +250,16 @@ class HyperLayer(nn.Module):
 
         return means, sigmas, weights, snode
 
-    def generate_integer_tuples(self, means, rng=None, use_cuda=False, relative_range=None):
+    def generate_integer_tuples(self, means, rng=None, use_cuda=False, relative_range=None, seed=None):
+
+        if seed is not None:
+            torch.manual_seed(seed)
 
         batchsize, n, rank = means.size()
 
         """
         Generate the neighboring integers
         """
-
         fm = self.floor_mask.unsqueeze(0).unsqueeze(0).expand(batchsize, n, 2 ** rank, rank)
 
         neighbor_ints = means.data.unsqueeze(2).expand(batchsize, n, 2 ** rank, rank).contiguous()
@@ -311,13 +313,10 @@ class HyperLayer(nn.Module):
         sampled_ints = torch.floor(sampled_ints * rngxp).long()
 
         ints = torch.cat([neighbor_ints, sampled_ints, rr_ints], dim=2)
-        # ints = sampled_ints
-
-        # print(ints.size(), ints.view(batchsize, -1, rank).size())
 
         return ints.view(batchsize, -1, rank)
 
-    def forward(self, input):
+    def forward(self, input, mrange=None, seed=None):
 
         ### Compute and unpack output of hypernetwork
 
@@ -338,9 +337,9 @@ class HyperLayer(nn.Module):
         if self.sparse_input:
             input = input.dense()
 
-        return self.forward_inner(input, means, sigmas, values, bias)
+        return self.forward_inner(input, means, sigmas, values, bias, mrange=mrange, seed=seed)
 
-    def forward_inner(self, input, means, sigmas, values, bias):
+    def forward_inner(self, input, means, sigmas, values, bias, mrange=None, seed=None):
 
         t0total = time.time()
 
@@ -373,8 +372,10 @@ class HyperLayer(nn.Module):
         else:
             # For large matrices we need to subsample the means we backpropagate for
             b, nm, rank = means.size()
+            fr, to = mrange
 
-            sample = random.sample(range(nm), self.subsample) # the means we will learn for
+            # sample = random.sample(range(nm), self.subsample) # the means we will learn for
+            sample = range(fr, to)
             ids = torch.zeros((nm,), dtype=torch.uint8, device='cuda' if self.use_cuda else 'cpu')
             ids[sample] = 1
 
@@ -382,7 +383,13 @@ class HyperLayer(nn.Module):
             sigmas_in, sigmas_out = sigmas[:, ids, :], sigmas[:, ~ids, :]
             values_in, values_out = values[:, ids], values[:, ~ids]
 
-            indices = self.generate_integer_tuples(means_in, rng=rng, use_cuda=self.use_cuda, relative_range=self.region)
+            # These should not get a gradient, since their means aren't being sampled for
+            # (their gradient will be computed in the next pass)
+            means_out  = means_out.detach()
+            sigmas_out = sigmas_out.detach()
+            values_out = values_out.detach()
+
+            indices = self.generate_integer_tuples(means, rng=rng, use_cuda=self.use_cuda, relative_range=self.region, seed=seed)
             indfl = indices.float()
 
             dups = self.duplicates(indices)
@@ -403,13 +410,6 @@ class HyperLayer(nn.Module):
 
             indices = torch.cat([indices, indices_out], dim=1)
             values = torch.cat([values_in, values_out], dim=1)
-
-        # print(values.sum(dim=1))
-
-        # print(indices[0, :])
-        # print(dups[0, :])
-        # print(values[0, :])
-        # sys.exit()
 
         if self.use_cuda:
             indices = indices.cuda()

@@ -9,7 +9,7 @@ from tensorboardX import SummaryWriter
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import util, logging, time, gc
+import util, logging, time, gc, math
 import numpy as np
 
 from scipy.stats import sem
@@ -82,14 +82,38 @@ def go(arg):
                 x = x.cuda()
             x = Variable(x)
 
-            optimizer.zero_grad()
 
             if not arg.reinforce:
-                y = model(x)
 
-                loss = F.mse_loss(y, x)
+
+                if arg.subsample is None:
+                    optimizer.zero_grad()
+
+                    y = model(x)
+
+                    loss = F.mse_loss(y, x)
+
+                    loss.backward()
+                    optimizer.step()
+                else:
+                    optimizer.zero_grad()
+
+                    # multiple forward/backward passes, accumulate gradient
+                    seed = (torch.rand(1) * 100000).long().item()
+                    for fr in range(0, arg.size, arg.subsample):
+                        to = min(fr + arg.subsample, arg.size)
+
+                        y = model(x, mrange=(fr, to), seed=seed)
+
+                        loss = F.mse_loss(y, x)
+
+                        loss.backward()
+                    optimizer.step()
 
             else:
+
+                optimizer.zero_grad()
+
                 y, dists, actions = model(x)
 
                 mloss = F.mse_loss(y, x, reduce=False).mean(dim=1)
@@ -97,9 +121,8 @@ def go(arg):
 
                 loss = rloss.mean()
 
-            loss.backward()
-
-            optimizer.step()
+                loss.backward()
+                optimizer.step()
 
             w.add_scalar('identity/loss/', loss.item(), i*arg.batch)
 

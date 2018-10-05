@@ -316,7 +316,7 @@ class HyperLayer(nn.Module):
 
         return ints.view(batchsize, -1, rank)
 
-    def forward(self, input, mrange=None, seed=None):
+    def forward(self, input, mrange=None, seed=None, train=True):
 
         ### Compute and unpack output of hypernetwork
 
@@ -337,9 +337,9 @@ class HyperLayer(nn.Module):
         if self.sparse_input:
             input = input.dense()
 
-        return self.forward_inner(input, means, sigmas, values, bias, mrange=mrange, seed=seed)
+        return self.forward_inner(input, means, sigmas, values, bias, mrange=mrange, seed=seed, train=train)
 
-    def forward_inner(self, input, means, sigmas, values, bias, mrange=None, seed=None):
+    def forward_inner(self, input, means, sigmas, values, bias, mrange=None, seed=None, train=True):
 
         t0total = time.time()
 
@@ -353,63 +353,66 @@ class HyperLayer(nn.Module):
         # turn the real values into integers in a differentiable way
         t0 = time.time()
 
-        if self.subsample is None:
-            indices = self.generate_integer_tuples(means, rng=rng, use_cuda=self.use_cuda, relative_range=self.region)
-            indfl = indices.float()
+        if train:
+            if self.subsample is None:
+                indices = self.generate_integer_tuples(means, rng=rng, use_cuda=self.use_cuda, relative_range=self.region)
+                indfl = indices.float()
 
-            # Mask for duplicate indices
-            dups = self.duplicates(indices)
+                # Mask for duplicate indices
+                dups = self.duplicates(indices)
 
-            props = densities(indfl, means, sigmas).clone() # result has size (b, indices.size(1), means.size(1))
-            props[dups] = 0
-            props = props / props.sum(dim=1, keepdim=True)
+                props = densities(indfl, means, sigmas).clone() # result has size (b, indices.size(1), means.size(1))
+                props[dups] = 0
+                props = props / props.sum(dim=1, keepdim=True)
 
-            values = values.unsqueeze(1).expand(batchsize, indices.size(1), means.size(1))
+                values = values.unsqueeze(1).expand(batchsize, indices.size(1), means.size(1))
 
-            values = props * values
-            values = values.sum(dim=2)
+                values = props * values
+                values = values.sum(dim=2)
 
-        else:
-            # For large matrices we need to subsample the means we backpropagate for
-            b, nm, rank = means.size()
-            fr, to = mrange
+            else:
+                # For large matrices we need to subsample the means we backpropagate for
+                b, nm, rank = means.size()
+                fr, to = mrange
 
-            # sample = random.sample(range(nm), self.subsample) # the means we will learn for
-            sample = range(fr, to)
-            ids = torch.zeros((nm,), dtype=torch.uint8, device='cuda' if self.use_cuda else 'cpu')
-            ids[sample] = 1
+                # sample = random.sample(range(nm), self.subsample) # the means we will learn for
+                sample = range(fr, to)
+                ids = torch.zeros((nm,), dtype=torch.uint8, device='cuda' if self.use_cuda else 'cpu')
+                ids[sample] = 1
 
-            means_in, means_out = means[:, ids, :], means[:, ~ids, :]
-            sigmas_in, sigmas_out = sigmas[:, ids, :], sigmas[:, ~ids, :]
-            values_in, values_out = values[:, ids], values[:, ~ids]
+                means_in, means_out = means[:, ids, :], means[:, ~ids, :]
+                sigmas_in, sigmas_out = sigmas[:, ids, :], sigmas[:, ~ids, :]
+                values_in, values_out = values[:, ids], values[:, ~ids]
 
-            # These should not get a gradient, since their means aren't being sampled for
-            # (their gradient will be computed in the next pass)
-            means_out  = means_out.detach()
-            sigmas_out = sigmas_out.detach()
-            values_out = values_out.detach()
+                # These should not get a gradient, since their means aren't being sampled for
+                # (their gradient will be computed in the next pass)
+                means_out  = means_out.detach()
+                sigmas_out = sigmas_out.detach()
+                values_out = values_out.detach()
 
-            indices = self.generate_integer_tuples(means, rng=rng, use_cuda=self.use_cuda, relative_range=self.region, seed=seed)
-            indfl = indices.float()
+                indices = self.generate_integer_tuples(means, rng=rng, use_cuda=self.use_cuda, relative_range=self.region, seed=seed)
+                indfl = indices.float()
 
-            dups = self.duplicates(indices)
+                dups = self.duplicates(indices)
 
-            props = densities(indfl, means_in, sigmas_in) # result has size (b, indices.size(1), means.size(1))
-            props[dups] == 0
-            props = props / props.sum(dim=1, keepdim=True)
+                props = densities(indfl, means_in, sigmas_in) # result has size (b, indices.size(1), means.size(1))
+                props[dups] == 0
+                props = props / props.sum(dim=1, keepdim=True)
 
-            values_in = values_in.unsqueeze(1).expand(batchsize, indices.size(1), means_in.size(1))
+                values_in = values_in.unsqueeze(1).expand(batchsize, indices.size(1), means_in.size(1))
 
-            values_in = props * values_in
-            values_in = values_in.sum(dim=2)
+                values_in = props * values_in
+                values_in = values_in.sum(dim=2)
 
-            means_out = means_out.detach()
-            values_out = values_out.detach()
+                means_out = means_out.detach()
+                values_out = values_out.detach()
 
-            indices_out = means_out.data.round().long()
+                indices_out = means_out.data.round().long()
 
-            indices = torch.cat([indices, indices_out], dim=1)
-            values = torch.cat([values_in, values_out], dim=1)
+                indices = torch.cat([indices, indices_out], dim=1)
+                values = torch.cat([values_in, values_out], dim=1)
+        else: # not train, just use the nearest indices
+            indices = means.round().long()
 
         if self.use_cuda:
             indices = indices.cuda()

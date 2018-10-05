@@ -73,7 +73,6 @@ def go(arg):
 
         optimizer = optim.Adam(model.parameters(), lr=arg.lr)
 
-
         for i in trange(iterations):
 
             x = torch.randn((arg.batch,) + SHAPE)
@@ -82,9 +81,7 @@ def go(arg):
                 x = x.cuda()
             x = Variable(x)
 
-
             if not arg.reinforce:
-
 
                 if arg.subsample is None:
                     optimizer.zero_grad()
@@ -127,8 +124,23 @@ def go(arg):
             w.add_scalar('identity/loss/', loss.item(), i*arg.batch)
 
             if i % arg.dot_every == 0:
-                mse = F.mse_loss(y.data, x.data)
-                results[r, i//arg.dot_every] = mse.item()
+
+                with torch.no_grad():
+                    losses = []
+                    for fr in range(0, 10000, arg.batch):
+                        to = min(fr + arg.batch, 10000)
+
+                        x = torch.randn(to - fr, arg.size)
+
+                        if arg.cuda:
+                            x = x.cuda()
+                        x = Variable(x)
+
+                        y = model(x, train=False)
+
+                        losses.append(F.mse_loss(y, x).item())
+
+                    results[r, i//arg.dot_every] = sum(losses)/len(losses)
 
             if arg.plot_every > 0 and i % arg.plot_every == 0:
                 plt.figure(figsize=(7, 7))

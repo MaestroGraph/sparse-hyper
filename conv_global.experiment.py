@@ -528,7 +528,7 @@ class ConvModel(nn.Module):
         for param in self.decoder_conv.parameters():
             param.requires_grad = False
 
-    def pretrain(self, data, bs=32, lr=0.001, epochs=250, cuda=False):
+    def pretrain(self, data, bs=256, lr=0.001, epochs=150):
 
         n = data.size(0)
 
@@ -542,10 +542,6 @@ class ConvModel(nn.Module):
                 opt.zero_grad()
 
                 x = data[fr:to]
-
-                if(cuda):
-                    x = x.cuda()
-                x = Variable(x)
 
                 z = self.encoder(x)
                 zmean, zlsigma = z[:, :self.emb_size], z[:, self.emb_size:]
@@ -646,14 +642,14 @@ def go(arg):
                       gadd=arg.gadditional, radd=arg.radditional, range=arg.range,
                       min_sigma=arg.min_sigma, fix_value=arg.fix_value, encoder=arg.encoder)
 
-    model.pretrain(data, epochs=arg.pretrain_epochs)
-    model.freeze()
-
     if arg.cuda:
         model.cuda()
         data = data.cuda()
 
     data, target = Variable(data), Variable(data)
+
+    model.pretrain(data, epochs=arg.pretrain_epochs, bs=arg.pretrain_batch)
+    model.freeze()
 
     ## SIMPLE
     optimizer = optim.Adam(model.parameters(), lr=arg.lr)
@@ -991,6 +987,11 @@ if __name__ == "__main__":
                         dest="pretrain_epochs",
                         help="Number of epochs used for pre-training",
                         default=250, type=int)
+
+    parser.add_argument("-B", "--pretrain-batch-size",
+                        dest="pretrain_batch",
+                        help="Batch size used for pre-training",
+                        default=32, type=int)
 
     parser.add_argument("-E", "--emb_size",
                         dest="emb_size",

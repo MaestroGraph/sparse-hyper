@@ -445,61 +445,70 @@ class ConvModel(nn.Module):
         n, c, h, w = data_size
 
         # - channel sizes
-        # c1, c2, c3 = 2, 4, 8
-        #
-        # upmode = 'bilinear'
-        # self.decoder = nn.Sequential(
-        #     nn.Linear(emb_size, 4 * 4 * c3), nn.ReLU(),
-        #     util.Reshape((c3, 4, 4)),
-        #     nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-        #     # nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-        #     nn.ConvTranspose2d(c3, c2, (3, 3), padding=1), nn.ReLU(),
-        #     nn.Upsample(scale_factor=3, mode=upmode),
-        #     nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-        #     # nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-        #     nn.ConvTranspose2d(c2, c1, (3, 3), padding=1), nn.ReLU(),
-        #     nn.Upsample(scale_factor=2, mode=upmode),
-        #     nn.ConvTranspose2d(c1, c1, (5, 5), padding=0), nn.ReLU(),
-        #     # nn.ConvTranspose2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-        #     nn.ConvTranspose2d(c1, 1,  (3, 3), padding=1), nn.Sigmoid(),
-        #     # util.Debug(lambda x : print(x.size()))
-        # )
+        c1, c2, c3 = 8, 32, 64
+        h1, h2, h3 = 256, 128, 64
 
-        h1, h2, h3 = 128, 64, 32
-        self.decoder = nn.Sequential(
+        upmode = 'bilinear'
+        self.decoder_conv = nn.Sequential(
+            nn.Linear(h3, 4 * 4 * c3), nn.ReLU(),
+            util.Reshape((c3, 4, 4)),
+            nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.ConvTranspose2d(c3, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.Upsample(scale_factor=3, mode=upmode),
+            nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.ConvTranspose2d(c2, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode=upmode),
+            nn.ConvTranspose2d(c1, c1, (5, 5), padding=0), nn.ReLU(),
+            nn.ConvTranspose2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.ConvTranspose2d(c1, 1,  (3, 3), padding=1), nn.Sigmoid(),
+            # util.Debug(lambda x : print(x.size()))
+        )
+
+        self.decoder_lin = nn.Sequential(
             nn.Linear(emb_size, h3), nn.ReLU(),
             nn.Linear(h3, h2), nn.ReLU(),
-            nn.Linear(h2, h3), nn.ReLU(),
-            nn.Linear(h3, 28*28),
-            nn.Sigmoid(), util.Reshape((1, 28, 28))
+            nn.Linear(h2, h3),
+        )
+
+        self.decoder = nn.Sequential(
+            self.decoder_lin,
+            self.decoder_conv
         )
 
         self.encoder = None
         if encoder:
-            self.encoder = nn.Sequential(
+
+            self.encoder_conv = nn.Sequential(
+                nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+                nn.MaxPool2d((2, 2)),
+                nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+                nn.MaxPool2d((2, 2)),
+                nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+                nn.MaxPool2d((2, 2)),
                 util.Flatten(),
-                nn.Linear(28*28, h1), nn.ReLU(),
+                nn.Linear(9 * c3, h1)
+            )
+
+            self.encoder_lin = nn.Sequential(
+                util.Flatten(),
                 nn.Linear(h1, h2), nn.ReLU(),
                 nn.Linear(h2, h3), nn.ReLU(),
                 nn.Linear(h3, emb_size * 2),
             )
 
-            # self.encoder = nn.Sequential(
-            #     nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
-            #     # nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-            #     nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-            #     nn.MaxPool2d((2, 2)),
-            #     nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
-            #     # nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-            #     nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-            #     nn.MaxPool2d((2, 2)),
-            #     nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
-            #     # nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-            #     nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-            #     nn.MaxPool2d((2, 2)),
-            #     util.Flatten(),
-            #     nn.Linear(9 * c3, 2 * emb_size)
-            # )
+            self.encoder = nn.Sequential(
+                self.encoder_conv,
+                self.encoder_lin
+            )
+
 
         self.adj = MatrixHyperlayer(n, n, k, radditional=radd, gadditional=gadd, region=(range,),
                             min_sigma=min_sigma, fix_value=fix_value)
@@ -511,6 +520,46 @@ class ConvModel(nn.Module):
 
         # self.embedding_conv = GraphConvolution(n, emb_size, bias=False)
         # self.weightless_conv = GraphConvolution(emb_size, emb_size, has_weight=False, bias=False)
+
+    def freeze(self):
+        for param in self.encoder_conv.parameters():
+            param.requires_grad = False
+
+        for param in self.decoder_conv.parameters():
+            param.requires_grad = False
+
+    def pretrain(self, data, bs=32, lr=0.001, epochs=250, cuda=False):
+
+        n = data.size(0)
+
+        opt = torch.optim.Adam(list(self.encoder.parameters()) + list(self.decoder.parameters()), lr = lr)
+
+        for ep in trange(epochs):
+            for fr in range(0, n, bs):
+                to = min(fr + bs, n)
+                b = to - fr
+
+                opt.zero_grad()
+
+                x = data[fr:to]
+
+                if(cuda):
+                    x = x.cuda()
+                x = Variable(x)
+
+                z = self.encoder(x)
+                zmean, zlsigma = z[:, :self.emb_size], z[:, self.emb_size:]
+                kl_loss = util.kl_loss(zmean, zlsigma)
+                zsample = util.vae_sample(zmean, zlsigma)
+
+                y = self.decoder(zsample)
+
+                rec_loss = F.binary_cross_entropy(y, x, reduction='none').view(b, -1).sum(dim=1)
+
+                loss = (rec_loss + kl_loss).mean()
+
+                loss.backward()
+                opt.step()
 
     def forward(self, depth=1, train=True, data=None):
 
@@ -596,6 +645,9 @@ def go(arg):
     model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size,
                       gadd=arg.gadditional, radd=arg.radditional, range=arg.range,
                       min_sigma=arg.min_sigma, fix_value=arg.fix_value, encoder=arg.encoder)
+
+    model.pretrain(data, epochs=arg.pretrain_epochs)
+    model.freeze()
 
     if arg.cuda:
         model.cuda()
@@ -933,6 +985,11 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--epochs",
                         dest="epochs",
                         help="Number of epochs",
+                        default=250, type=int)
+
+    parser.add_argument("-P", "--pretrain-epochs",
+                        dest="pretrain_epochs",
+                        help="Number of epochs used for pre-training",
                         default=250, type=int)
 
     parser.add_argument("-E", "--emb_size",

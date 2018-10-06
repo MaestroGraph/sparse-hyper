@@ -648,8 +648,22 @@ def go(arg):
 
     data, target = Variable(data), Variable(data)
 
-    model.pretrain(data, epochs=arg.pretrain_epochs, bs=arg.pretrain_batch)
+    model.pretrain(data, epochs=arg.pretrain_epochs, bs=arg.pretrain_batch, lr=arg.pretrain_lr)
     model.freeze()
+
+    with torch.no_grad:
+        """
+        Plot the pretrained embeddings
+        """
+        latents = model.encoder(data) if arg.encoder else model.embedding.data
+
+        images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
+        l2 = latents[:PLOT_MAX, :2]
+
+        util.scatter_imgs(l2.cpu().numpy(), images)
+
+        util.clean()
+        plt.savefig('./conv/latent-space.pretrain.pdf', dpi=600)
 
     ## SIMPLE
     optimizer = optim.Adam(
@@ -1038,6 +1052,11 @@ if __name__ == "__main__":
                         dest="lr",
                         help="Learning rate",
                         default=0.01, type=float)
+
+    parser.add_argument("-W", "--pretrain-learn-rate",
+                        dest="pretrain_lr",
+                        help="Pretraining learning rate",
+                        default=0.0005, type=float)
 
     parser.add_argument("-r", "--seed",
                         dest="seed",

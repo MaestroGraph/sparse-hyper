@@ -554,7 +554,7 @@ class ConvModel(nn.Module):
 
                 y = self.decoder(zsample)
 
-                rec_loss = F.binary_cross_entropy(y, x, reduction='none').view(b, -1).sum(dim=1)
+                rec_loss = F.binary_cross_entropy(y, x, reduce=False).view(b, -1).sum(dim=1)
 
                 loss = (rec_loss + kl_loss).mean()
 

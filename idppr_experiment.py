@@ -97,7 +97,7 @@ def go(arg):
 
                     # multiple forward/backward passes, accumulate gradient
                     seed = (torch.rand(1) * 100000).long().item()
-                    for fr in trange(0, arg.size, arg.subsample):
+                    for fr in range(0, arg.size, arg.subsample):
                         to = min(fr + arg.subsample, arg.size)
 
                         y = model(x, mrange=(fr, to), seed=seed)

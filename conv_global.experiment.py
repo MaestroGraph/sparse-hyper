@@ -536,7 +536,7 @@ class ConvModel(nn.Module):
         for _ in range(1, depth):
             x = self.adj(x, train=train)
             results.append(x)
-            kl_losses.append(util.kl_batch(x)[None, None].expand(n, e))
+            kl_losses.append(util.kl_batch(x)[None, None].expand(n, 1))
 
         if self.encoder is None:
             return [self.decoder(r) for r in results]
@@ -621,7 +621,7 @@ def go(arg):
             losses.append( F.binary_cross_entropy(o, target, reduce=False).view(n, -1).sum(dim=1, keepdim=True) )
 
         if arg.encoder:
-            losses =  torch.cat(losses +  kl_losses, dim=1)
+            losses =  torch.cat(losses + kl_losses, dim=1)
             losses = losses.mean(dim=0)
 
         loss = losses.sum()

@@ -37,6 +37,22 @@ def kl_loss(zmean, zlsig):
 
     return kl
 
+def kl_batch(batch):
+    """
+    Computes the KL loss between the standard normal MVN and a diagonal MVN fitted to the batch
+    :param batch:
+    :return:
+    """
+    b, d = batch.size()
+
+    mean = batch.mean(dim=0, keepdim=True)
+    batch = batch - mean
+
+    diacov = torch.bmm(batch.view(d, 1, b), batch.view(d, b, 1)).squeeze() / (b - 1)
+    logvar = torch.log(diacov)
+
+    return -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
+
 def vae_sample(zmean, zlsig, eps=None):
     b, l = zmean.size()
 
@@ -778,12 +794,30 @@ def duplicates(tuples):
 #     print(duplicates(tuples))
 
 
-def scatter_imgs(latents, images, size=None, filename='latent_space.pdf', invert=False):
+def scatter_imgs(latents, images, size=None, ax=None, color=None, alpha=1.0):
 
     assert(latents.shape[0] == images.shape[0])
 
+    if ax is None:
+        fig = plt.figure(figsize=(16, 16))
+        ax = fig.add_subplot(111)
+    if color is None:
+        color = np.asarray([0.0, 0.0, 0.0, 1.0])
+    else:
+        color = np.asarray(color)
+
+    # print(color)
+
     xmn, ymn = np.min(latents, axis=0)
     xmx, ymx = np.max(latents, axis=0)
+
+    oxmn, oxmx = ax.get_xlim()
+    oymn, oymx = ax.get_ylim()
+
+    ax.set_xlim(min(oxmn, xmn), max(oxmx, xmx))
+    ax.set_ylim(min(oymn, ymn), max(oymx, ymx))
+
+    # print(ax.get_xlim(), ax.get_ylim())
 
     if size is None:
         size = (xmx - xmn)/np.sqrt(latents.shape[0])
@@ -793,24 +827,19 @@ def scatter_imgs(latents, images, size=None, filename='latent_space.pdf', invert
 
     aspect = h/w
 
-    fig = plt.figure(figsize=(16,16))
-    ax = fig.add_subplot(111)
+    images = images * (1.0 - color[:3])
+    images = 1.0 - images
 
     for i in range(n):
         x, y = latents[i, 0:2]
 
         im = images[i, :]
-        ax.imshow(im if c > 1 else im.squeeze(2), extent=(x, x + size, y, y + size*aspect), cmap='gray_r' if invert else 'gray')
+        ax.imshow(im, extent=(x, x + size, y, y + size*aspect), alpha=alpha)
 
-    # ax.scatter(latents[:, 0], latents[:, 1], linewidth=0, s=2)
+    ax.scatter(latents[:, 0], latents[:, 1], linewidth=0, s=8, color=color)
 
-    ax.set_xlim(xmn, xmx)
-    ax.set_ylim(ymn, ymx)
+    return ax, size
 
-    clean()
-
-    plt.savefig(filename)
-    plt.close(fig)
 
 def linmoid(x, inf_in, up):
     """

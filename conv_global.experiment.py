@@ -521,55 +521,59 @@ class ConvModel(nn.Module):
         #     x = self.weightless_conv(input=x, adj=self.adj, train=train)
         #     results.append(x)
 
+        kl_losses = []
         if self.encoder is None:
             x = self.embedding
         else:
             xraw = self.encoder(data)
             xmean, xsig = xraw[:, :self.emb_size], xraw[:, self.emb_size:]
-            kl_loss = util.kl_loss(xmean, xsig)
+            kl_losses.append(util.kl_loss(xmean, xsig)[:, None])
             x = util.vae_sample(xmean, xsig)
+
+        n, e = x.size()
 
         results = [x]
         for _ in range(1, depth):
             x = self.adj(x, train=train)
             results.append(x)
+            kl_losses.append(util.kl_batch(x)[None, None].expand(n, e))
 
         if self.encoder is None:
             return [self.decoder(r) for r in results]
         else:
-            return [self.decoder(r) for r in results], kl_loss
+            return [self.decoder(r) for r in results], kl_losses
 
     def cuda(self):
 
         super().cuda()
 
         self.adj.apply(lambda t: t.cuda())
-
-class ConvModelFlat(nn.Module):
-
-    def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0, directed=True):
-        super().__init__()
-
-        n, c, h, w = data_size
-
-        self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma, symmetric=not directed)
-
-    def forward(self, data, depth=1, train=True):
-        n = data.size(0)
-
-        x = data.view(n, -1)
-        results =[]
-        for _ in range(depth):
-            x = self.adj(x, train=train)
-            results.append(x)
-
-        return [r.view(data.size()) for r in results]
-
-    def cuda(self):
-
-        super().cuda()
-
-        self.adj.apply(lambda t: t.cuda())
+#
+# class ConvModelFlat(nn.Module):
+#
+#     def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0, directed=True):
+#         super().__init__()
+#
+#         n, c, h, w = data_size
+#
+#         self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma, symmetric=not directed)
+#
+#     def forward(self, data, depth=1, train=True):
+#         n = data.size(0)
+#
+#         x = data.view(n, -1)
+#         results =[]
+#         for _ in range(depth):
+#             x = self.adj(x, train=train)
+#             results.append(x)
+#
+#         return [r.view(data.size()) for r in results]
+#
+#     def cuda(self):
+#
+#         super().cuda()
+#
+#         self.adj.apply(lambda t: t.cuda())
 
 PLOT_MAX = 2000 # max number of data points for the latent space plot
 
@@ -610,14 +614,14 @@ def go(arg):
         if not arg.encoder:
             outputs = model(depth=arg.depth)
         else:
-            outputs, kl_loss = model(depth=arg.depth, data=data)
+            outputs, kl_losses = model(depth=arg.depth, data=data)
 
-        losses = torch.zeros((n, len(outputs)), device='cuda' if arg.cuda else 'cpu')
+        losses = []
         for i, o in enumerate(outputs):
-            losses[:, i] = F.binary_cross_entropy(o, target, reduce=False).view(n, -1).sum(dim=1)
+            losses.append( F.binary_cross_entropy(o, target, reduce=False).view(n, -1).sum(dim=1) )
 
         if arg.encoder:
-            losses =  torch.cat([losses, kl_loss[:, None]], dim=1)
+            losses =  torch.cat([losses,] +  kl_losses, dim=1)
             losses = losses.mean(dim=0)
 
         loss = losses.sum()
@@ -630,15 +634,15 @@ def go(arg):
         if epoch % arg.plot_every == 0:
             plt.figure(figsize=(8, 2))
 
-            print('{:03}   '.format(epoch), losses)
+            print('{:05}   '.format(epoch), losses)
             if arg.depth > 1:
-                print('    adj', model.adj.params.grad.mean().item())
+                print('      adj', model.adj.params.grad.mean().item())
             #  print('    lin', next(model.decoder.parameters()).grad.mean().item())
 
             plt.cla()
             plt.imshow(np.transpose(torchvision.utils.make_grid(data.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                        interpolation='nearest')
-            plt.savefig('./conv/inp.{:03d}.png'.format(epoch))
+            plt.savefig('./conv/inp.{:05d}.png'.format(epoch))
 
             with torch.no_grad():
 
@@ -651,7 +655,7 @@ def go(arg):
                     plt.cla()
                     plt.imshow(np.transpose(torchvision.utils.make_grid(o.data[:16, :]).cpu().numpy(), (1, 2, 0)),
                                interpolation='nearest')
-                    plt.savefig('./conv/rec.{:03d}.{:02d}.png'.format(epoch, d))
+                    plt.savefig('./conv/rec.{:05d}.{:02d}.png'.format(epoch, d))
 
                 plt.figure(figsize=(8, 8))
 
@@ -667,10 +671,10 @@ def go(arg):
                     plt.xlim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
                     plt.ylim((-MARGIN * (s[0] - 1), (s[0] - 1) * (1.0 + MARGIN)))
 
-                    plt.savefig('./conv/means{:03}.pdf'.format(epoch))
+                    plt.savefig('./conv/means.{:05}.pdf'.format(epoch))
 
                 graph = np.concatenate([means.round().long().cpu().numpy(), values.cpu().numpy()], axis=1)
-                np.savetxt('graph.{:05}.csv', graph)
+                np.savetxt('graph.{:05}.csv'.format(epoch), graph)
 
                 """
                 Plot the data, together with its components
@@ -743,18 +747,37 @@ def go(arg):
                 Plot the embeddings
                 """
 
-                latents =  model.encoder(data) if arg.encoder else model.embedding.data
+                if arg.depth == 2:
+                    map = None
+                else:
+                    norm = mpl.colors.Normalize(vmin=1.0, vmax=arg.depth)
+                    map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.tab10)
+
+                latents = model.encoder(data) if arg.encoder else model.embedding.data
                 latents = latents[:PLOT_MAX, :]
 
-                # first two dimensions
-                latents = latents[:, :2]
-
-                rng = float(torch.max(latents[:, 0]) - torch.min(latents[:, 0]))
-
-                n_test = latents.shape[0]
                 images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
-                util.scatter_imgs(latents.cpu().numpy(), images,
-                          filename='./conv/latent_space.{:04}.pdf'.format(epoch), invert=True)
+
+                ax = None
+                size = None
+                for d in range(arg.depth):
+
+                    if d == 0:
+                        color = None
+                    elif map is None:
+                        color = np.asarray([0.0, 0.0, 1.0, 1.0])
+                    else:
+                        color = map.to_rgba(d)
+
+                    l2 = latents[:, :2]
+
+                    ax, size = util.scatter_imgs(l2.cpu().numpy(), images, ax=ax, color=color, size=size)
+
+                    if d < arg.depth - 1:
+                        latents = model.adj(latents, train=False)
+
+                util.clean(ax)
+                plt.savefig('./conv/latent-space.{:05}.pdf'.format(epoch), dpi=600)
 
                 """
                 Plot the graph (reasonable results for small datasets)
@@ -815,7 +838,7 @@ def go(arg):
 
                     plt.axis('off')
 
-                    plt.savefig('./conv/graph{:03}.pdf'.format(epoch), dpi=300)
+                    plt.savefig('./conv/graph.{:05}.pdf'.format(epoch), dpi=300)
 
     print('Finished Training.')
 

@@ -652,7 +652,8 @@ def go(arg):
     model.freeze()
 
     ## SIMPLE
-    optimizer = optim.Adam(model.parameters(), lr=arg.lr)
+    optimizer = optim.Adam(
+        list(model.encoder_lin.parameters()) + list(model.decoder_lin.parameters()), lr=arg.lr)
     n, c, h, w = data.size()
 
     for epoch in trange(arg.epochs):

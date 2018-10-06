@@ -123,8 +123,8 @@ class Split(nn.Module):
             pivots = pivots + weight[:, :, None].expand(b, s,g) * piv[:, None, :].expand(b, s, g)
 
             if util.contains_nan(pivots):
-                print('params', self.topivot.parameters())
                 print('depth', self.depth)
+                print('params', self.topivot.parameters())
                 print('pivots', pivots)
                 print('weight', weight)
                 sys.exit()
@@ -500,8 +500,8 @@ def go(arg):
     plt.xlabel('iterations')
     plt.ylabel('error')
 
-    plt.savefig('./sort/result.png')
-    plt.savefig('./sort/result.pdf')
+    plt.savefig('./quicksort/result.png')
+    plt.savefig('./quicksort/result.pdf')
 
 if __name__ == "__main__":
 

@@ -618,7 +618,7 @@ def go(arg):
 
         losses = []
         for i, o in enumerate(outputs):
-            losses.append( F.binary_cross_entropy(o, target, reduce=False).view(n, -1).sum(dim=1) )
+            losses.append( F.binary_cross_entropy(o, target, reduce=False).view(n, -1).sum(dim=1, keepdim=True) )
 
         if arg.encoder:
             losses =  torch.cat(losses +  kl_losses, dim=1)

@@ -651,7 +651,7 @@ def go(arg):
     model.pretrain(data, epochs=arg.pretrain_epochs, bs=arg.pretrain_batch, lr=arg.pretrain_lr)
     model.freeze()
 
-    with torch.no_grad:
+    with torch.no_grad():
         """
         Plot the pretrained embeddings
         """

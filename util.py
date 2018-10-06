@@ -836,7 +836,7 @@ def scatter_imgs(latents, images, size=None, ax=None, color=None, alpha=1.0):
         im = images[i, :]
         ax.imshow(im, extent=(x, x + size, y, y + size*aspect), alpha=alpha)
 
-    # ax.scatter(latents[:, 0], latents[:, 1], linewidth=0, s=8, color=color)
+    ax.scatter(latents[:, 0], latents[:, 1], linewidth=0, s=2, color=color)
 
     return ax, size
 

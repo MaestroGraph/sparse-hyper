@@ -270,14 +270,13 @@ class SortLayer(global_temp.HyperLayer):
             nn.Sigmoid()
         )
 
-        # topivot = nn.Linear(size, global_size, bias=False)
-        # topivot.weight.data = topivot.weight.data * 0.00001 + 1.0/global_size
-        topivot = nn.Sequential(
-            nn.Linear(size, global_size * 2), nn.ReLU(),
-            nn.Linear(global_size * 2, global_size * 2), nn.ReLU(),
-            nn.Linear(global_size * 2, global_size)
-        )
-
+        topivot = nn.Linear(size, global_size, bias=False)
+        topivot.weight.data = topivot.weight.data * 0.00001 + 1.0/global_size
+        # topivot = nn.Sequential(
+        #     nn.Linear(size, global_size * 2), nn.ReLU(),
+        #     nn.Linear(global_size * 2, global_size * 2), nn.ReLU(),
+        #     nn.Linear(global_size * 2, global_size)
+        # )
 
         self.splits = nn.ModuleList()
         for d in range( int(np.ceil(np.log2(size)))):

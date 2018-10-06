@@ -754,7 +754,6 @@ def go(arg):
                     map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.tab10)
 
                 latents = model.encoder(data) if arg.encoder else model.embedding.data
-                latents = latents[:PLOT_MAX, :]
 
                 images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
 
@@ -769,7 +768,7 @@ def go(arg):
                     else:
                         color = map.to_rgba(d)
 
-                    l2 = latents[:, :2]
+                    l2 = latents[:PLOT_MAX, :2]
 
                     ax, size = util.scatter_imgs(l2.cpu().numpy(), images, ax=ax, color=color, size=size)
 

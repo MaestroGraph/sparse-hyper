@@ -38,7 +38,7 @@ fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
 DROPOUT = 0.0
-SIGMA_BOOST_REINFORCE = 10.0 # ensure that first sigmas are large enough
+SIGMA_BOOST_REINFORCE = 2.0 # ensure that first sigmas are large enough
 
 def inv(i, max):
     sc = (i/max) * 0.999 + 0.0005

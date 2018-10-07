@@ -390,7 +390,7 @@ class MatrixHyperlayer(nn.Module):
         sigmas = sigmas * ss.expand_as(sigmas)
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
-        return means, sigmas, values * 0.0 + 1.0 if self.fix_value else values
+        return means, sigmas, values * 0.0 + 1.0/self.k if self.fix_value else values
 
 class GraphConvolution(Module):
     """

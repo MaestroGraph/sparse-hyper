@@ -801,6 +801,9 @@ def scatter_imgs(latents, images, size=None, ax=None, color=None, alpha=1.0):
     if ax is None:
         fig = plt.figure(figsize=(16, 16))
         ax = fig.add_subplot(111)
+        ax.set_xlim(0, 1e-7)
+        ax.set_ylim(0, 1e-7)
+
     if color is None:
         color = np.asarray([0.0, 0.0, 0.0, 1.0])
     else:

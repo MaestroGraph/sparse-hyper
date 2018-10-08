@@ -445,7 +445,7 @@ class ConvModel(nn.Module):
         n, c, h, w = data_size
 
         # - channel sizes
-        c1, c2, c3 = 8, 32, 64
+        c1, c2, c3 = 16, 32, 64
         h1, h2, h3 = 256, 128, 64
 
         upmode = 'bilinear'
@@ -528,7 +528,7 @@ class ConvModel(nn.Module):
         for param in self.decoder_conv.parameters():
             param.requires_grad = False
 
-    def pretrain(self, data, bs=256, lr=0.001, epochs=150):
+    def pretrain(self, data, bs=256, lr=0.001, epochs=150, tbw=None):
 
         n = data.size(0)
 
@@ -554,8 +554,13 @@ class ConvModel(nn.Module):
 
                 loss = (rec_loss + kl_loss).mean()
 
+                if tbw is not None:
+                    tbw.add_scalar('conv/pretrain-loss', loss.item(), ep)
+
                 loss.backward()
                 opt.step()
+
+
 
     def forward(self, depth=1, train=True, data=None):
 
@@ -594,31 +599,33 @@ class ConvModel(nn.Module):
 
         self.adj.apply(lambda t: t.cuda())
 #
-# class ConvModelFlat(nn.Module):
-#
-#     def __init__(self, data_size, k, emb_size = 16, additional=128, min_sigma=0.0, directed=True):
-#         super().__init__()
-#
-#         n, c, h, w = data_size
-#
-#         self.adj = MatrixHyperlayer(n, n, k, additional=additional, min_sigma=min_sigma, symmetric=not directed)
-#
-#     def forward(self, data, depth=1, train=True):
-#         n = data.size(0)
-#
-#         x = data.view(n, -1)
-#         results =[]
-#         for _ in range(depth):
-#             x = self.adj(x, train=train)
-#             results.append(x)
-#
-#         return [r.view(data.size()) for r in results]
-#
-#     def cuda(self):
-#
-#         super().cuda()
-#
-#         self.adj.apply(lambda t: t.cuda())
+class ConvModelFlat(nn.Module):
+
+    def __init__(self, data_size, k, radd=128, gadd=128, range=16, min_sigma=0.0, fix_value=False):
+        super().__init__()
+
+        n, c, h, w = data_size
+
+        self.adj = MatrixHyperlayer(n, n, k, radditional=radd, gadditional=gadd, min_sigma=min_sigma,
+                            region=(range,), fix_value=fix_value)
+
+
+    def forward(self, data, depth=1, train=True):
+        n = data.size(0)
+
+        x = data.view(n, -1)
+        results =[]
+        for _ in range(depth):
+            x = self.adj(x, train=train)
+            results.append(x)
+
+        return [r.view(data.size()).clamp(0, 1) for r in results]
+
+    def cuda(self):
+
+        super().cuda()
+
+        self.adj.apply(lambda t: t.cuda())
 
 PLOT_MAX = 2000 # max number of data points for the latent space plot
 
@@ -631,6 +638,7 @@ def go(arg):
     writer = SummaryWriter()
 
     mnist = torchvision.datasets.MNIST(root=arg.data, train=True, download=True, transform=transforms.ToTensor())
+
     data = util.totensor(mnist, shuffle=True)
 
     assert data.min() == 0 and data.max() == 1.0
@@ -638,9 +646,13 @@ def go(arg):
     if arg.limit is not None:
         data = data[:arg.limit]
 
-    model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size,
+    # model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size,
+    #                   gadd=arg.gadditional, radd=arg.radditional, range=arg.range,
+    #                   min_sigma=arg.min_sigma, fix_value=arg.fix_value, encoder=arg.encoder)
+
+    model = ConvModelFlat(data.size(), k=arg.k,
                       gadd=arg.gadditional, radd=arg.radditional, range=arg.range,
-                      min_sigma=arg.min_sigma, fix_value=arg.fix_value, encoder=arg.encoder)
+                      min_sigma=arg.min_sigma, fix_value=arg.fix_value)
 
     if arg.cuda:
         model.cuda()
@@ -648,26 +660,29 @@ def go(arg):
 
     data, target = Variable(data), Variable(data)
 
-    model.pretrain(data, epochs=arg.pretrain_epochs, bs=arg.pretrain_batch, lr=arg.pretrain_lr)
-    model.freeze()
+    if False:
+        model.pretrain(data, epochs=arg.pretrain_epochs, bs=arg.pretrain_batch, lr=arg.pretrain_lr, tbw=writer)
+        model.freeze()
 
-    with torch.no_grad():
-        """
-        Plot the pretrained embeddings
-        """
-        latents = model.encoder(data) if arg.encoder else model.embedding.data
+        with torch.no_grad():
+            """
+            Plot the pretrained embeddings
+            """
+            latents = model.encoder(data) if arg.encoder else model.embedding.data
 
-        images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
-        l2 = latents[:PLOT_MAX, :2]
+            images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
+            l2 = latents[:PLOT_MAX, :2]
 
-        util.scatter_imgs(l2.cpu().numpy(), images)
+            util.scatter_imgs(l2.cpu().numpy(), images)
 
-        util.clean()
-        plt.savefig('./conv/latent-space.pretrain.pdf', dpi=600)
+            util.clean()
+            plt.savefig('./conv/latent-space.pretrain.pdf', dpi=600)
 
-    ## SIMPLE
+    # optimizer = optim.Adam(
+    #     list(model.encoder_lin.parameters()) + list(model.decoder_lin.parameters()), lr=arg.lr)
+
     optimizer = optim.Adam(
-        list(model.encoder_lin.parameters()) + list(model.decoder_lin.parameters()), lr=arg.lr)
+        list(model.parameters()), lr=arg.lr)
     n, c, h, w = data.size()
 
     for epoch in trange(arg.epochs):
@@ -675,7 +690,7 @@ def go(arg):
         optimizer.zero_grad()
 
         if not arg.encoder:
-            outputs = model(depth=arg.depth)
+            outputs = model(depth=arg.depth, data=data)
         else:
             outputs, kl_losses = model(depth=arg.depth, data=data)
 
@@ -684,8 +699,10 @@ def go(arg):
             losses.append( F.binary_cross_entropy(o, target, reduce=False).view(n, -1).sum(dim=1, keepdim=True) )
 
         if arg.encoder:
-            losses =  torch.cat(losses + kl_losses, dim=1)
+            losses = torch.cat(losses + kl_losses, dim=1)
             losses = losses.mean(dim=0)
+        else:
+            losses = torch.cat(losses, dim=1)
 
         loss = losses.sum()
 
@@ -712,7 +729,7 @@ def go(arg):
                 if arg.encoder:
                     outputs, _ = model(depth=arg.depth, train=False, data=data)
                 else:
-                    outputs = model(deth=arg.depth, train=False)
+                    outputs = model(depth=arg.depth, train=False, data=data)
 
                 for d, o in enumerate(outputs):
                     plt.cla()
@@ -740,9 +757,8 @@ def go(arg):
                 np.savetxt('graph.{:05}.csv'.format(epoch), graph)
 
                 """
-                Plot the data, together with its components
+                Plot the data, reconstructions and components
                 """
-
                 w, h = 24, 1 + arg.depth + arg.k
                 mround = means.round().long()
 
@@ -810,36 +826,37 @@ def go(arg):
                 Plot the embeddings
                 """
 
-                if arg.depth == 2:
-                    map = None
-                else:
-                    norm = mpl.colors.Normalize(vmin=1.0, vmax=arg.depth)
-                    map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.tab10)
-
-                latents = model.encoder(data) if arg.encoder else model.embedding.data
-
-                images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
-
-                ax = None
-                size = None
-                for d in range(arg.depth):
-
-                    if d == 0:
-                        color = None
-                    elif map is None:
-                        color = np.asarray([0.0, 0.0, 1.0, 1.0])
+                if False:
+                    if arg.depth == 2:
+                        map = None
                     else:
-                        color = map.to_rgba(d)
+                        norm = mpl.colors.Normalize(vmin=1.0, vmax=arg.depth)
+                        map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.tab10)
 
-                    l2 = latents[:PLOT_MAX, :2]
+                    latents = model.encoder(data) if arg.encoder else model.embedding.data
 
-                    ax, size = util.scatter_imgs(l2.cpu().numpy(), images, ax=ax, color=color, size=size)
+                    images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
 
-                    if d < arg.depth - 1:
-                        latents = model.adj(latents, train=False)
+                    ax = None
+                    size = None
+                    for d in range(arg.depth):
 
-                util.clean(ax)
-                plt.savefig('./conv/latent-space.{:05}.pdf'.format(epoch), dpi=600)
+                        if d == 0:
+                            color = None
+                        elif map is None:
+                            color = np.asarray([0.0, 0.0, 1.0, 1.0])
+                        else:
+                            color = map.to_rgba(d)
+
+                        l2 = latents[:PLOT_MAX, :2]
+
+                        ax, size = util.scatter_imgs(l2.cpu().numpy(), images, ax=ax, color=color, size=size)
+
+                        if d < arg.depth - 1:
+                            latents = model.adj(latents, train=False)
+
+                    util.clean(ax)
+                    plt.savefig('./conv/latent-space.{:05}.pdf'.format(epoch), dpi=600)
 
                 """
                 Plot the graph (reasonable results for small datasets)

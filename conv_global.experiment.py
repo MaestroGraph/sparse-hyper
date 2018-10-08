@@ -448,38 +448,45 @@ class ConvModel(nn.Module):
         c1, c2, c3 = 16, 32, 64
         h1, h2, h3 = 256, 128, 64
 
-        upmode = 'bilinear'
-        self.decoder_conv = nn.Sequential(
-            nn.Linear(h3, 4 * 4 * c3), nn.ReLU(),
-            util.Reshape((c3, 4, 4)),
-            nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(c3, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.Upsample(scale_factor=3, mode=upmode),
-            nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(c2, c1, (3, 3), padding=1), nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode=upmode),
-            nn.ConvTranspose2d(c1, c1, (5, 5), padding=0), nn.ReLU(),
-            nn.ConvTranspose2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(c1, 1,  (3, 3), padding=1), nn.Sigmoid(),
-            # util.Debug(lambda x : print(x.size()))
-        )
-
-        self.decoder_lin = nn.Sequential(
-            nn.Linear(emb_size, h3), nn.ReLU(),
-            nn.Linear(h3, h2), nn.ReLU(),
-            nn.Linear(h2, h3),
-        )
+        # upmode = 'bilinear'
+        # self.decoder_conv = nn.Sequential(
+        #     nn.Linear(h3, 4 * 4 * c3), nn.ReLU(),
+        #     util.Reshape((c3, 4, 4)),
+        #     nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+        #     nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+        #     nn.ConvTranspose2d(c3, c2, (3, 3), padding=1), nn.ReLU(),
+        #     nn.Upsample(scale_factor=3, mode=upmode),
+        #     nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+        #     nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+        #     nn.ConvTranspose2d(c2, c1, (3, 3), padding=1), nn.ReLU(),
+        #     nn.Upsample(scale_factor=2, mode=upmode),
+        #     nn.ConvTranspose2d(c1, c1, (5, 5), padding=0), nn.ReLU(),
+        #     nn.ConvTranspose2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+        #     nn.ConvTranspose2d(c1, 1,  (3, 3), padding=1), nn.Sigmoid(),
+        #     # util.Debug(lambda x : print(x.size()))
+        # )
+        #
+        # self.decoder_lin = nn.Sequential(
+        #     nn.Linear(emb_size, h3), nn.ReLU(),
+        #     nn.Linear(h3, h2), nn.ReLU(),
+        #     nn.Linear(h2, h3),
+        # )
+        #
+        # self.decoder = nn.Sequential(
+        #     self.decoder_lin,
+        #     self.decoder_conv
+        # )
 
         self.decoder = nn.Sequential(
-            self.decoder_lin,
-            self.decoder_conv
+            nn.Linear(emb_size, h3), nn.ReLU(),
+            nn.Linear(h3, h2),       nn.ReLU(),
+            nn.Linear(h2, h3),       nn.ReLU(),
+            nn.Linear(h3, 28*28),    nn.Sigmoid(),
+            util.Reshape((1, 28, 28))
         )
 
         self.encoder = None
         if encoder:
-
             self.encoder_conv = nn.Sequential(
                 nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
                 nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
@@ -561,7 +568,6 @@ class ConvModel(nn.Module):
                 opt.step()
 
 
-
     def forward(self, depth=1, train=True, data=None):
 
         # x0 = self.embedding_conv.weight
@@ -583,15 +589,19 @@ class ConvModel(nn.Module):
         n, e = x.size()
 
         results = [x]
+        kl_losses.append(util.kl_batch(x)[None, None].expand(n, 1))
+
         for _ in range(1, depth):
             x = self.adj(x, train=train)
+
             results.append(x)
             kl_losses.append(util.kl_batch(x)[None, None].expand(n, 1))
 
-        if self.encoder is None:
-            return [self.decoder(r) for r in results]
-        else:
-            return [self.decoder(r) for r in results], kl_losses
+        # if self.encoder is None:
+        #     return [self.decoder(r) for r in results]
+        # else:
+
+        return [self.decoder(r) for r in results], kl_losses
 
     def cuda(self):
 
@@ -646,13 +656,13 @@ def go(arg):
     if arg.limit is not None:
         data = data[:arg.limit]
 
-    # model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size,
-    #                   gadd=arg.gadditional, radd=arg.radditional, range=arg.range,
-    #                   min_sigma=arg.min_sigma, fix_value=arg.fix_value, encoder=arg.encoder)
-
-    model = ConvModelFlat(data.size(), k=arg.k,
+    model = ConvModel(data.size(), k=arg.k, emb_size=arg.emb_size,
                       gadd=arg.gadditional, radd=arg.radditional, range=arg.range,
-                      min_sigma=arg.min_sigma, fix_value=arg.fix_value)
+                      min_sigma=arg.min_sigma, fix_value=arg.fix_value, encoder=arg.encoder)
+
+    # model = ConvModelFlat(data.size(), k=arg.k,
+    #                   gadd=arg.gadditional, radd=arg.radditional, range=arg.range,
+    #                   min_sigma=arg.min_sigma, fix_value=arg.fix_value)
 
     if arg.cuda:
         model.cuda()
@@ -689,20 +699,14 @@ def go(arg):
 
         optimizer.zero_grad()
 
-        if not arg.encoder:
-            outputs = model(depth=arg.depth, data=data)
-        else:
-            outputs, kl_losses = model(depth=arg.depth, data=data)
+        outputs, kl_losses = model(depth=arg.depth, data=data)
 
         losses = []
         for i, o in enumerate(outputs):
             losses.append( F.binary_cross_entropy(o, target, reduce=False).view(n, -1).sum(dim=1, keepdim=True) )
 
-        if arg.encoder:
-            losses = torch.cat(losses + kl_losses, dim=1)
-            losses = losses.mean(dim=0)
-        else:
-            losses = torch.cat(losses, dim=1)
+        losses = torch.cat(losses + kl_losses, dim=1)
+        losses = losses.mean(dim=0)
 
         loss = losses.sum()
 
@@ -726,10 +730,7 @@ def go(arg):
 
             with torch.no_grad():
 
-                if arg.encoder:
-                    outputs, _ = model(depth=arg.depth, train=False, data=data)
-                else:
-                    outputs = model(depth=arg.depth, train=False, data=data)
+                outputs, _ = model(depth=arg.depth, train=False, data=data)
 
                 for d, o in enumerate(outputs):
                     plt.cla()
@@ -826,37 +827,36 @@ def go(arg):
                 Plot the embeddings
                 """
 
-                if False:
-                    if arg.depth == 2:
-                        map = None
+                if arg.depth == 2:
+                    map = None
+                else:
+                    norm = mpl.colors.Normalize(vmin=1.0, vmax=arg.depth)
+                    map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.tab10)
+
+                latents = model.encoder(data) if arg.encoder else model.embedding.data
+
+                images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
+
+                ax = None
+                size = None
+                for d in range(arg.depth):
+
+                    if d == 0:
+                        color = None
+                    elif map is None:
+                        color = np.asarray([0.0, 0.0, 1.0, 1.0])
                     else:
-                        norm = mpl.colors.Normalize(vmin=1.0, vmax=arg.depth)
-                        map = mpl.cm.ScalarMappable(norm=norm, cmap=plt.cm.tab10)
+                        color = map.to_rgba(d)
 
-                    latents = model.encoder(data) if arg.encoder else model.embedding.data
+                    l2 = latents[:PLOT_MAX, :2]
 
-                    images = data.data.cpu().permute(0, 2, 3, 1).numpy()[:PLOT_MAX, :]
+                    ax, size = util.scatter_imgs(l2.cpu().numpy(), images, ax=ax, color=color, size=size)
 
-                    ax = None
-                    size = None
-                    for d in range(arg.depth):
+                    if d < arg.depth - 1:
+                        latents = model.adj(latents, train=False)
 
-                        if d == 0:
-                            color = None
-                        elif map is None:
-                            color = np.asarray([0.0, 0.0, 1.0, 1.0])
-                        else:
-                            color = map.to_rgba(d)
-
-                        l2 = latents[:PLOT_MAX, :2]
-
-                        ax, size = util.scatter_imgs(l2.cpu().numpy(), images, ax=ax, color=color, size=size)
-
-                        if d < arg.depth - 1:
-                            latents = model.adj(latents, train=False)
-
-                    util.clean(ax)
-                    plt.savefig('./conv/latent-space.{:05}.pdf'.format(epoch), dpi=600)
+                util.clean(ax)
+                plt.savefig('./conv/latent-space.{:05}.pdf'.format(epoch), dpi=600)
 
                 """
                 Plot the graph (reasonable results for small datasets)

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Wedge, Polygon, Ellipse, Rectangle
 from matplotlib.collections import PatchCollection
 from matplotlib.axes import Axes
-import os, errno, random, time, string
+import os, errno, random, time, string, sys
 
 import torch
 from torch import nn
@@ -868,12 +868,208 @@ def linmoid(x, inf_in, up):
 
     return y
 
-if __name__ == "__main__":
-    x = torch.linspace(-0.5, 1.5, 1000)
-    y = linmoid(x, inf_in=(0.25, 0.75), up=3)
+# if __name__ == "__main__":
+#     x = torch.linspace(-0.5, 1.5, 1000)
+#     y = linmoid(x, inf_in=(0.25, 0.75), up=3)
+#
+#     plt.scatter(x.numpy(), y.numpy(), s=2)
+#     plt.ylim([0, 3])
+#
+#     clean()
+#     plt.savefig('test_linmoid.png')
 
-    plt.scatter(x.numpy(), y.numpy(), s=2)
-    plt.ylim([0, 3])
 
-    clean()
-    plt.savefig('test_linmoid.png')
+def sparsemm(use_cuda):
+    return SparseMMGPU.apply if use_cuda else SparseMMCPU.apply
+
+
+class SparseMMCPU(torch.autograd.Function):
+
+    """
+    Sparse matrix multiplication with gradients over the value-vector
+
+    Does not work with batch dim.
+    """
+
+    @staticmethod
+    def forward(ctx, indices, values, size, xmatrix):
+
+        # print(type(size), size, list(size), intlist(size))
+        # print(indices.size(), values.size(), torch.Size(intlist(size)))
+
+        matrix = torch.sparse.FloatTensor(indices, values, torch.Size(intlist(size)))
+
+        ctx.indices, ctx.matrix, ctx.xmatrix = indices, matrix, xmatrix
+
+        return torch.mm(matrix, xmatrix)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_output = grad_output.data
+
+        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
+
+        i_ixs = ctx.indices[0,:]
+        j_ixs = ctx.indices[1,:]
+        output_select = grad_output[i_ixs, :]
+        xmatrix_select = ctx.xmatrix[j_ixs, :]
+
+        grad_values = (output_select * xmatrix_select).sum(dim=1)
+
+        grad_xmatrix = torch.mm(ctx.matrix.t(), grad_output)
+        return None, Variable(grad_values), None, Variable(grad_xmatrix)
+
+
+class SparseMMGPU(torch.autograd.Function):
+
+    """
+    Sparse matrix multiplication with gradients over the value-vector
+
+    Does not work with batch dim.
+    """
+
+    @staticmethod
+    def forward(ctx, indices, values, size, xmatrix):
+
+        # print(type(size), size, list(size), intlist(size))
+
+        matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(intlist(size)))
+
+        ctx.indices, ctx.matrix, ctx.xmatrix = indices, matrix, xmatrix
+
+        return torch.mm(matrix, xmatrix)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_output = grad_output.data
+
+        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
+
+        i_ixs = ctx.indices[0,:]
+        j_ixs = ctx.indices[1,:]
+        output_select = grad_output[i_ixs]
+        xmatrix_select = ctx.xmatrix[j_ixs]
+
+        grad_values = (output_select *  xmatrix_select).sum(dim=1)
+
+        grad_xmatrix = torch.mm(ctx.matrix.t(), grad_output)
+        return None, Variable(grad_values), None, Variable(grad_xmatrix)
+
+def batchmm(indices, values, size, xmatrix, cuda=None):
+    """
+    Multiply a batch of sparse matrices with a batch of dense matrices
+    :param indices:
+    :param values:
+    :param size:
+    :param xmatrix:
+    :return:
+    """
+
+    if cuda is None:
+        cuda = indices.is_cuda
+
+    b, n, r = indices.size()
+    dv = 'cuda' if cuda else 'cpu'
+    height, width = size
+
+    size = torch.tensor(size, device=dv)
+    bmult = size[None, None, :].expand(b, n, 2)
+    m = torch.arange(b, device=dv)[:, None, None].expand(b, n, 2)
+
+    bindices = (m * bmult).view(b*n, r) + indices.view(b*n, r)
+
+    bfsize = Variable(size * b)
+    bvalues = values.view(-1)
+
+    b, w, z = xmatrix.size()
+    bxmatrix = xmatrix.view(-1, z)
+
+    sm = sparsemm(cuda)
+    result = sm(bindices.t(), bvalues, bfsize, bxmatrix)
+
+    return result.view(b, height, -1)
+
+def split(offset, depth):
+
+    b, n, s = offset.size()
+    bn = b*n
+
+    offset = offset.view(bn, s)
+
+    numbuckets = 2 ** depth # number of buckets in the input
+    bsize      = s // numbuckets  # size of the output buckets
+
+    lo = torch.arange(numbuckets) * bsize # minimum index of each downbucket
+    lo = lo[None, :, None].expand(bn, numbuckets, bsize).contiguous().view(bn, -1)
+    hi = torch.arange(numbuckets) * bsize + bsize//2  # minimum index of each upbucket
+    hi = hi[None, :, None].expand(bn, numbuckets, bsize).contiguous().view(bn, -1)
+
+    upchoices   = offset.long()
+    downchoices = 1 - upchoices
+
+    numupchoices = upchoices.view(bn, numbuckets, bsize).cumsum(dim=2).view(bn, -1)
+    numdownchoices = downchoices.view(bn, numbuckets, bsize).cumsum(dim=2).view(bn, -1)
+
+    result = torch.zeros(bn, s, dtype=torch.long)
+    result = result + upchoices * (hi + numupchoices - 1)
+    result = result + downchoices * (lo + numdownchoices - 1)
+
+    # If offset is not arranged correctly (equal numbers of ups and downs per bucket)
+    # we get a non-permutation. This is fine, but we must clamp the result to make sure the
+    # indices are still legal
+    result = result.clamp(0, s-1)
+
+    return result.view(b, n, s)
+
+def sample_offsets(batch, num, size, depth):
+
+    numbuckets = 2 ** depth # number of buckets in the input
+    bsize      = size // numbuckets  # size of the input buckets
+
+    ordered = torch.tensor([0,1], dtype=torch.uint8)[None, None, None, :, None].expand(batch, num, numbuckets, 2, bsize // 2)
+    ordered = ordered.contiguous().view(batch, num, numbuckets, bsize)
+
+    # shuffle the buckets
+    ordered = ordered.view(batch * num * numbuckets, bsize)
+    ordered = shuffle_rows(ordered)
+    ordered = ordered.view(batch, num, numbuckets, bsize)
+
+    return ordered.contiguous().view(batch, num, -1)
+
+
+shufflecache = {}
+cache_size = 500000
+
+def shuffle_rows(x):
+
+    r, c = x.size()
+
+    if c not in shufflecache:
+        cached = torch.zeros(cache_size, c, dtype=torch.long, device='cpu')
+        for i in range(cache_size):
+            cached[i, :] = torch.randperm(c)
+        shufflecache[c] = cached
+
+    cache = shufflecache[c]
+    rows = random.sample(range(cache_size), k=r)
+    sample = cache[rows, :]
+
+    out = x.gather(dim=1, index=sample)
+
+    if x.is_cuda:
+        out = out.cuda()
+
+    return out
+
+if __name__ == '__main__':
+
+#     size = 8
+
+# #    offset = torch.tensor([1, 1, 0, 1, 1, 0, 0, 0]).byte()
+#     offset = torch.tensor([[0, 0, 1, 0, 1, 1, 1, 0], [0, 1, 0, 1, 0, 1, 1, 0]]).byte()
+#
+#     indices = split(offset[:, None, :], 0)
+#
+#     print(indices)
+
+    print(sample_offsets(3, 4, 16, 3))

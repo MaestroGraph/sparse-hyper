@@ -1,24 +1,19 @@
-import gaussian
-import util, time, itertools
-from gaussian import Bias
-
-import torch, random
-from torch.autograd import Variable
-from torch import nn, optim
-import torch.nn.functional as F
-from tqdm import trange, tqdm
-from tensorboardX import SummaryWriter
-from util import Lambda, Debug
-
-import torch.optim as optim
 import sys
 
+import matplotlib as mpl
+import torch.nn.functional as F
+import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
+from tensorboardX import SummaryWriter
+from torch import nn
+from torch.autograd import Variable
+from tqdm import trange
 
-from util import od
+import gaussian
+import util
+from util import sparsemm
 
-import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
@@ -46,79 +41,6 @@ def clean(axes=None):
     [s.set_visible(False) for s in axes.spines.values()]
     axes.tick_params(top=False, bottom=False, left=False, right=False, labelbottom=False, labelleft=False)
 
-def sparsemult(use_cuda):
-    return SparseMultGPU.apply if use_cuda else SparseMultCPU.apply
-
-class SparseMultCPU(torch.autograd.Function):
-
-    """
-    Sparse matrix multiplication with gradients over the value-vector
-
-    Does not work with batch dim.
-    """
-
-    @staticmethod
-    def forward(ctx, indices, values, size, xmatrix):
-
-        # print(type(size), size, list(size), intlist(size))
-        # print(indices.size(), values.size(), torch.Size(intlist(size)))
-
-        matrix = torch.sparse.FloatTensor(indices, values, torch.Size(util.intlist(size)))
-
-        ctx.indices, ctx.matrix, ctx.xmatrix = indices, matrix, xmatrix
-
-        return torch.mm(matrix, xmatrix)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        grad_output = grad_output.data
-
-        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
-
-        i_ixs = ctx.indices[0,:]
-        j_ixs = ctx.indices[1,:]
-        output_select = grad_output[i_ixs, :]
-        xmatrix_select = ctx.xmatrix[j_ixs, :]
-
-        grad_values = (output_select * xmatrix_select).sum(dim=1)
-
-        grad_xmatrix = torch.mm(ctx.matrix.t(), grad_output)
-        return None, Variable(grad_values), None, Variable(grad_xmatrix)
-
-class SparseMultGPU(torch.autograd.Function):
-
-    """
-    Sparse matrix multiplication with gradients over the value-vector
-
-    Does not work with batch dim.
-    """
-
-    @staticmethod
-    def forward(ctx, indices, values, size, xmatrix):
-
-        # print(type(size), size, list(size), intlist(size))
-
-        matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(util.intlist(size)))
-
-        ctx.indices, ctx.matrix, ctx.xmatrix = indices, matrix, xmatrix
-
-        return torch.mm(matrix, xmatrix)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        grad_output = grad_output.data
-
-        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
-
-        i_ixs = ctx.indices[0,:]
-        j_ixs = ctx.indices[1,:]
-        output_select = grad_output[i_ixs]
-        xmatrix_select = ctx.xmatrix[j_ixs]
-
-        grad_values = (output_select *  xmatrix_select).sum(dim=1)
-
-        grad_xmatrix = torch.mm(ctx.matrix.t(), grad_output)
-        return None, Variable(grad_values), None, Variable(grad_xmatrix)
 
 def densities(points, means, sigmas):
     """
@@ -358,7 +280,7 @@ class MatrixHyperlayer(nn.Module):
         vindices = Variable(indices.t())
         sz = Variable(torch.tensor((self.out_num, self.in_num)))
 
-        spmm = sparsemult(self.use_cuda)
+        spmm = sparsemm(self.use_cuda)
         output = spmm(vindices, values, sz, input)
 
         return output
@@ -959,7 +881,7 @@ def test():
     x.grad = None
     values.grad = None
 
-    mul = SparseMultCPU.apply(indices.t(), values, size, x)
+    mul = util.SparseMultCPU.apply(indices.t(), values, size, x)
     loss = mul.norm()
     loss.backward()
 
@@ -973,10 +895,10 @@ def test():
             nvalues = values.clone()
             nvalues[i] = nvalues[i] + h
 
-            mul = SparseMultCPU.apply(indices.t(), values, size, x)
+            mul = util.SparseMultCPU.apply(indices.t(), values, size, x)
             loss0 = mul.norm()
 
-            mul = SparseMultCPU.apply(indices.t(), nvalues, size, x)
+            mul = utilSparseMultCPU.apply(indices.t(), nvalues, size, x)
             loss1 = mul.norm()
 
             grad[i] = (loss1-loss0)/h
@@ -991,10 +913,10 @@ def test():
                 nx = x.clone()
                 nx[i, j] = x[i, j] + h
 
-                mul = SparseMultCPU.apply(indices.t(), values, size, x)
+                mul = util.SparseMultCPU.apply(indices.t(), values, size, x)
                 loss0 = mul.norm()
 
-                mul = SparseMultCPU.apply(indices.t(), values, size, nx)
+                mul = util.SparseMultCPU.apply(indices.t(), values, size, nx)
                 loss1 = mul.norm()
 
                 grad[i, j] = (loss1-loss0)/h

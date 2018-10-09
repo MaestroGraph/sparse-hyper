@@ -1055,6 +1055,9 @@ def shuffle_rows(x):
     rows = random.sample(range(cache_size), k=r)
     sample = cache[rows, :]
 
+    if x.is_cuda:
+        sample = sample.cuda()
+
     out = x.gather(dim=1, index=sample)
 
     if x.is_cuda:

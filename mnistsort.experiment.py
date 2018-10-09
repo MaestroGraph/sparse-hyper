@@ -194,10 +194,10 @@ def go(arg):
                     yi, _ = model(x, keys=keys, train=False)
                     yt, _ = model(x, keys=keys, train=True)
 
-                    input  = x[0].view(SIZE, 28, 28).data.numpy()
-                    target = t[0].view(SIZE, 28, 28).data.numpy()
-                    output_inf   = yi[0].view(SIZE, 28, 28).data.numpy()
-                    output_train = yt[0].view(SIZE, 28, 28).data.numpy()
+                    input  = x[0].view(SIZE, 28, 28).data.cpu().numpy()
+                    target = t[0].view(SIZE, 28, 28).data.cpu().numpy()
+                    output_inf   = yi[0].view(SIZE, 28, 28).data.cpu().numpy()
+                    output_train = yt[0].view(SIZE, 28, 28).data.cpu().numpy()
 
                     plt.figure(figsize=(8, 4))
                     for col in range(SIZE):

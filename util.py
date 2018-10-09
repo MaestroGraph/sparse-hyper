@@ -972,9 +972,9 @@ def batchmm(indices, values, size, xmatrix, cuda=None):
     dv = 'cuda' if cuda else 'cpu'
     height, width = size
 
-    size = torch.tensor(size, device=dv)
+    size = torch.tensor(size, device=dv, dtype=torch.long)
     bmult = size[None, None, :].expand(b, n, 2)
-    m = torch.arange(b, device=dv)[:, None, None].expand(b, n, 2)
+    m = torch.arange(b, device=dv, dtype=torch.long)[:, None, None].expand(b, n, 2)
 
     bindices = (m * bmult).view(b*n, r) + indices.view(b*n, r)
 

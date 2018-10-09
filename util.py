@@ -1012,6 +1012,8 @@ def split(offset, depth):
     numdownchoices = downchoices.view(bn, numbuckets, bsize).cumsum(dim=2).view(bn, -1)
 
     result = torch.zeros(bn, s, dtype=torch.long, device=dv)
+
+    print(result.dtype, upchoices.dtype, hi.dtype, numupchoices.dtype)
     result = result + upchoices * (hi + numupchoices - 1)
     result = result + downchoices * (lo + numdownchoices - 1)
 

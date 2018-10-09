@@ -180,6 +180,8 @@ def go(arg):
                 with torch.no_grad():
 
                     x, t = gen(arg.batch, test)
+                    if arg.cuda:
+                        x, t = x.cuda(), t.cuda()
 
                     x, t = Variable(x), Variable(t)
 

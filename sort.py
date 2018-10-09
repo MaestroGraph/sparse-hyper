@@ -79,7 +79,7 @@ class Split(nn.Module):
         choices = offset.round().byte()[:, None, :]
 
         if additional > 0:
-            sampled = util.sample_offsets(b, additional, s, self.depth)
+            sampled = util.sample_offsets(b, additional, s, self.depth, cuda=offset.is_cuda)
 
             choices = torch.cat([choices, sampled], dim=1).byte()
 

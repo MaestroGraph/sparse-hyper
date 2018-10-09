@@ -990,6 +990,7 @@ def batchmm(indices, values, size, xmatrix, cuda=None):
     return result.view(b, height, -1)
 
 def split(offset, depth):
+    dv = 'cuda' if offset.is_cuda else 'cpu'
 
     b, n, s = offset.size()
     bn = b*n
@@ -999,9 +1000,9 @@ def split(offset, depth):
     numbuckets = 2 ** depth # number of buckets in the input
     bsize      = s // numbuckets  # size of the output buckets
 
-    lo = torch.arange(numbuckets) * bsize # minimum index of each downbucket
+    lo = torch.arange(numbuckets, device=dv) * bsize # minimum index of each downbucket
     lo = lo[None, :, None].expand(bn, numbuckets, bsize).contiguous().view(bn, -1)
-    hi = torch.arange(numbuckets) * bsize + bsize//2  # minimum index of each upbucket
+    hi = torch.arange(numbuckets, device=dv) * bsize + bsize//2  # minimum index of each upbucket
     hi = hi[None, :, None].expand(bn, numbuckets, bsize).contiguous().view(bn, -1)
 
     upchoices   = offset.long()

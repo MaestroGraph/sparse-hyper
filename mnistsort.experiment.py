@@ -218,7 +218,7 @@ def go(arg):
                         clean(ax)
 
                         if col == 0:
-                            ax.set_ylabel('output (inference)')
+                            ax.set_ylabel(inference')
 
 
                         ax = plt.subplot(4, 8, col + SIZE * 3 + 1)
@@ -226,7 +226,7 @@ def go(arg):
                         clean(ax)
 
                         if col == 0:
-                            ax.set_ylabel('output (training)')
+                            ax.set_ylabel('training')
 
                     plt.savefig('./mnist-sort/mnist.{:04}.pdf'.format(i))
 

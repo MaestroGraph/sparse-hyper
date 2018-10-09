@@ -148,7 +148,9 @@ class SortLayer(nn.Module):
             self.layers.append(Split(size, d, additional, sigma_scale, sigma_floor))
 
         self.certainty = nn.Parameter(torch.tensor([50.0]))
-        self.certainty.requires_grad = False
+        # self.certainty.requires_grad = False
+
+
         #
         # self.offset = nn.Sequential(
         #     util.Lambda(lambda x : x[:, 0] - x[:, 1]),

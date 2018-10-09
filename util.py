@@ -1000,9 +1000,9 @@ def split(offset, depth):
     numbuckets = 2 ** depth # number of buckets in the input
     bsize      = s // numbuckets  # size of the output buckets
 
-    lo = torch.arange(numbuckets, device=dv) * bsize # minimum index of each downbucket
+    lo = torch.arange(numbuckets, device=dv, dtype=torch.long) * bsize # minimum index of each downbucket
     lo = lo[None, :, None].expand(bn, numbuckets, bsize).contiguous().view(bn, -1)
-    hi = torch.arange(numbuckets, device=dv) * bsize + bsize//2  # minimum index of each upbucket
+    hi = torch.arange(numbuckets, device=dv, dtype=torch.long) * bsize + bsize//2  # minimum index of each upbucket
     hi = hi[None, :, None].expand(bn, numbuckets, bsize).contiguous().view(bn, -1)
 
     upchoices   = offset.long()
@@ -1012,8 +1012,7 @@ def split(offset, depth):
     numdownchoices = downchoices.view(bn, numbuckets, bsize).cumsum(dim=2).view(bn, -1)
 
     result = torch.zeros(bn, s, dtype=torch.long, device=dv)
-
-    print(result.dtype, upchoices.dtype, hi.dtype, numupchoices.dtype)
+    #print(result.dtype, upchoices.dtype, hi.dtype, numupchoices.dtype)
     result = result + upchoices * (hi + numupchoices - 1)
     result = result + downchoices * (lo + numdownchoices - 1)
 

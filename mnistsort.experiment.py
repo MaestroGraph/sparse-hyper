@@ -192,7 +192,7 @@ def go(arg):
             if i > 3000:
                 util.DEBUG = True
 
-            x, t = gen(arg.batch, train) # torch.randn((arg.batch_size,) + SHAPE)
+            x, t = gen(arg.batch, train, arg.size) # torch.randn((arg.batch_size,) + SHAPE)
 
             t, idxs = x.sort(dim=1)
 
@@ -232,7 +232,7 @@ def go(arg):
             if i % arg.plot_every == 0:
                 with torch.no_grad():
 
-                    x, t = gen(arg.batch, test)
+                    x, t = gen(arg.batch, test, arg.size)
                     if arg.cuda:
                         x, t = x.cuda(), t.cuda()
 
@@ -293,7 +293,7 @@ def go(arg):
 
                     losses = []
                     for ii in range(10000//arg.batch):
-                        x, t = gen(arg.batch, test)
+                        x, t = gen(arg.batch, test, arg.size)
 
                         if arg.cuda:
                             x, t = x.cuda(), t.cuda()

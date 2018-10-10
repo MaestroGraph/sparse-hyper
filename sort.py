@@ -56,9 +56,9 @@ class Split(nn.Module):
         _, unsort_idx = torch.sort(sort_idx, dim=1)
 
         mask = sorted[:, 1:] == sorted[:, :-1]
+        # mask = mask.view(b, k - 1)
 
         zs = torch.zeros(b, 1, dtype=torch.uint8, device='cuda' if tuples.is_cuda else 'cpu')
-        print(zs.size(), mask.size())
         mask = torch.cat([zs, mask], dim=1)
 
         return torch.gather(mask, 1, unsort_idx)
@@ -92,10 +92,11 @@ class Split(nn.Module):
         # Generate indices from the chosen offset
         indices = util.split(choices, self.depth)
 
-        dups = self.duplicates(indices)
+        if n > 1:
+            dups = self.duplicates(indices)
 
-        probs = probs.clone()
-        probs[dups] = 0.0
+            probs = probs.clone()
+            probs[dups] = 0.0
 
         return indices, probs
 

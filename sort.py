@@ -58,6 +58,7 @@ class Split(nn.Module):
         mask = sorted[:, 1:] == sorted[:, :-1]
 
         zs = torch.zeros(b, 1, dtype=torch.uint8, device='cuda' if tuples.is_cuda else 'cpu')
+        print(zs.size(), mask.size())
         mask = torch.cat([zs, mask], dim=1)
 
         return torch.gather(mask, 1, unsort_idx)

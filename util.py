@@ -1041,7 +1041,7 @@ def sample_offsets(batch, num, size, depth, cuda=False):
 
 
 shufflecache = {}
-cache_size = 500000
+cache_size = 500 # 500000
 
 def shuffle_rows(x):
 

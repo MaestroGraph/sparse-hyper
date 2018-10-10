@@ -79,7 +79,8 @@ class Split(nn.Module):
         choices = offset.round().byte()[:, None, :]
 
         if additional > 0:
-            sampled = util.sample_offsets(b, additional, s, self.depth, cuda=offset.is_cuda)
+            # sampled = util.sample_offsets(b, additional, s, self.depth, cuda=offset.is_cuda)
+            sampled = ~ choices
 
             choices = torch.cat([choices, sampled], dim=1).byte()
 
@@ -88,7 +89,6 @@ class Split(nn.Module):
     def generate(self, choices, offset):
 
         b, n, s = choices.size()
-        dv = 'cuda' if offset.is_cuda else 'cpu'
 
         offset = offset[:, None, :].expand(b, n, s)
 
@@ -147,9 +147,8 @@ class SortLayer(nn.Module):
         for d in range(mdepth):
             self.layers.append(Split(size, d, additional, sigma_scale, sigma_floor))
 
-        self.certainty = nn.Parameter(torch.tensor([10.0]))
-        # self.certainty.requires_grad = False
-
+        # self.certainty = nn.Parameter(torch.tensor([10.0]))
+        self.register_buffer('certainty', torch.tensor([50.0]))
 
         #
         # self.offset = nn.Sequential(
@@ -179,11 +178,11 @@ class SortLayer(nn.Module):
 
             # compute offsets by comparing values to pivots
             if train:
-                offset = keys.view(-1, 1) - pivots.view(-1, 1)
+                offset = keys - pivots
                 # rng = offset.max(dim=1, keepdim=True)[0] - offset.min(dim=1, keepdim=True)[0]
                 # offset = offset / rng
-                offset = F.sigmoid(offset.view(b, s) * self.certainty)
-                #
+                offset = F.sigmoid(offset * self.certainty)
+
                 # print(train, offset[0])
                 # print((keys > pivots).float())
                 # sys.exit()

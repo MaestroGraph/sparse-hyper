@@ -36,8 +36,6 @@ tbw = SummaryWriter()
 util.DEBUG = False
 BUCKET_SIGMA = 0.05
 
-SIZE = 4
-
 def clean(axes=None):
 
     if axes is None:
@@ -46,12 +44,13 @@ def clean(axes=None):
     [s.set_visible(False) for s in axes.spines.values()]
     axes.tick_params(top=False, bottom=False, left=False, right=False, labelbottom=False, labelleft=False)
 
-def gen(b, data):
 
-    t = torch.zeros(b, SIZE, 1, 28, 28)
+def gen(b, data, size):
+
+    t = torch.zeros(b, size, 1, 28, 28)
 
     # Select random digits
-    for i in range(SIZE):
+    for i in range(size):
         sample = random.sample(data[i], k=b)
         t[:, i, :, :, :] = torch.cat(sample, dim=0)
 
@@ -59,7 +58,7 @@ def gen(b, data):
 
     # Shuffle
     for bi in range(b):
-        perm = torch.randperm(SIZE)
+        perm = torch.randperm(size)
         x[bi] = x[bi, perm, :, :, :]
 
     return x, t
@@ -127,32 +126,34 @@ def go(arg):
         print('starting {} out of {} repetitions'.format(r, arg.reps))
         util.makedirs('./mnist-sort/{}'.format( r))
 
-        model = sort.SortLayer(SIZE, additional=arg.additional, sigma_scale=arg.sigma_scale, sigma_floor=arg.min_sigma)
+        model = sort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale, sigma_floor=arg.min_sigma)
 
-        bottom = nn.Linear(28*28, 256)
+        # bottom = nn.Linear(28*28, 256)
         # tokeys = nn.Sequential(
         #     util.Flatten(),
         #     bottom, nn.ReLU(),
         #     nn.Linear(256, 64), nn.ReLU(),
         #     nn.Linear(64, 1)
         # )
+
         # - channel sizes
-        c1, c2, c3 = 4, 6, 8
-        h1, h2 = 64, 32
+        c1, c2, c3 = 16, 64, 128
+        h1, h2 = 256, 128
+
 
         tokeys = nn.Sequential(
             nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
-            # nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
             nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
             nn.BatchNorm2d(c1),
             nn.MaxPool2d((2, 2)),
             nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
-            # nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
             nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
             nn.BatchNorm2d(c2),
             nn.MaxPool2d((2, 2)),
             nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
-            # nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
             nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
             nn.BatchNorm2d(c3),
             nn.MaxPool2d((2, 2)),
@@ -167,6 +168,24 @@ def go(arg):
             tokeys.cuda()
 
         optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
+
+        # seen = 0
+        # for ep in trange(50):
+        #     for i, (batch, labels) in enumerate(trainloader):
+        #
+        #         optimizer.zero_grad()
+        #
+        #         labels = labels.float()
+        #         keys = tokeys(batch)
+        #
+        #         loss = F.mse_loss(keys.squeeze(), labels)
+        #
+        #         loss.backward()
+        #
+        #         optimizer.step()
+        #
+        #         seen += batch.size(0)
+        #         tbw.add_scalar('mnist-sort/pretrain-loss', loss.data.item(), seen)
 
         for i in trange(arg.iterations):
 
@@ -183,17 +202,27 @@ def go(arg):
 
             optimizer.zero_grad()
 
-            keys = tokeys(x.view(arg.batch * SIZE, 1, 28, 28))
-            keys = keys.view(arg.batch, SIZE)
+            keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
+            keys = keys.view(arg.batch, arg.size)
 
-            x = x.view(arg.batch, SIZE, -1)
-            t = t.view(arg.batch, SIZE, -1)
+            keys.retain_grad()
+
+            x = x.view(arg.batch, arg.size, -1)
+            t = t.view(arg.batch, arg.size, -1)
 
             y, _ = model(x, keys=keys)
 
             loss = F.mse_loss(y, t) # compute the loss
 
             loss.backward()
+            # perms = util.DEBUG
+            #
+            # print(perms)
+            # print((keys - keys.mean(dim=1, keepdim=True)).sign())
+            # print((keys - keys.mean(dim=1, keepdim=True)).sign() - 0.1 *  keys.grad.sign())
+            #
+            # k =  (keys - keys.mean(dim=1, keepdim=True)).sign()
+            # # print( (perms[:, 0] < perms[:, 1]) == (k[:, 0] < k[:, 1]) )
 
             optimizer.step()
 
@@ -209,45 +238,45 @@ def go(arg):
 
                     x, t = Variable(x), Variable(t)
 
-                    keys = tokeys(x.view(arg.batch * SIZE, 1, 28, 28))
-                    # keys = tokeys(x.view(arg.batch * SIZE, -1))
-                    keys = keys.view(arg.batch, SIZE)
+                    keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
+                    # keys = tokeys(x.view(arg.batch * arg.size, -1))
+                    keys = keys.view(arg.batch, arg.size)
 
-                    x = x.view(arg.batch, SIZE, -1)
-                    t = t.view(arg.batch, SIZE, -1)
+                    x = x.view(arg.batch, arg.size, -1)
+                    t = t.view(arg.batch, arg.size, -1)
 
                     yi, _ = model(x, keys=keys, train=False)
                     yt, _ = model(x, keys=keys, train=True)
 
-                    input  = x[0].view(SIZE, 28, 28).data.cpu().numpy()
-                    target = t[0].view(SIZE, 28, 28).data.cpu().numpy()
-                    output_inf   = yi[0].view(SIZE, 28, 28).data.cpu().numpy()
-                    output_train = yt[0].view(SIZE, 28, 28).data.cpu().numpy()
+                    input  = x[0].view(arg.size, 28, 28).data.cpu().numpy()
+                    target = t[0].view(arg.size, 28, 28).data.cpu().numpy()
+                    output_inf   = yi[0].view(arg.size, 28, 28).data.cpu().numpy()
+                    output_train = yt[0].view(arg.size, 28, 28).data.cpu().numpy()
 
-                    plt.figure(figsize=(SIZE, 4))
-                    for col in range(SIZE):
-                        ax = plt.subplot(4, SIZE, col + 1)
+                    plt.figure(figsize=(arg.size, 4))
+                    for col in range(arg.size):
+                        ax = plt.subplot(4, arg.size, col + 1)
                         ax.imshow(input[col], cmap='gray_r')
                         clean(ax)
 
                         if col == 0:
                             ax.set_ylabel('input')
 
-                        ax = plt.subplot(4, SIZE, col + SIZE + 1)
+                        ax = plt.subplot(4, arg.size, col + arg.size + 1)
                         ax.imshow(target[col], cmap='gray_r')
                         clean(ax)
 
                         if col == 0:
                             ax.set_ylabel('target')
 
-                        ax = plt.subplot(4, SIZE, col + SIZE * 2 + 1)
+                        ax = plt.subplot(4, arg.size, col + arg.size * 2 + 1)
                         ax.imshow(output_inf[col], cmap='gray_r')
                         clean(ax)
 
                         if col == 0:
                             ax.set_ylabel('inference')
 
-                        ax = plt.subplot(4, SIZE, col + SIZE * 3 + 1)
+                        ax = plt.subplot(4, arg.size, col + arg.size * 3 + 1)
                         ax.imshow(output_train[col], cmap='gray_r')
                         clean(ax)
 
@@ -255,8 +284,9 @@ def go(arg):
                             ax.set_ylabel('training')
 
                     plt.savefig('./mnist-sort/mnist.{:04}.pdf'.format(i))
+                    # sys.exit()
 
-            if i % arg.dot_every == 0:
+            if i % arg.dot_every == 0 and False:
                 # print('gradient ', bottom.weight.grad.mean(), bottom.weight.grad.var())
 
                 with torch.no_grad():
@@ -270,12 +300,12 @@ def go(arg):
 
                         x, t = Variable(x), Variable(t)
 
-                        keys = tokeys(x.view(arg.batch * SIZE, 1, 28, 28))
-                        #keys = tokeys(x.view(arg.batch * SIZE, -1))
-                        keys = keys.view(arg.batch, SIZE)
+                        keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
+                        #keys = tokeys(x.view(arg.batch * arg.size, -1))
+                        keys = keys.view(arg.batch, arg.size)
 
-                        x = x.view(arg.batch, SIZE, -1)
-                        t = t.view(arg.batch, SIZE, -1)
+                        x = x.view(arg.batch, arg.size, -1)
+                        t = t.view(arg.batch, arg.size, -1)
 
                         y, _ = model(x, keys=keys, train=False)
 
@@ -298,10 +328,10 @@ def go(arg):
     if results.shape[0] > 1:
         ax.errorbar(x=np.arange(ndots) * arg.dot_every, y=np.mean(results[:, :], axis=0),
                         yerr=np.std(results[:, :], axis=0),
-                        label='size {0}x{0}, r={1}'.format(SIZE, arg.reps))
+                        label='size {0}x{0}, r={1}'.format(arg.size, arg.reps))
     else:
         ax.plot(np.arange(ndots) * arg.dot_every, np.mean(results[:, :], axis=0),
-                        label='size {0}x{0}'.format(SIZE))
+                        label='size {0}x{0}'.format(arg.size))
 
     ax.legend()
 

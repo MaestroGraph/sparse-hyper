@@ -235,7 +235,7 @@ def go(arg):
             if i % arg.plot_every == 0:
                 with torch.no_grad():
 
-                    x, t = gen(arg.batch, test, arg.size)
+                    x, t = gen(arg.batch, train, arg.size)
                     if arg.cuda:
                         x, t = x.cuda(), t.cuda()
 

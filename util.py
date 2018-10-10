@@ -1078,7 +1078,7 @@ def unique(tuples):
     if s == 2:
         k1, k2 = tuples[:, 0], tuples[:, 1]
 
-        res = ((k1 + k2) * (k1 + k2 + 1)) // 2 + k2
+        res = ((k1 + k2) * (k1 + k2 + 1)) / 2 + k2
 
         return res[:, None]
 

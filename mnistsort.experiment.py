@@ -51,7 +51,7 @@ def gen(b, data, size):
 
     # Select random digits
     for i in range(size):
-        sample = random.sample(data[i], k=b)
+        sample = random.choices(data[i], k=b)
         t[:, i, :, :, :] = torch.cat(sample, dim=0)
 
     x = t.clone()
@@ -102,6 +102,9 @@ def go(arg):
             image = inps[i:i+1, :, :, :]
             label = labels[i].item()
             train[label].append(image)
+
+    if arg.limit is not None:
+        train = {label: imgs[:arg.limit] for label, imgs in train.items()}
 
     # train = {label: torch.cat(imgs, dim=0) for label, imgs in train}
 
@@ -415,6 +418,11 @@ if __name__ == "__main__":
                         dest="min_sigma",
                         help="Sigma floor (minimum sigma value).",
                         default=0.0, type=float)
+
+    parser.add_argument("-L", "--limit",
+                        dest="limit",
+                        help="Limit on the nr ofexamples per class (for debugging).",
+                        default=None, type=int)
 
     parser.add_argument("-f", "--final", dest="final",
                         help="Whether to run on the real test set.",

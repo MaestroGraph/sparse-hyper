@@ -59,6 +59,7 @@ def gen(b, data, size):
     # Shuffle
     for bi in range(b):
         perm = torch.randperm(size)
+        # print(perm)
         x[bi] = x[bi, perm, :, :, :]
 
     return x, t
@@ -131,40 +132,41 @@ def go(arg):
 
         model = sort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale, sigma_floor=arg.min_sigma)
 
-        # bottom = nn.Linear(28*28, 256)
-        # tokeys = nn.Sequential(
-        #     util.Flatten(),
-        #     bottom, nn.ReLU(),
-        #     nn.Linear(256, 64), nn.ReLU(),
-        #     nn.Linear(64, 1)
-        # )
+        bottom = nn.Linear(28*28, 32)
+        tokeys = nn.Sequential(
+            util.Flatten(),
+            bottom, nn.ReLU(),
+            nn.Linear(32, 16), nn.ReLU(),
+            nn.Linear(16, 1), nn.BatchNorm1d(1),
+        )
 
         # - channel sizes
         c1, c2, c3 = 16, 64, 128
         h1, h2 = 256, 128
 
-
-        tokeys = nn.Sequential(
-            nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
-            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-            nn.BatchNorm2d(c1),
-            nn.MaxPool2d((2, 2)),
-            nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.BatchNorm2d(c2),
-            nn.MaxPool2d((2, 2)),
-            nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
-            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-            nn.BatchNorm2d(c3),
-            nn.MaxPool2d((2, 2)),
-            util.Flatten(),
-            nn.Linear(9 * c3, h1), nn.ReLU(),
-            nn.Linear(h1, h2), nn.ReLU(),
-            nn.Linear(h2, 1), nn.BatchNorm1d(1),
-        )
+        #
+        #
+        # tokeys = nn.Sequential(
+        #     nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
+        #     nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+        #     nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+        #     nn.BatchNorm2d(c1),
+        #     nn.MaxPool2d((2, 2)),
+        #     nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
+        #     nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+        #     nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+        #     nn.BatchNorm2d(c2),
+        #     nn.MaxPool2d((2, 2)),
+        #     nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
+        #     nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+        #     nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+        #     nn.BatchNorm2d(c3),
+        #     nn.MaxPool2d((2, 2)),
+        #     util.Flatten(),
+        #     nn.Linear(9 * c3, h1), nn.ReLU(),
+        #     nn.Linear(h1, h2), nn.ReLU(),
+        #     nn.Linear(h2, 1), nn.BatchNorm1d(1),
+        # )
 
         if arg.cuda:
             model.cuda()
@@ -192,9 +194,6 @@ def go(arg):
 
         for i in trange(arg.iterations):
 
-            if i > 3000:
-                util.DEBUG = True
-
             x, t = gen(arg.batch, train, arg.size) # torch.randn((arg.batch_size,) + SHAPE)
 
             t, idxs = x.sort(dim=1)
@@ -218,12 +217,17 @@ def go(arg):
             loss = F.mse_loss(y, t) # compute the loss
 
             loss.backward()
+
             # perms = util.DEBUG
             #
             # print(perms)
+
+            # print('keys', keys)
+            # print('   g', keys.grad)
+            # sys.exit()
             # print((keys - keys.mean(dim=1, keepdim=True)).sign())
             # print((keys - keys.mean(dim=1, keepdim=True)).sign() - 0.1 *  keys.grad.sign())
-            #
+
             # k =  (keys - keys.mean(dim=1, keepdim=True)).sign()
             # # print( (perms[:, 0] < perms[:, 1]) == (k[:, 0] < k[:, 1]) )
 

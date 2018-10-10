@@ -1041,7 +1041,7 @@ def sample_offsets(batch, num, size, depth, cuda=False):
 
 
 shufflecache = {}
-cache_size = 500 # 500000
+cache_size = 50_000 # 500000
 
 def shuffle_rows(x):
 
@@ -1067,6 +1067,27 @@ def shuffle_rows(x):
 
     return out
 
+def unique(tuples):
+    """
+    Assigns a single unique identifier to each tuple expressed in the row
+    :param tuples:
+    :return:
+    """
+    b, s = tuples.size()
+
+    if s == 2:
+        k1, k2 = tuples[:, 0], tuples[:, 1]
+
+        res = ((k1 + k2) * (k1 + k2 + 1)) // 2 + k2
+
+        return res[:, None]
+
+    sub = unique(tuples[:, 1:])
+
+    res = torch.cat([tuples[:, 0:1], sub], dim=1)
+
+    return unique(res)
+
 if __name__ == '__main__':
 
 #     size = 8
@@ -1078,4 +1099,7 @@ if __name__ == '__main__':
 #
 #     print(indices)
 
-    print(sample_offsets(3, 4, 16, 3))
+#    print(sample_offsets(3, 4, 16, 3))
+
+    print(unique(torch.tensor( [[1,2,3,4],[4,3,2,1],[1,2,3,4]] )))
+

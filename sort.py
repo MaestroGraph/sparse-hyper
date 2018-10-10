@@ -39,13 +39,6 @@ class Split(nn.Module):
         self.sigma_floor = sigma_floor
         self.additional = additional
 
-        # indices = torch.arange(size).float() / size +1 /(2*size)
-        # self.register_buffer('indices', indices)
-
-        self.register_buffer('primes', torch.tensor(
-        [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97]))
-
-
     def duplicates(self, tuples):
         """
         Takes a list of tuples, and for each tuple that occurs mutiple times
@@ -56,11 +49,8 @@ class Split(nn.Module):
         """
         b, k, r = tuples.size()
 
-        primes = self.primes[None, None, :r].expand(b, k, r).float()
-        print((tuples.float() + 1) ** primes)
-        unique = ((tuples.float() + 1) ** primes).prod(dim=2)  # unique identifier for each tuple
-
-        print(unique)
+        # unique = ((tuples.float() + 1) ** primes).prod(dim=2)  # unique identifier for each tuple
+        unique = util.unique(tuples.view(b*k, r)).squeeze().view(b, k)
 
         sorted, sort_idx = torch.sort(unique, dim=1)
         _, unsort_idx = torch.sort(sort_idx, dim=1)
@@ -79,8 +69,8 @@ class Split(nn.Module):
         choices = offset.round().byte()[:, None, :]
 
         if additional > 0:
-            # sampled = util.sample_offsets(b, additional, s, self.depth, cuda=offset.is_cuda)
-            sampled = ~ choices
+            sampled = util.sample_offsets(b, additional, s, self.depth, cuda=offset.is_cuda)
+            # sampled = ~ choices
 
             choices = torch.cat([choices, sampled], dim=1).byte()
 
@@ -101,14 +91,10 @@ class Split(nn.Module):
         # Generate indices from the chosen offset
         indices = util.split(choices, self.depth)
 
-        # TODO: fix deduplication
-        # dups = self.duplicates(indices)
-        #
-        # print(dups[0])
-        # sys.exit()
-        #
-        # probs = probs.clone()
-        # probs[dups] = 0.0
+        dups = self.duplicates(indices)
+
+        probs = probs.clone()
+        probs[dups] = 0.0
 
         return indices, probs
 

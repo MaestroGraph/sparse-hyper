@@ -36,6 +36,8 @@ tbw = SummaryWriter()
 util.DEBUG = False
 BUCKET_SIGMA = 0.05
 
+SIZE = 4
+
 def clean(axes=None):
 
     if axes is None:
@@ -45,12 +47,11 @@ def clean(axes=None):
     axes.tick_params(top=False, bottom=False, left=False, right=False, labelbottom=False, labelleft=False)
 
 def gen(b, data):
-    size = 8
 
-    t = torch.zeros(b, size, 1, 28, 28)
+    t = torch.zeros(b, SIZE, 1, 28, 28)
 
     # Select random digits
-    for i in range(size):
+    for i in range(SIZE):
         sample = random.sample(data[i], k=b)
         t[:, i, :, :, :] = torch.cat(sample, dim=0)
 
@@ -58,12 +59,10 @@ def gen(b, data):
 
     # Shuffle
     for bi in range(b):
-        perm = torch.randperm(size)
+        perm = torch.randperm(SIZE)
         x[bi] = x[bi, perm, :, :, :]
 
     return x, t
-
-SIZE = 8
 
 def go(arg):
     """
@@ -128,14 +127,39 @@ def go(arg):
         print('starting {} out of {} repetitions'.format(r, arg.reps))
         util.makedirs('./mnist-sort/{}'.format( r))
 
-        model = sort.SortLayer(8, additional=arg.additional, sigma_scale=arg.sigma_scale, sigma_floor=arg.min_sigma)
+        model = sort.SortLayer(SIZE, additional=arg.additional, sigma_scale=arg.sigma_scale, sigma_floor=arg.min_sigma)
 
         bottom = nn.Linear(28*28, 256)
+        # tokeys = nn.Sequential(
+        #     util.Flatten(),
+        #     bottom, nn.ReLU(),
+        #     nn.Linear(256, 64), nn.ReLU(),
+        #     nn.Linear(64, 1)
+        # )
+        # - channel sizes
+        c1, c2, c3 = 4, 6, 8
+        h1, h2 = 64, 32
+
         tokeys = nn.Sequential(
+            nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
+            # nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.BatchNorm2d(c1),
+            nn.MaxPool2d((2, 2)),
+            nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
+            # nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.BatchNorm2d(c2),
+            nn.MaxPool2d((2, 2)),
+            nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
+            # nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.BatchNorm2d(c3),
+            nn.MaxPool2d((2, 2)),
             util.Flatten(),
-            bottom, nn.ReLU(),
-            nn.Linear(256, 64), nn.ReLU(),
-            nn.Linear(64, 1)
+            nn.Linear(9 * c3, h1), nn.ReLU(),
+            nn.Linear(h1, h2), nn.ReLU(),
+            nn.Linear(h2, 1), nn.BatchNorm1d(1),
         )
 
         if arg.cuda:
@@ -159,7 +183,7 @@ def go(arg):
 
             optimizer.zero_grad()
 
-            keys = tokeys(x.view(arg.batch * SIZE, -1))
+            keys = tokeys(x.view(arg.batch * SIZE, 1, 28, 28))
             keys = keys.view(arg.batch, SIZE)
 
             x = x.view(arg.batch, SIZE, -1)
@@ -185,7 +209,8 @@ def go(arg):
 
                     x, t = Variable(x), Variable(t)
 
-                    keys = tokeys(x.view(arg.batch * SIZE, -1))
+                    keys = tokeys(x.view(arg.batch * SIZE, 1, 28, 28))
+                    # keys = tokeys(x.view(arg.batch * SIZE, -1))
                     keys = keys.view(arg.batch, SIZE)
 
                     x = x.view(arg.batch, SIZE, -1)
@@ -199,31 +224,30 @@ def go(arg):
                     output_inf   = yi[0].view(SIZE, 28, 28).data.cpu().numpy()
                     output_train = yt[0].view(SIZE, 28, 28).data.cpu().numpy()
 
-                    plt.figure(figsize=(8, 4))
+                    plt.figure(figsize=(SIZE, 4))
                     for col in range(SIZE):
-                        ax = plt.subplot(4, 8, col + 1)
+                        ax = plt.subplot(4, SIZE, col + 1)
                         ax.imshow(input[col], cmap='gray_r')
                         clean(ax)
 
                         if col == 0:
                             ax.set_ylabel('input')
 
-                        ax = plt.subplot(4, 8, col + SIZE + 1)
+                        ax = plt.subplot(4, SIZE, col + SIZE + 1)
                         ax.imshow(target[col], cmap='gray_r')
                         clean(ax)
 
                         if col == 0:
                             ax.set_ylabel('target')
 
-                        ax = plt.subplot(4, 8, col + SIZE * 2 + 1)
+                        ax = plt.subplot(4, SIZE, col + SIZE * 2 + 1)
                         ax.imshow(output_inf[col], cmap='gray_r')
                         clean(ax)
 
                         if col == 0:
                             ax.set_ylabel('inference')
 
-
-                        ax = plt.subplot(4, 8, col + SIZE * 3 + 1)
+                        ax = plt.subplot(4, SIZE, col + SIZE * 3 + 1)
                         ax.imshow(output_train[col], cmap='gray_r')
                         clean(ax)
 
@@ -233,7 +257,7 @@ def go(arg):
                     plt.savefig('./mnist-sort/mnist.{:04}.pdf'.format(i))
 
             if i % arg.dot_every == 0:
-                print('gradient ', bottom.weight.grad.mean(), bottom.weight.grad.var())
+                # print('gradient ', bottom.weight.grad.mean(), bottom.weight.grad.var())
 
                 with torch.no_grad():
 
@@ -246,7 +270,8 @@ def go(arg):
 
                         x, t = Variable(x), Variable(t)
 
-                        keys = tokeys(x.view(arg.batch * SIZE, -1))
+                        keys = tokeys(x.view(arg.batch * SIZE, 1, 28, 28))
+                        #keys = tokeys(x.view(arg.batch * SIZE, -1))
                         keys = keys.view(arg.batch, SIZE)
 
                         x = x.view(arg.batch, SIZE, -1)

@@ -147,7 +147,7 @@ class SortLayer(nn.Module):
         for d in range(mdepth):
             self.layers.append(Split(size, d, additional, sigma_scale, sigma_floor))
 
-        self.certainty = nn.Parameter(torch.tensor([50.0]))
+        self.certainty = nn.Parameter(torch.tensor([10.0]))
         # self.certainty.requires_grad = False
 
 
@@ -180,9 +180,17 @@ class SortLayer(nn.Module):
             # compute offsets by comparing values to pivots
             if train:
                 offset = keys.view(-1, 1) - pivots.view(-1, 1)
+                # rng = offset.max(dim=1, keepdim=True)[0] - offset.min(dim=1, keepdim=True)[0]
+                # offset = offset / rng
                 offset = F.sigmoid(offset.view(b, s) * self.certainty)
+                #
+                # print(train, offset[0])
+                # print((keys > pivots).float())
+                # sys.exit()
+
             else:
-                offset = (keys < pivots).float()
+                offset = (keys > pivots).float()
+
 
             # offset=offset.round() # DEBUG
             x, keys = split(x, keys, offset, train=train)

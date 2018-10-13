@@ -138,8 +138,8 @@ def go(arg):
 
         model = sort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale, sigma_floor=arg.min_sigma)
 
-        bottom = nn.Linear(28*28, 32, bias=False)
-        bottom.weight.retain_grad()
+        # bottom = nn.Linear(28*28, 32, bias=False)
+        # bottom.weight.retain_grad()
 
         # top = nn.Linear(32, 1)
         # top.weight.retain_grad()
@@ -206,6 +206,7 @@ def go(arg):
 
             if arg.cuda:
                 x, t = x.cuda(), t.cuda()
+
             x, t = Variable(x), Variable(t)
 
             optimizer.zero_grad()
@@ -333,13 +334,16 @@ def go(arg):
                 # sys.exit()
 
             if i % arg.dot_every == 0:
-                # print('gradient ', bottom.weight.grad.mean(), bottom.weight.grad.var())
-
+                """
+                Compute the accuracy
+                """
+                tot = 0.0
+                correct = 0.0
                 with torch.no_grad():
 
                     losses = []
                     for ii in range(10000//arg.batch):
-                        x, t, _ = gen(arg.batch, test, arg.size)
+                        x, t, l = gen(arg.batch, test, arg.size)
 
                         if arg.cuda:
                             x, t = x.cuda(), t.cuda()
@@ -347,19 +351,21 @@ def go(arg):
                         x, t = Variable(x), Variable(t)
 
                         keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
-                        #keys = tokeys(x.view(arg.batch * arg.size, -1))
                         keys = keys.view(arg.batch, arg.size)
 
-                        x = x.view(arg.batch, arg.size, -1)
-                        t = t.view(arg.batch, arg.size, -1)
+                        # Sort the keys, and sort the labels, and see if the resulting indices match
+                        _, gold = torch.sort(l, dim=1)
+                        _, mine = torch.sort(keys, dim=1)
 
-                        y, _ = model(x, keys=keys, train=False)
+                        # if ii == 0:
+                        #     print(gold[:4])
+                        #     print(mine[:4])
+                        #     print(((gold[:4] != mine[:4]).sum(dim=1) == 0).sum().item())
 
-                        loss = F.mse_loss(y, t)  # compute the loss
+                        tot += x.size(0)
+                        correct += ((gold != mine).sum(dim=1) == 0).sum().item()
 
-                        losses.append(loss.item())
-
-                    print('loss', np.mean(losses))
+                    print('acc', correct/tot)
 
                     results[r, i//arg.dot_every] = np.mean(losses)
 

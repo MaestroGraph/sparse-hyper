@@ -367,9 +367,9 @@ def go(arg):
 
                     print('acc', correct/tot)
 
-                    results[r, i//arg.dot_every] = np.mean(losses)
+                    results[r, i//arg.dot_every] = np.mean(correct/tot)
 
-                    tbw.add_scalar('mnist-sort/testloss/{}/{}'.format(arg.size, r), np.mean(losses), i * arg.batch)
+                    tbw.add_scalar('mnist-sort/testloss/{}/{}'.format(arg.size, r), correct/tot, i * arg.batch)
 
     np.save('results.{}.np'.format(arg.size), results)
     print('experiments finished')

@@ -346,9 +346,9 @@ def go(arg):
                         x, t, l = gen(arg.batch, test, arg.size)
 
                         if arg.cuda:
-                            x, t = x.cuda(), t.cuda()
+                            x, t, l = x.cuda(), t.cuda(), l.cuda()
 
-                        x, t = Variable(x), Variable(t)
+                        x, t, l = Variable(x), Variable(t), Variable(l)
 
                         keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
                         keys = keys.view(arg.batch, arg.size)

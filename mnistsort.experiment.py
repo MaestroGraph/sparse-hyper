@@ -48,21 +48,25 @@ def clean(axes=None):
 def gen(b, data, size):
 
     t = torch.zeros(b, size, 1, 28, 28)
+    l = torch.zeros(b, size)
 
     # Select random digits
     for i in range(size):
         sample = random.choices(data[i], k=b)
+
         t[:, i, :, :, :] = torch.cat(sample, dim=0)
+        l[:, i] = i
 
     x = t.clone()
 
     # Shuffle
     for bi in range(b):
         perm = torch.randperm(size)
-        # print(perm)
-        x[bi] = x[bi, perm, :, :, :]
 
-    return x, t
+        x[bi] = x[bi, perm, :, :, :]
+        l[bi] =l[bi, perm]
+
+    return x, t, l
 
 def go(arg):
     """
@@ -121,6 +125,8 @@ def go(arg):
     del b, c, h, w
 
     torch.manual_seed(arg.seed)
+    np.random.seed(arg.seed)
+    random.seed(arg.seed)
 
     ndots = arg.iterations // arg.dot_every
 
@@ -132,41 +138,43 @@ def go(arg):
 
         model = sort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale, sigma_floor=arg.min_sigma)
 
-        bottom = nn.Linear(28*28, 32)
-        tokeys = nn.Sequential(
-            util.Flatten(),
-            bottom, nn.ReLU(),
-            nn.Linear(32, 16), nn.ReLU(),
-            nn.Linear(16, 1), nn.BatchNorm1d(1),
-        )
+        bottom = nn.Linear(28*28, 32, bias=False)
+        bottom.weight.retain_grad()
+
+        # top = nn.Linear(32, 1)
+        # top.weight.retain_grad()
+
+        # tokeys = nn.Sequential(
+        #     util.Flatten(),
+        #     bottom, nn.ReLU(),
+        #     nn.Linear(32, 1)# , nn.BatchNorm1d(1)
+        # )
 
         # - channel sizes
         c1, c2, c3 = 16, 64, 128
         h1, h2 = 256, 128
 
-        #
-        #
-        # tokeys = nn.Sequential(
-        #     nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
-        #     nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-        #     nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-        #     nn.BatchNorm2d(c1),
-        #     nn.MaxPool2d((2, 2)),
-        #     nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
-        #     nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-        #     nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-        #     nn.BatchNorm2d(c2),
-        #     nn.MaxPool2d((2, 2)),
-        #     nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
-        #     nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-        #     nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-        #     nn.BatchNorm2d(c3),
-        #     nn.MaxPool2d((2, 2)),
-        #     util.Flatten(),
-        #     nn.Linear(9 * c3, h1), nn.ReLU(),
-        #     nn.Linear(h1, h2), nn.ReLU(),
-        #     nn.Linear(h2, 1), nn.BatchNorm1d(1),
-        # )
+        tokeys = nn.Sequential(
+            nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.BatchNorm2d(c1),
+            nn.MaxPool2d((2, 2)),
+            nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.BatchNorm2d(c2),
+            nn.MaxPool2d((2, 2)),
+            nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.BatchNorm2d(c3),
+            nn.MaxPool2d((2, 2)),
+            util.Flatten(),
+            nn.Linear(9 * c3, h1), nn.ReLU(),
+            nn.Linear(h1, h2), nn.ReLU(),
+            nn.Linear(h2, 1)# , nn.BatchNorm1d(1),
+        )
 
         if arg.cuda:
             model.cuda()
@@ -194,9 +202,7 @@ def go(arg):
 
         for i in trange(arg.iterations):
 
-            x, t = gen(arg.batch, train, arg.size) # torch.randn((arg.batch_size,) + SHAPE)
-
-            t, idxs = x.sort(dim=1)
+            x, t, l = gen(arg.batch, train, arg.size) # torch.randn((arg.batch_size,) + SHAPE)
 
             if arg.cuda:
                 x, t = x.cuda(), t.cuda()
@@ -206,6 +212,8 @@ def go(arg):
 
             keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
             keys = keys.view(arg.batch, arg.size)
+
+            # keys = keys * 0.0 + l
 
             keys.retain_grad()
 
@@ -218,11 +226,20 @@ def go(arg):
 
             loss.backward()
 
+            # for g in model.g:
+            #     print(g[0])
+            #     print(g.grad[0])
+
             # perms = util.DEBUG
             #
             # print(perms)
+            # tbw.add_scalar('mnist-sort/keys-gr/{}/{}'.format(arg.size, r), keys.grad[0, 0], i*arg.batch)
+            # tbw.add_scalar('mnist-sort/bottom-gr/{}/{}'.format(arg.size, r), bottom.weight.grad.mean(), i*arg.batch)
+            # tbw.add_scalar('mnist-sort/certainty/{}/{}'.format(arg.size, r), model.certainty.item(), i*arg.batch)
 
-            # print('keys', keys)
+            # tbw.add_scalar('mnist-sort/top-gr/{}/{}'   .format(arg.size, r), top.weight.grad[0, 0], i*arg.batch)
+
+            # print('keys', keys[:4])
             # print('   g', keys.grad)
             # sys.exit()
             # print((keys - keys.mean(dim=1, keepdim=True)).sign())
@@ -235,72 +252,94 @@ def go(arg):
 
             tbw.add_scalar('mnist-sort/loss/{}/{}'.format(arg.size, r), loss.data.item(), i*arg.batch)
 
-            # Compute test set loss
+            # Plot the progress
             if i % arg.plot_every == 0:
-                with torch.no_grad():
 
-                    x, t = gen(arg.batch, train, arg.size)
-                    if arg.cuda:
-                        x, t = x.cuda(), t.cuda()
+                optimizer.zero_grad()
 
-                    x, t = Variable(x), Variable(t)
+                x, t, l = gen(arg.batch, train, arg.size)
 
-                    keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
-                    # keys = tokeys(x.view(arg.batch * arg.size, -1))
-                    keys = keys.view(arg.batch, arg.size)
+                if arg.cuda:
+                    x, t = x.cuda(), t.cuda()
 
-                    x = x.view(arg.batch, arg.size, -1)
-                    t = t.view(arg.batch, arg.size, -1)
+                x, t = Variable(x), Variable(t)
 
-                    yi, _ = model(x, keys=keys, train=False)
-                    yt, _ = model(x, keys=keys, train=True)
+                keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
+                # # keys = tokeys(x.view(arg.batch * arg.size, -1))
+                keys = keys.view(arg.batch, arg.size)
+                # keys = keys * 0.01 + l
+                keys.retain_grad()
 
-                    input  = x[0].view(arg.size, 28, 28).data.cpu().numpy()
-                    target = t[0].view(arg.size, 28, 28).data.cpu().numpy()
-                    output_inf   = yi[0].view(arg.size, 28, 28).data.cpu().numpy()
-                    output_train = yt[0].view(arg.size, 28, 28).data.cpu().numpy()
+                x = x.view(arg.batch, arg.size, -1)
+                t = t.view(arg.batch, arg.size, -1)
 
-                    plt.figure(figsize=(arg.size, 4))
-                    for col in range(arg.size):
-                        ax = plt.subplot(4, arg.size, col + 1)
-                        ax.imshow(input[col], cmap='gray_r')
-                        clean(ax)
+                yt, _ = model(x, keys=keys, train=True)
 
-                        if col == 0:
-                            ax.set_ylabel('input')
+                loss = F.mse_loss(yt, t)  # compute the loss
 
-                        ax = plt.subplot(4, arg.size, col + arg.size + 1)
-                        ax.imshow(target[col], cmap='gray_r')
-                        clean(ax)
+                loss.backward()
 
-                        if col == 0:
-                            ax.set_ylabel('target')
+                yi, _ = model(x, keys=keys, train=False)
 
-                        ax = plt.subplot(4, arg.size, col + arg.size * 2 + 1)
-                        ax.imshow(output_inf[col], cmap='gray_r')
-                        clean(ax)
+                input  = x[0].view(arg.size, 28, 28).data.cpu().numpy()
+                target = t[0].view(arg.size, 28, 28).data.cpu().numpy()
+                output_inf   = yi[0].view(arg.size, 28, 28).data.cpu().numpy()
+                output_train = yt[0].view(arg.size, 28, 28).data.cpu().numpy()
 
-                        if col == 0:
-                            ax.set_ylabel('inference')
+                plt.figure(figsize=(arg.size*3, 4*3))
+                for col in range(arg.size):
 
-                        ax = plt.subplot(4, arg.size, col + arg.size * 3 + 1)
-                        ax.imshow(output_train[col], cmap='gray_r')
-                        clean(ax)
+                    ax = plt.subplot(4, arg.size, col + 1)
+                    ax.imshow(target[col], cmap='gray_r')
+                    clean(ax)
 
-                        if col == 0:
-                            ax.set_ylabel('training')
+                    if col == 0:
+                        ax.set_ylabel('target')
 
-                    plt.savefig('./mnist-sort/mnist.{:04}.pdf'.format(i))
-                    # sys.exit()
+                    ax = plt.subplot(4, arg.size, col + arg.size + 1)
+                    ax.imshow(input[col], cmap='gray_r')
+                    clean(ax)
+                    ax.set_xlabel( '{:.2}, {:.2}'.format(keys[0, col], - keys.grad[0, col] ) )
 
-            if i % arg.dot_every == 0 and False:
+                    if col == 0:
+                        ax.set_ylabel('input')
+
+                    ax = plt.subplot(4, arg.size, col + arg.size * 2 + 1)
+                    ax.imshow(output_inf[col], cmap='gray_r')
+                    clean(ax)
+
+                    if col == 0:
+                        ax.set_ylabel('inference')
+
+                    ax = plt.subplot(4, arg.size, col + arg.size * 3 + 1)
+                    ax.imshow(output_train[col], cmap='gray_r')
+                    clean(ax)
+
+                    if col == 0:
+                        ax.set_ylabel('training')
+
+                plt.savefig('./mnist-sort/{}/mnist.{:04}.pdf'.format(r, i))
+
+                # plt.figure(figsize=(6, 2))
+                # ax = plt.subplot(121)
+                # ax.imshow(bottom.weight.data.view(28, 28), cmap='RdYlBu')
+                # # ax.colorbar()
+                # ax = plt.subplot(122)
+                # ax.imshow(bottom.weight.grad.data.view(28, 28), cmap='RdYlBu')
+                # # ax.title('{:.2}-{:.2}'.format(bottom.weight.grad.data.min(), bottom.weight.grad.data.max()))
+                # plt.tight_layout()
+                # plt.savefig('./mnist-sort/{}/weights.{:04}.pdf'.format(r, i))
+
+                # sys.exit()
+
+            if i % arg.dot_every == 0:
                 # print('gradient ', bottom.weight.grad.mean(), bottom.weight.grad.var())
 
                 with torch.no_grad():
 
                     losses = []
                     for ii in range(10000//arg.batch):
-                        x, t = gen(arg.batch, test, arg.size)
+                        x, t, _ = gen(arg.batch, test, arg.size)
 
                         if arg.cuda:
                             x, t = x.cuda(), t.cuda()

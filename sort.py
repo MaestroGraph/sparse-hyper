@@ -87,7 +87,6 @@ class Split(nn.Module):
         probs[~ choices] = 1.0 - probs[~ choices]
         # prob now contains the probability (under offset) of the choices made
         probs = probs.prod(dim=2, keepdim=True).expand(b, n, s).contiguous()
-        probs = probs / probs.sum(dim=1, keepdim=True)
 
         # Generate indices from the chosen offset
         indices = util.split(choices, self.depth)
@@ -97,6 +96,8 @@ class Split(nn.Module):
 
             probs = probs.clone()
             probs[dups] = 0.0
+
+        probs = probs / probs.sum(dim=1, keepdim=True)
 
         return indices, probs
 
@@ -111,13 +112,14 @@ class Split(nn.Module):
         b, n, s = indices.size()
 
         template = self.template[None, None, :, :].expand(b, n, s, 2).contiguous()
-        template[:, :, :, 0] = indices
+        template[:, :, :, 1] = indices
         indices = template
 
         indices = indices.contiguous().view(b, -1, 2)
         probs = probs.contiguous().view(b, -1)
 
         output   = util.batchmm(indices, probs, (s, s), input)
+
         keys_out = util.batchmm(indices, probs, (s, s), keys[:, :, None]).squeeze()
 
         return output, keys_out
@@ -136,9 +138,8 @@ class SortLayer(nn.Module):
             self.layers.append(Split(size, d, additional, sigma_scale, sigma_floor))
 
         # self.certainty = nn.Parameter(torch.tensor([10.0]))
-        self.register_buffer('certainty', torch.tensor([50.0]))
+        self.register_buffer('certainty', torch.tensor([10.0]))
 
-        #
         # self.offset = nn.Sequential(
         #     util.Lambda(lambda x : x[:, 0] - x[:, 1]),
         #     util.Lambda(lambda x : x * self.certainty),
@@ -147,12 +148,16 @@ class SortLayer(nn.Module):
 
     def forward(self, x, keys, train=True):
 
+        self.g = []
+
         b, s, z = x.size()
         b, s = keys.size()
 
         for d, split in enumerate(self.layers):
 
             buckets = keys[:, :, None].view(b, 2**d, -1)
+            buckets.retain_grad()
+            self.g.append(buckets)
 
             # compute pivots
             # TODO: use median
@@ -171,22 +176,11 @@ class SortLayer(nn.Module):
                 # offset = offset / rng
                 offset = F.sigmoid(offset * self.certainty)
 
-                # print(train, offset[0])
-                # print((keys > pivots).float())
-                # sys.exit()
-
             else:
                 offset = (keys > pivots).float()
 
-
             # offset=offset.round() # DEBUG
             x, keys = split(x, keys, offset, train=train)
-
-            #x, keys = x + keys[:, :, None], keys
-
-            # print('x', x[0])
-            # if d == 2:
-            #     sys.exit()
 
         return x, keys
 

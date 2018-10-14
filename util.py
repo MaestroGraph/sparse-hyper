@@ -1088,6 +1088,21 @@ def unique(tuples):
 
     return unique(res)
 
+
+def xent(out, tgt):
+    """
+    Binary cross-entropy. Manual implementation so we get gradient over both inputs
+    :param out:
+    :param tgt:
+    :return:
+    """
+    assert out.size() == tgt.size()
+
+    out = out.clamp(0, 1)
+    tgt = tgt.clamp(0, 1)
+
+    return - tgt * (out + 1e-10).log() - (1.0 - tgt) * (1.0 - out + 1e-10).log()
+
 if __name__ == '__main__':
 #
 # #     size = 8

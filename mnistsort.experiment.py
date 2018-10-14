@@ -210,12 +210,15 @@ def go(arg):
 
             if not arg.use_intermediates:
                 # just compare the output to the target
-                loss = F.mse_loss(ys[-1], t) # compute the loss
+                # loss = F.mse_loss(ys[-1], t) # compute the loss
+                # loss = F.binary_cross_entropy(ys[-1].clamp(0, 1), t.clamp(0, 1))
+                loss = util.xent(ys[-1], t).mean()
             else:
                 # compare the output to the back-sorted target at each step
                 loss = 0.0
                 for x, t in zip(ys, ts):
-                    loss = loss + ((x - t) **2).mean()
+                    # loss = loss + ((x - t) **2).mean()
+                    loss = loss + util.xent(x, t).mean()
 
             loss.backward()
 
@@ -347,7 +350,7 @@ def go(arg):
                 """
                 Compute the accuracy
                 """
-                NUM = 10_000
+                NUM = 500 # 10_000
                 tot = 0.0
                 correct = 0.0
                 with torch.no_grad():
@@ -463,7 +466,6 @@ if __name__ == "__main__":
                         dest="sigma_scale",
                         help="Sigma scale.",
                         default=0.1, type=float)
-
 
     parser.add_argument("-C", "--certainty",
                         dest="certainty",

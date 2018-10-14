@@ -128,7 +128,7 @@ class SortLayer(nn.Module):
     """
 
     """
-    def __init__(self, size, additional=0, sigma_scale=0.1, sigma_floor=0.0):
+    def __init__(self, size, additional=0, sigma_scale=0.1, sigma_floor=0.0, certainty=10.0):
         super().__init__()
 
         mdepth = int(np.log2(size))
@@ -138,7 +138,7 @@ class SortLayer(nn.Module):
             self.layers.append(Split(size, d, additional, sigma_scale, sigma_floor))
 
         # self.certainty = nn.Parameter(torch.tensor([10.0]))
-        self.register_buffer('certainty', torch.tensor([10.0]))
+        self.register_buffer('certainty', torch.tensor([certainty]))
 
         # self.offset = nn.Sequential(
         #     util.Lambda(lambda x : x[:, 0] - x[:, 1]),

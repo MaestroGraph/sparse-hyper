@@ -230,24 +230,7 @@ def go(arg):
             # for g in model.g:
             #     print(g[0])
             #     print(g.grad[0])
-
-            # perms = util.DEBUG
-            #
-            # print(perms)
-            # tbw.add_scalar('mnist-sort/keys-gr/{}/{}'.format(arg.size, r), keys.grad[0, 0], i*arg.batch)
-            # tbw.add_scalar('mnist-sort/bottom-gr/{}/{}'.format(arg.size, r), bottom.weight.grad.mean(), i*arg.batch)
-            # tbw.add_scalar('mnist-sort/certainty/{}/{}'.format(arg.size, r), model.certainty.item(), i*arg.batch)
-
-            # tbw.add_scalar('mnist-sort/top-gr/{}/{}'   .format(arg.size, r), top.weight.grad[0, 0], i*arg.batch)
-
-            # print('keys', keys[:4])
-            # print('   g', keys.grad)
             # sys.exit()
-            # print((keys - keys.mean(dim=1, keepdim=True)).sign())
-            # print((keys - keys.mean(dim=1, keepdim=True)).sign() - 0.1 *  keys.grad.sign())
-
-            # k =  (keys - keys.mean(dim=1, keepdim=True)).sign()
-            # # print( (perms[:, 0] < perms[:, 1]) == (k[:, 0] < k[:, 1]) )
 
             optimizer.step()
 
@@ -458,6 +441,12 @@ if __name__ == "__main__":
                         help="Sigma scale.",
                         default=0.1, type=float)
 
+
+    parser.add_argument("-C", "--certainty",
+                        dest="certainty",
+                        help="Certainty: scaling factor in the bucketing computation.",
+                        default=10.0, type=float)
+
     parser.add_argument("-R", "--repeats",
                         dest="reps",
                         help="Number of repeats.",
@@ -476,6 +465,8 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--final", dest="final",
                         help="Whether to run on the real test set.",
                         action="store_true")
+
+
 
     options = parser.parse_args()
 

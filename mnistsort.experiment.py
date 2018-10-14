@@ -75,6 +75,8 @@ def go(arg):
     :return:
     """
 
+    torch.set_printoptions(precision=10)
+
     """
     Load and organize the data
     """
@@ -183,27 +185,9 @@ def go(arg):
 
         optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
 
-        # seen = 0
-        # for ep in trange(50):
-        #     for i, (batch, labels) in enumerate(trainloader):
-        #
-        #         optimizer.zero_grad()
-        #
-        #         labels = labels.float()
-        #         keys = tokeys(batch)
-        #
-        #         loss = F.mse_loss(keys.squeeze(), labels)
-        #
-        #         loss.backward()
-        #
-        #         optimizer.step()
-        #
-        #         seen += batch.size(0)
-        #         tbw.add_scalar('mnist-sort/pretrain-loss', loss.data.item(), seen)
-
         for i in trange(arg.iterations):
 
-            x, t, l = gen(arg.batch, train, arg.size) # torch.randn((arg.batch_size,) + SHAPE)
+            x, t, l = gen(arg.batch, train, arg.size)
 
             if arg.cuda:
                 x, t = x.cuda(), t.cuda()
@@ -222,20 +206,62 @@ def go(arg):
             x = x.view(arg.batch, arg.size, -1)
             t = t.view(arg.batch, arg.size, -1)
 
-            y, _ = model(x, keys=keys)
+            ys, ts, keys = model(x, keys=keys, target=t)
 
-            loss = F.mse_loss(y, t) # compute the loss
+            if not arg.use_intermediates:
+                # just compare the output to the target
+                loss = F.mse_loss(ys[-1], t) # compute the loss
+            else:
+                # compare the output to the back-sorted target at each step
+                loss = 0.0
+                for x, t in zip(ys, ts):
+                    loss = loss + ((x - t) **2).mean()
 
             loss.backward()
-
-            # for g in model.g:
-            #     print(g[0])
-            #     print(g.grad[0])
-            # sys.exit()
 
             optimizer.step()
 
             tbw.add_scalar('mnist-sort/loss/{}/{}'.format(arg.size, r), loss.data.item(), i*arg.batch)
+
+            # Plots intermediate results, and targets
+            if i % arg.plot_every == 0:
+
+                optimizer.zero_grad()
+
+                x, t, l = gen(arg.batch, train, arg.size)
+
+                if arg.cuda:
+                    x, t = x.cuda(), t.cuda()
+
+                x, t = Variable(x), Variable(t)
+
+                keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
+                keys = keys.view(arg.batch, arg.size)
+
+               # keys = keys * 0.0 + l
+
+                x = x.view(arg.batch, arg.size, -1)
+                t = t.view(arg.batch, arg.size, -1)
+
+                ys, ts, _ = model(x, keys=keys, target=t)
+
+                md = int(np.log2(arg.size))
+                plt.figure(figsize=(arg.size*2, md+1))
+
+                c = 1
+                for row in range(md + 1):
+                    for col in range(arg.size*2):
+                        ax = plt.subplot(md+1, arg.size*2, c)
+
+                        images = ys[row] if col < arg.size else ts[row]
+                        im = images[0].view(arg.size, 28, 28)[col%arg.size].data.cpu().numpy()
+
+                        ax.imshow(im, cmap='gray_r')
+                        clean(ax)
+
+                        c += 1
+
+                plt.savefig('./mnist-sort/{}/intermediates.{:04}.pdf'.format(r, i))
 
             # Plot the progress
             if i % arg.plot_every == 0:
@@ -321,12 +347,13 @@ def go(arg):
                 """
                 Compute the accuracy
                 """
+                NUM = 500 # 10_000
                 tot = 0.0
                 correct = 0.0
                 with torch.no_grad():
 
                     losses = []
-                    for ii in range(10000//arg.batch):
+                    for ii in range(NUM//arg.batch):
                         x, t, l = gen(arg.batch, test, arg.size)
 
                         if arg.cuda:
@@ -340,11 +367,6 @@ def go(arg):
                         # Sort the keys, and sort the labels, and see if the resulting indices match
                         _, gold = torch.sort(l, dim=1)
                         _, mine = torch.sort(keys, dim=1)
-
-                        # if ii == 0:
-                        #     print(gold[:4])
-                        #     print(mine[:4])
-                        #     print(((gold[:4] != mine[:4]).sum(dim=1) == 0).sum().item())
 
                         tot += x.size(0)
                         correct += ((gold != mine).sum(dim=1) == 0).sum().item()
@@ -467,6 +489,10 @@ if __name__ == "__main__":
                         help="Whether to run on the real test set.",
                         action="store_true")
 
+    parser.add_argument("-I", "--intermediates",
+                        dest="use_intermediates",
+                        help="Whether to backwards-sort the target to provide a loss at every step.",
+                        action="store_true")
 
 
     options = parser.parse_args()

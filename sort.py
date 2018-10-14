@@ -101,7 +101,7 @@ class Split(nn.Module):
 
         return indices, probs
 
-    def forward(self, input, keys, offset, train=True):
+    def forward(self, input, keys, offset, train=True, reverse=False):
 
         if train:
             indices, probs = self.generate_integer_tuples(offset, self.additional)
@@ -112,7 +112,10 @@ class Split(nn.Module):
         b, n, s = indices.size()
 
         template = self.template[None, None, :, :].expand(b, n, s, 2).contiguous()
-        template[:, :, :, 1] = indices
+        if not reverse: # normal half-permutation
+            template[:, :, :, 1] = indices
+        else: # reverse the permutation
+            template[:, :, :, 0] = indices
         indices = template
 
         indices = indices.contiguous().view(b, -1, 2)
@@ -146,18 +149,20 @@ class SortLayer(nn.Module):
         #     nn.Sigmoid()
         # )
 
-    def forward(self, x, keys, train=True):
+    def forward(self, x, keys, target=None, train=True):
 
-        self.g = []
+        xs = [x]
+        targets = [target]
+        offsets = []
 
         b, s, z = x.size()
         b, s = keys.size()
 
+        t = target
+
         for d, split in enumerate(self.layers):
 
             buckets = keys[:, :, None].view(b, 2**d, -1)
-            buckets.retain_grad()
-            self.g.append(buckets)
 
             # compute pivots
             # TODO: use median
@@ -179,10 +184,21 @@ class SortLayer(nn.Module):
             else:
                 offset = (keys > pivots).float()
 
+            offsets.append(offset)
+
             # offset=offset.round() # DEBUG
             x, keys = split(x, keys, offset, train=train)
+            xs.append(x)
 
-        return x, keys
+        if target is not None:
+            for split, offset in zip(self.layers[::1], offsets[::1]):
+                t, _ = split(t, keys, offset, train=train, reverse=True)
+                targets.insert(0, t)
+
+        if target is None:
+            return x, keys
+
+        return xs, targets, keys
 
 def median(x, keepdim=False):
     b, s = x.size()

@@ -350,7 +350,7 @@ def go(arg):
                 """
                 Compute the accuracy
                 """
-                NUM = 500 # 10_000
+                NUM = 10_000
                 tot = 0.0
                 correct = 0.0
                 with torch.no_grad():

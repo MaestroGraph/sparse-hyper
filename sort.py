@@ -184,14 +184,15 @@ class SortLayer(nn.Module):
             else:
                 offset = (keys > pivots).float()
 
+
+            # offset = offset.round() # DEBUG
             offsets.append(offset)
 
-            # offset=offset.round() # DEBUG
             x, keys = split(x, keys, offset, train=train)
             xs.append(x)
 
         if target is not None:
-            for split, offset in zip(self.layers[::1], offsets[::1]):
+            for split, offset in zip(self.layers[::-1], offsets[::-1]):
                 t, _ = split(t, keys, offset, train=train, reverse=True)
                 targets.insert(0, t)
 

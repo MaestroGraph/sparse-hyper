@@ -136,7 +136,8 @@ def go(arg):
         print('starting {} out of {} repetitions'.format(r, arg.reps))
         util.makedirs('./mnist-sort/{}'.format( r))
 
-        model = sort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale, sigma_floor=arg.min_sigma)
+        model = sort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale,
+                               sigma_floor=arg.min_sigma, certainty=arg.certainty)
 
         # bottom = nn.Linear(28*28, 32, bias=False)
         # bottom.weight.retain_grad()

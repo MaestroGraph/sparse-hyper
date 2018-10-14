@@ -216,9 +216,20 @@ def go(arg):
             else:
                 # compare the output to the back-sorted target at each step
                 loss = 0.0
-                for x, t in zip(ys, ts):
-                    # loss = loss + ((x - t) **2).mean()
-                    loss = loss + util.xent(x, t).mean()
+                loss = loss + util.xent(ys[0], ts[0]).mean()
+                loss = loss + util.xent(ts[-1], ts[-1]).mean()
+
+                for d in range(1, len(ys)-1):
+                    numbuckets = 2 ** d
+                    bucketsize = arg.size // numbuckets
+
+                    xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, -1)
+                    tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, -1)
+
+                    xb = xb.mean(dim=2)
+                    tb = tb.mean(dim=2)
+
+                    loss = loss + util.xent(xb, tb).mean() * bucketsize
 
             loss.backward()
 
@@ -247,6 +258,25 @@ def go(arg):
                 t = t.view(arg.batch, arg.size, -1)
 
                 ys, ts, _ = model(x, keys=keys, target=t)
+
+                b, n, s = ys[0].size()
+
+                for d in range(1, len(ys) - 1):
+                    numbuckets = 2 ** d
+                    bucketsize = arg.size // numbuckets
+
+                    xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
+                    tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
+
+                    xb = xb.mean(dim=2, keepdim=True)\
+                        .expand(arg.batch, numbuckets, bucketsize, s)\
+                        .contiguous().view(arg.batch, n, s)
+                    tb = tb.mean(dim=2, keepdim=True)\
+                        .expand(arg.batch, numbuckets, bucketsize, s)\
+                        .contiguous().view(arg.batch, n, s)
+
+                    ys[d] = xb
+                    ts[d] = tb
 
                 md = int(np.log2(arg.size))
                 plt.figure(figsize=(arg.size*2, md+1))

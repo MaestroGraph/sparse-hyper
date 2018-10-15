@@ -67,17 +67,15 @@ def gen(b, data, labels, size, digits):
 
     return x, t, l
 
-def plot3(data, ax):
+def plotn(data, ax):
 
-    iml = data[2].data.cpu().numpy()
-    imm = data[1].data.cpu().numpy()
-    imr = data[0].data.cpu().numpy()
+    n = data.size(0)
 
-    ax.imshow(iml, extent=(0, 1, 0, 1), cmap='gray_r')
-    ax.imshow(imm, extent=(1, 2, 0, 1), cmap='gray_r' )
-    ax.imshow(imr, extent=(2, 3, 0, 1), cmap='gray_r' )
+    for i in range(n):
+        im = data[i].data.cpu().numpy()
+        ax.imshow(im, extent=(n-i-1, n-i, 0, 1), cmap='gray_r')
 
-    ax.set_xlim(0, 3)
+    ax.set_xlim(0, n)
     ax.set_ylim(0, 1)
 
     ax.axhline()
@@ -335,14 +333,14 @@ def go(arg):
                 for col in range(arg.size):
 
                     ax = plt.subplot(4, arg.size, col + 1)
-                    plot3(target[col], ax)
+                    plotn(target[col], ax)
                     clean(ax)
 
                     if col == 0:
                         ax.set_ylabel('target')
 
                     ax = plt.subplot(4, arg.size, col + arg.size + 1)
-                    plot3(input[col], ax)
+                    plotn(input[col], ax)
                     clean(ax)
                     ax.set_xlabel( '{:.2}, {:.2}'.format(keys[0, col], - keys.grad[0, col] ) )
 
@@ -350,14 +348,14 @@ def go(arg):
                         ax.set_ylabel('input')
 
                     ax = plt.subplot(4, arg.size, col + arg.size * 2 + 1)
-                    plot3(output_inf[col], ax)
+                    plotn(output_inf[col], ax)
                     clean(ax)
 
                     if col == 0:
                         ax.set_ylabel('inference')
 
                     ax = plt.subplot(4, arg.size, col + arg.size * 3 + 1)
-                    plot3(output_train[col], ax)
+                    plotn(output_train[col], ax)
                     clean(ax)
 
                     if col == 0:

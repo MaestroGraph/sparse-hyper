@@ -101,21 +101,24 @@ class Split(nn.Module):
 
         return indices, probs
 
-    def forward(self, input, keys, offset, train=True, reverse=False):
+    def forward(self, input, keys, offset, train=True, reverse=False, verbose=False):
 
         if train:
             indices, probs = self.generate_integer_tuples(offset, self.additional)
         else:
             indices, probs = self.generate_integer_tuples(offset, 0)
 
+        if verbose:
+            print(indices[0, 0])
+
         indices = indices.detach()
         b, n, s = indices.size()
 
         template = self.template[None, None, :, :].expand(b, n, s, 2).contiguous()
         if not reverse: # normal half-permutation
-            template[:, :, :, 1] = indices
-        else: # reverse the permutation
             template[:, :, :, 0] = indices
+        else: # reverse the permutation
+            template[:, :, :, 1] = indices
         indices = template
 
         indices = indices.contiguous().view(b, -1, 2)
@@ -140,7 +143,7 @@ class SortLayer(nn.Module):
         for d in range(mdepth):
             self.layers.append(Split(size, d, additional, sigma_scale, sigma_floor))
 
-        # self.certainty = nn.Parameter(torch.tensor([10.0]))
+        # self.certainty = nn.Parameter(torch.tensor([certainty]))
         self.register_buffer('certainty', torch.tensor([certainty]))
 
         # self.offset = nn.Sequential(
@@ -149,7 +152,7 @@ class SortLayer(nn.Module):
         #     nn.Sigmoid()
         # )
 
-    def forward(self, x, keys, target=None, train=True):
+    def forward(self, x, keys, target=None, train=True, verbose=False):
 
         xs = [x]
         targets = [target]
@@ -165,9 +168,6 @@ class SortLayer(nn.Module):
             buckets = keys[:, :, None].view(b, 2**d, -1)
 
             # compute pivots
-            # TODO: use median
-            # pivots0 = buckets.mean(dim=2, keepdim=True).expand_as(buckets)
-
             pivots = buckets.view(b*2**d, -1)
             pivots = median(pivots, keepdim=True)
             pivots = pivots.view(b, 2 ** d, -1).expand_as(buckets)
@@ -177,19 +177,21 @@ class SortLayer(nn.Module):
             # compute offsets by comparing values to pivots
             if train:
                 offset = keys - pivots
-                # rng = offset.max(dim=1, keepdim=True)[0] - offset.min(dim=1, keepdim=True)[0]
-                # offset = offset / rng
                 offset = F.sigmoid(offset * self.certainty)
-
             else:
                 offset = (keys > pivots).float()
-
 
             # offset = offset.round() # DEBUG
             offsets.append(offset)
 
-            x, keys = split(x, keys, offset, train=train)
+
+            x, keys = split(x, keys, offset, train=train, verbose=verbose)
             xs.append(x)
+
+            if verbose:
+                print('o', offset[0])
+                print('k', keys[0])
+
 
         if target is not None:
             for split, offset in zip(self.layers[::-1], offsets[::-1]):

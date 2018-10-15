@@ -1012,7 +1012,7 @@ def split(offset, depth):
     numdownchoices = downchoices.view(bn, numbuckets, bsize).cumsum(dim=2).view(bn, -1)
 
     result = torch.zeros(bn, s, dtype=torch.long, device=dv)
-    #print(result.dtype, upchoices.dtype, hi.dtype, numupchoices.dtype)
+    # print(result.dtype, upchoices.dtype, hi.dtype, numupchoices.dtype)
     result = result + upchoices * (hi + numupchoices - 1)
     result = result + downchoices * (lo + numdownchoices - 1)
 
@@ -1105,24 +1105,27 @@ def xent(out, tgt):
 
 if __name__ == '__main__':
 #
-# #     size = 8
-#
-# #    offset = torch.tensor([1, 1, 0, 1, 1, 0, 0, 0]).byte()
+#      size = 8
+
+#    offset = torch.tensor([1, 1, 0, 1, 1, 0, 0, 0]).byte()
 #     offset = torch.tensor([[0, 0, 1, 0, 1, 1, 1, 0], [0, 1, 0, 1, 0, 1, 1, 0]]).byte()
-#
-#     indices = split(offset[:, None, :], 0)
-#
-#     print(indices)
+
+    offset = torch.tensor([[0, 1, 1, 0]]).byte()
+
+    indices = split(offset[:, None, :], 0)
+
+    print(indices)
 #
 # #    print(sample_offsets(3, 4, 16, 3))
 # #
 # #     print(unique(torch.tensor( [[1,2,3,4],[4,3,2,1],[1,2,3,4]] )))
 # #
+# #
+#     indices = torch.tensor([[[0, 0], [1, 1]], [[0, 1], [1, 0]]])
+#     values = torch.tensor([[1.0, 1.0], [1.0, 1.0]])
+#     inputs = torch.tensor([[[1.0, 2.0, 2.0, 2.0, 2.0], [3.0, 4.0, 2.0, 2.0, 2.0]], [[1.0, 2.0, 2.0, 2.0, 2.0], [3.0, 4.0, 4.0, 4.0, 4.0]]])
+#
+#     print(inputs.size())
+#
+#     print(batchmm(indices, values, (2,2), inputs))
 
-    indices = torch.tensor([[[0, 0], [1, 1]], [[0, 1], [1, 0]]])
-    values = torch.tensor([[1.0, 1.0], [1.0, 1.0]])
-    inputs = torch.tensor([[[1.0, 2.0, 2.0, 2.0, 2.0], [3.0, 4.0, 2.0, 2.0, 2.0]], [[1.0, 2.0, 2.0, 2.0, 2.0], [3.0, 4.0, 4.0, 4.0, 4.0]]])
-
-    print(inputs.size())
-
-    print(batchmm(indices, values, (2,2), inputs))

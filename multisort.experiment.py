@@ -240,8 +240,7 @@ def go(arg):
             optimizer.step()
 
             tbw.add_scalar('multisort/loss/{}/{}'.format(arg.size, r), loss.data.item(), i*arg.batch)
-            tbw.add_scalar('multisort/cert/{}/{}'.format(arg.size, r), model.certainty, i*arg.batch)
-
+            # tbw.add_scalar('multisort/cert/{}/{}'.format(arg.size, r), model.certainty, i*arg.batch)
 
             # Plot intermediate results, and targets
             if i % arg.plot_every == 0 and False:

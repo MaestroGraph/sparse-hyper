@@ -58,7 +58,7 @@ def gen(b, data, labels, size, digits):
     x = x.view(b, size, digits, 1, 28, 28)
     l = l.view(b, size, digits)
 
-    power = 10 ** torch.arange(digits)
+    power = 10 ** torch.arange(digits, dtype=torch.long)
     l = (l * power).sum(dim=2)
 
     _, idx = l.sort(dim=1)

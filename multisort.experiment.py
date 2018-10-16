@@ -420,8 +420,7 @@ def go(arg):
     plt.xlabel('iterations')
     plt.ylabel('error')
 
-    plt.savefig('./quicksort/result.png')
-    plt.savefig('./quicksort/result.pdf')
+    plt.savefig('./multisort/result.png')
 
 if __name__ == "__main__":
 

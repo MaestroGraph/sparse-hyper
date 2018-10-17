@@ -505,8 +505,6 @@ class HyperLayer(nn.Module):
                         r = means[:, row, col].data
                         neighbor_ints[:, row, t, col] = torch.floor(r) if bool else torch.ceil(r)
 
-        logging.info('  neighbors: {} seconds'.format(time.time() - t0))
-
         # Sample additional points
         if rng is not None:
             t0 = time.time()
@@ -581,8 +579,6 @@ class HyperLayer(nn.Module):
                 ints = torch.cat(samples, dim=2)
                 ints_fl = ints.float()
 
-            logging.info('  sampling: {} seconds'.format(time.time() - t0))
-
         ints_fl = Variable(ints_fl)  # leaf node in the comp graph, gradients go through values
 
         t0 = time.time()
@@ -594,7 +590,6 @@ class HyperLayer(nn.Module):
         sums = torch.sum(props + EPSILON, dim=2, keepdim=True).expand_as(props)
         props = props / sums
 
-        logging.info('  densities: {} seconds'.format(time.time() - t0))
         t0 = time.time()
 
         # repeat each value 2^rank+A times, so it matches the new indices
@@ -607,7 +602,6 @@ class HyperLayer(nn.Module):
         # ... and reshape the props and vals the same way
         props = props.view(batchsize, -1)
         val = val.view(batchsize, -1)
-        logging.info('  reshaping: {} seconds'.format(time.time() - t0))
 
         return ints, props, val
 
@@ -627,7 +621,6 @@ class HyperLayer(nn.Module):
         else:
             raise Exception('bias type {} not recognized.'.format(self.bias_type))
 
-        logging.info('compute hyper: {} seconds'.format(time.time() - t0))
 
         if self.sparse_input:
             input = input.dense()
@@ -688,7 +681,6 @@ class HyperLayer(nn.Module):
                     indices = torch.cat([indices_in, indices_out], dim=1)
                     values = torch.cat([values_in, values_out], dim=1)
 
-                logging.info('discretize: {} seconds'.format(time.time() - t0))
             else: # reinforce approach
                 dists = torch.distributions.Normal(means, sigmas)
                 samples = dists.sample()
@@ -722,8 +714,6 @@ class HyperLayer(nn.Module):
 
         # mindices, flat_size = flatten_indices(indices, input.size()[1:], self.out_shape, self.use_cuda)
         mindices, flat_size = flatten_indices_mat(indices, input.size()[1:], self.out_size)
-
-        logging.info('flatten: {} seconds'.format(time.time() - t0))
 
         # NB: mindices is not an autograd Variable. The error-signal for the indices passes to the hypernetwork
         #     through 'values', which are a function of both the real_indices and the real_values.
@@ -761,8 +751,6 @@ class HyperLayer(nn.Module):
 
         y_flat = bfy.unsqueeze(0).view(batchsize, -1)
 
-        logging.info('sparse mult: {} seconds'.format(time.time() - t0))
-
         y_shape = [batchsize]
         y_shape.extend(self.out_size)
 
@@ -773,8 +761,6 @@ class HyperLayer(nn.Module):
             y = y + bias
         if self.bias_type == Bias.SPARSE: # untested!
             pass
-
-        logging.info('total: {} seconds'.format(time.time() - t0total))
 
         if self.reinforce and train:
             return y, dists, samples

@@ -611,7 +611,7 @@ class HyperLayer(nn.Module):
 
         return ints, props, val
 
-    def forward(self, input):
+    def forward(self, input, train=True):
 
         ### Compute and unpack output of hypernetwork
 
@@ -632,9 +632,9 @@ class HyperLayer(nn.Module):
         if self.sparse_input:
             input = input.dense()
 
-        return self.forward_inner(input, means, sigmas, values, bias)
+        return self.forward_inner(input, means, sigmas, values, bias, train=train)
 
-    def forward_inner(self, input, means, sigmas, values, bias):
+    def forward_inner(self, input, means, sigmas, values, bias, train=True):
 
         t0total = time.time()
 
@@ -652,66 +652,70 @@ class HyperLayer(nn.Module):
         # turn the real values into integers in a differentiable way
         t0 = time.time()
 
-        if not self.reinforce:
-            if self.subsample is None:
-                indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional,
-                use_cuda=self.use_cuda, relative_range=self.relative_range)
+        if train:
+            if not self.reinforce:
+                if self.subsample is None:
+                    indices, props, values = self.discretize(means, sigmas, values, rng=rng, additional=self.additional,
+                    use_cuda=self.use_cuda, relative_range=self.relative_range)
 
-                values = values * props
-            else: # select a small proportion of the indices to learn over
+                    values = values * props
+                else: # select a small proportion of the indices to learn over
 
-                b, k, r = means.size()
+                    b, k, r = means.size()
 
-                prop = torch.cuda.FloatTensor([self.subsample]) if self.use_cuda else torch.FloatTensor([self.subsample])
+                    prop = torch.cuda.FloatTensor([self.subsample]) if self.use_cuda else torch.FloatTensor([self.subsample])
 
-                selection = None
-                while (selection is None) or (float(selection.sum()) < 1):
-                    selection = torch.bernoulli(prop.expand(k)).byte()
+                    selection = None
+                    while (selection is None) or (float(selection.sum()) < 1):
+                        selection = torch.bernoulli(prop.expand(k)).byte()
 
-                mselection = selection.unsqueeze(0).unsqueeze(2).expand_as(means)
-                sselection = selection.unsqueeze(0).unsqueeze(2).expand_as(sigmas)
-                vselection = selection.unsqueeze(0).expand_as(values)
+                    mselection = selection.unsqueeze(0).unsqueeze(2).expand_as(means)
+                    sselection = selection.unsqueeze(0).unsqueeze(2).expand_as(sigmas)
+                    vselection = selection.unsqueeze(0).expand_as(values)
 
-                means_in, means_out = means[mselection].view(b, -1, r), means[~ mselection].view(b, -1, r)
-                sigmas_in, sigmas_out = sigmas[sselection].view(b, -1, r), sigmas[~ sselection].view(b, -1, r)
-                values_in, values_out = values[vselection].view(b, -1), values[~ vselection].view(b, -1)
+                    means_in, means_out = means[mselection].view(b, -1, r), means[~ mselection].view(b, -1, r)
+                    sigmas_in, sigmas_out = sigmas[sselection].view(b, -1, r), sigmas[~ sselection].view(b, -1, r)
+                    values_in, values_out = values[vselection].view(b, -1), values[~ vselection].view(b, -1)
 
-                means_out = means_out.detach()
-                values_out = values_out.detach()
+                    means_out = means_out.detach()
+                    values_out = values_out.detach()
 
-                indices_in, props, values_in = self.discretize(means_in, sigmas_in, values_in, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
-                values_in = values_in * props
+                    indices_in, props, values_in = self.discretize(means_in, sigmas_in, values_in, rng=rng, additional=self.additional, use_cuda=self.use_cuda)
+                    values_in = values_in * props
 
-                indices_out = means_out.data.round().long()
+                    indices_out = means_out.data.round().long()
 
-                indices = torch.cat([indices_in, indices_out], dim=1)
-                values = torch.cat([values_in, values_out], dim=1)
+                    indices = torch.cat([indices_in, indices_out], dim=1)
+                    values = torch.cat([values_in, values_out], dim=1)
 
-            logging.info('discretize: {} seconds'.format(time.time() - t0))
-        else: # reinforce approach
-            dists = torch.distributions.Normal(means, sigmas)
-            samples = dists.sample()
+                logging.info('discretize: {} seconds'.format(time.time() - t0))
+            else: # reinforce approach
+                dists = torch.distributions.Normal(means, sigmas)
+                samples = dists.sample()
 
-            indices = samples.data.round().long()
+                indices = samples.data.round().long()
 
-            # if the sampling puts the indices out of bounds, we just clip to the min and max values
-            indices[indices < 0] = 0
+                # if the sampling puts the indices out of bounds, we just clip to the min and max values
+                indices[indices < 0] = 0
 
-            rngt = torch.tensor(data=rng, device='cuda' if self.use_cuda else 'cpu')
+                rngt = torch.tensor(data=rng, device='cuda' if self.use_cuda else 'cpu')
 
-            maxes = rngt.unsqueeze(0).unsqueeze(0).expand_as(means) - 1
-            indices[indices > maxes] = maxes[indices > maxes]
+                maxes = rngt.unsqueeze(0).unsqueeze(0).expand_as(means) - 1
+                indices[indices > maxes] = maxes[indices > maxes]
+
+        else: # not train, just use the nearest indices
+            indices = means.round().long()
 
         if self.use_cuda:
             indices = indices.cuda()
 
-        # Create bias for permutation matrices
-        TAU = 1
-        if SINKHORN_ITS is not None:
-            values = values / TAU
-            for _ in range(SINKHORN_ITS):
-                values = util.normalize(indices, values, rng, row=True)
-                values = util.normalize(indices, values, rng, row=False)
+        # # Create bias for permutation matrices
+        # TAU = 1
+        # if SINKHORN_ITS is not None:
+        #     values = values / TAU
+        #     for _ in range(SINKHORN_ITS):
+        #         values = util.normalize(indices, values, rng, row=True)
+        #         values = util.normalize(indices, values, rng, row=False)
 
         # translate tensor indices to matrix indices
         t0 = time.time()
@@ -772,7 +776,7 @@ class HyperLayer(nn.Module):
 
         logging.info('total: {} seconds'.format(time.time() - t0total))
 
-        if self.reinforce:
+        if self.reinforce and train:
             return y, dists, samples
         else:
             return y

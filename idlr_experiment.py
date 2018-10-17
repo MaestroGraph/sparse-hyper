@@ -28,6 +28,8 @@ def go(arg):
 
     MARGIN = 0.1
 
+    lrs = [0.1, 0.05, 0.01, 0.005, 0.001, 0.0005, 0.0001, 0.00005]
+
     iterations = arg.iterations if arg.iterations is not None else arg.size * 3000
     additional = arg.additional if arg.additional is not None else int(np.floor(np.log2(arg.size)) * arg.size)
 
@@ -35,12 +37,12 @@ def go(arg):
 
     ndots = iterations // arg.dot_every
 
-    results = np.zeros((arg.reps, ndots))
+    results = np.zeros((len(lrs), ndots))
 
     print('Starting size {} with {} additional samples (reinforce={})'.format(arg.size, additional, arg.reinforce))
     w = None
-    for r in range(arg.reps):
-        print('repeat {} of {}'.format(r, arg.reps))
+    for r, lr in enumerate(lrs):
+        print('learning rate {} ({} of {})'.format(lr, r, len(lrs)))
 
         util.makedirs('./identity/{}'.format(r))
         util.makedirs('./runs/identity/{}'.format(r))
@@ -72,7 +74,7 @@ def go(arg):
         if arg.cuda:
             model.cuda()
 
-        optimizer = optim.Adam(model.parameters(), lr=arg.lr)
+        optimizer = optim.Adam(model.parameters(), lr=lr)
 
         for i in trange(iterations):
 
@@ -166,10 +168,11 @@ def go(arg):
     # print(reinforce, np.mean(res[rf, :, :], axis=0))
     # print(reinforce, np.std(res[rf, :, :], axis=0))
 
-    plt.errorbar(
-        x=np.arange(ndots) * arg.dot_every, y=np.mean(results, axis=0), yerr=np.std(results, axis=0),
-        label='{} by {}, a={}, {}'.format(arg.size, arg.size, additional, 'reinforce' if arg.reinforce else 'backprop'),
-        linestyle='--' if arg.reinforce else '-',  alpha=0.7 if arg.reinforce else 1.0)
+    for r, lr in enumerate(lrs):
+
+        plt.plot(
+            np.arange(ndots) * arg.dot_every, results[r],
+            label='lr={}'.format(lr))
 
     plt.legend()
 
@@ -217,11 +220,6 @@ if __name__ == "__main__":
                         help="Whether to fix the values to 1.",
                         action="store_true")
 
-    parser.add_argument("-l", "--learn-rate",
-                        dest="lr",
-                        help="Learning rate",
-                        default=0.005, type=float)
-
     parser.add_argument("-S", "--sigma-scale",
                         dest="sigma_scale",
                         help="Sigma scale",
@@ -246,11 +244,6 @@ if __name__ == "__main__":
                         dest="dot_every",
                         help="A dot in the graph for every x iterations",
                         default=100, type=int)
-
-    parser.add_argument("-R", "--repeats",
-                        dest="reps",
-                        help="Number of repeats.",
-                        default=10, type=int)
 
     parser.add_argument("-r", "--random-seed",
                         dest="seed",

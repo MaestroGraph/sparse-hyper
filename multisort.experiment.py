@@ -519,10 +519,10 @@ if __name__ == "__main__":
                         help="Whether to run on the real test set.",
                         action="store_true")
 
-    parser.add_argument("-I", "--intermediates",
-                        dest="use_intermediates",
+    parser.add_argument("-I", "--loss",
+                        dest="loss",
                         help="Whether to backwards-sort the target to provide a loss at every step.",
-                        action="store_true")
+                        default="separate", type=str)
 
 
     options = parser.parse_args()

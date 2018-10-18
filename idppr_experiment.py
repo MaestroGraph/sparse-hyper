@@ -155,34 +155,23 @@ def go(arg):
 
                 plt.savefig('./identity/{}/means{:04}.pdf'.format(r, i))
 
+        plt.figure(figsize=(10, 4))
+
+        for rep in range(results.shape[0]):
+            plt.plot(np.arange(ndots) * arg.dot_every, results[rep])
+        ax = plt.gca()
+        ax.set_ylim(bottom=0)
+        ax.set_xlabel('iterations')
+        ax.set_ylabel('mean-squared error')
+
+        util.basic()
+
+        plt.savefig('./identity/results.png')
+        plt.savefig('./identity/results.pdf')
+
     np.save('results.{:03d}.{}'.format(arg.size, arg.reinforce), results)
 
     print('experiments finished')
-
-    plt.figure(figsize=(10, 4))
-    plt.clf()
-
-    # print(reinforce, res[rf, :, :])
-    # print(reinforce, np.mean(res[rf, :, :], axis=0))
-    # print(reinforce, np.std(res[rf, :, :], axis=0))
-
-    plt.errorbar(
-        x=np.arange(ndots) * arg.dot_every, y=np.mean(results, axis=0), yerr=np.std(results, axis=0),
-        label='{} by {}, a={}, {}'.format(arg.size, arg.size, additional, 'reinforce' if arg.reinforce else 'backprop'),
-        linestyle='--' if arg.reinforce else '-',  alpha=0.7 if arg.reinforce else 1.0)
-
-    plt.legend()
-
-    ax = plt.gca()
-    ax.set_ylim(bottom=0)
-    ax.set_xlabel('iterations')
-    ax.set_ylabel('mean-squared error')
-
-    util.basic()
-
-    plt.savefig('./identity/results.png')
-    plt.savefig('./identity/results.pdf')
-
 
 if __name__ == "__main__":
 

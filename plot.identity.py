@@ -16,11 +16,13 @@ files  = [
     'results.016.True.npy',
     'results.008.False.npy',
     'results.016.False.npy',
+    'results.032.False.npy',
+    'results.064.False.npy',
 ]
-sizes  = [4, 8, 16, 8, 16]
-itss   = [20_000, 40_000, 120_000, 10_000, 20_000]
-des    = [200, 200, 200, 500, 500]
-reinfs = [True, True, True, False, False]
+sizes  = [4, 8, 16, 8, 16, 32, 64]
+itss   = [120_000, 120_000, 120_000, 10_000, 20_000, 40_000, 120_000]
+des    = [200, 1000, 1000, 500, 500, 500, 500]
+reinfs = [True, True, True, False, False, False, False]
 
 norm = mpl.colors.Normalize(vmin=min(np.log2(sizes)), vmax=max(np.log2(sizes)))
 cmap = plt.get_cmap('Set1')
@@ -52,5 +54,7 @@ ax.set_ylabel('mean-squared error')
 ax.legend()
 
 util.basic()
+
+ax.spines["bottom"].set_visible(False)
 
 plt.savefig('./paper/identity/identity.pdf', dpi=600)

@@ -1166,7 +1166,7 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
             else:
                 loss = mloss
 
-                tbw.add_scalar('mnist/train-loss', float(loss.data.item()), step)
+                tbw.add_scalar('mnist/train-loss', float(loss.data.sum().item()), step)
 
             loss = loss.sum()
             loss.backward()  # compute the gradients

@@ -247,8 +247,6 @@ def go(arg):
             optimizer.step()
 
             tbw.add_scalar('mnist-sort/loss/{}/{}'.format(arg.size, r), loss.data.item(), i*arg.batch)
-            tbw.add_scalar('mnist-sort/cert/{}/{}'.format(arg.size, r), model.certainty, i*arg.batch)
-
 
             # Plot intermediates, and targets
             if i % arg.plot_every == 0:
@@ -304,7 +302,7 @@ def go(arg):
                         images = ys[row] if col < arg.size else ts[row]
                         im = images[0].view(arg.size, 28, 28)[col%arg.size].data.cpu().numpy()
 
-                        ax.imshow(im, cmap= 'Blues_r' if col < arg.size else 'YlOrRd_r')
+                        ax.imshow(im, cmap= 'bone_r' if col < arg.size else 'hot_r')
 
                         clean(ax)
 

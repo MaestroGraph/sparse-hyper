@@ -213,10 +213,10 @@ def go(arg):
 
             ys, ts, keys = model(x, keys=keys, target=t)
 
-            if not arg.use_intermediates:
+            if arg.loss == 'plain':
                 # just compare the output to the target
                 loss = util.xent(ys[-1], t).mean()
-            else:
+            elif arg.loss == 'means':
                 # compare the output to the back-sorted target at each step
                 loss = 0.0
                 loss = loss + util.xent(ys[0], ts[0]).mean()
@@ -234,6 +234,15 @@ def go(arg):
                     tb = tb.mean(dim=2)
 
                     loss = loss + util.xent(xb, tb).mean() * bucketsize
+
+            elif arg.loss == 'separate':
+                loss = 0.0
+
+                for d in range(len(ys)):
+                    loss = loss + util.xent(ys[0], ts[0]).mean()
+
+            else:
+                raise Exception('Loss {} not recognized.'.format(arg.loss))
 
             loss.backward()
 

@@ -302,7 +302,7 @@ def go(arg):
                         images = ys[row] if col < arg.size else ts[row]
                         im = images[0].view(arg.size, 28, 28)[col%arg.size].data.cpu().numpy()
 
-                        ax.imshow(im, cmap= 'bone_r' if col < arg.size else 'hot_r')
+                        ax.imshow(im, cmap= 'bone_r' if col < arg.size else 'pink_r')
 
                         clean(ax)
 

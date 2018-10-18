@@ -208,12 +208,12 @@ def go(arg):
 
             ys, ts, keys = model(x, keys=keys, target=t)
 
-            if not arg.use_intermediates:
+            if arg.loss == 'plain':
                 # just compare the output to the target
                 # loss = F.mse_loss(ys[-1], t) # compute the loss
                 # loss = F.binary_cross_entropy(ys[-1].clamp(0, 1), t.clamp(0, 1))
                 loss = util.xent(ys[-1], t).mean()
-            else:
+            elif arg.loss == 'means':
                 # compare the output to the back-sorted target at each step
                 loss = 0.0
                 loss = loss + util.xent(ys[0], ts[0]).mean()
@@ -231,6 +231,17 @@ def go(arg):
 
                     loss = loss + util.xent(xb, tb).mean() * bucketsize
 
+            elif 'separate':
+                # compare the output to the back-sorted target at each step
+                loss = 0.0
+                loss = loss + util.xent(ts[-1], ts[-1]).mean()
+
+                for d in range(0, len(ys)):
+                    loss = loss + util.xent(ys[d], ts[d]).mean()
+
+            else:
+                raise Exception('Loss {} not recognized.'.format(arg.loss))
+
             loss.backward()
 
             optimizer.step()
@@ -239,7 +250,7 @@ def go(arg):
             tbw.add_scalar('mnist-sort/cert/{}/{}'.format(arg.size, r), model.certainty, i*arg.batch)
 
 
-            # Plot intermediate results, and targets
+            # Plot intermediates, and targets
             if i % arg.plot_every == 0:
 
                 optimizer.zero_grad()
@@ -263,22 +274,24 @@ def go(arg):
 
                 b, n, s = ys[0].size()
 
-                for d in range(1, len(ys) - 1):
-                    numbuckets = 2 ** d
-                    bucketsize = arg.size // numbuckets
+                if arg.loss == 'means':
 
-                    xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
-                    tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
+                    for d in range(1, len(ys) - 1):
+                        numbuckets = 2 ** d
+                        bucketsize = arg.size // numbuckets
 
-                    xb = xb.mean(dim=2, keepdim=True)\
-                        .expand(arg.batch, numbuckets, bucketsize, s)\
-                        .contiguous().view(arg.batch, n, s)
-                    tb = tb.mean(dim=2, keepdim=True)\
-                        .expand(arg.batch, numbuckets, bucketsize, s)\
-                        .contiguous().view(arg.batch, n, s)
+                        xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
+                        tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
 
-                    ys[d] = xb
-                    ts[d] = tb
+                        xb = xb.mean(dim=2, keepdim=True)\
+                            .expand(arg.batch, numbuckets, bucketsize, s)\
+                            .contiguous().view(arg.batch, n, s)
+                        tb = tb.mean(dim=2, keepdim=True)\
+                            .expand(arg.batch, numbuckets, bucketsize, s)\
+                            .contiguous().view(arg.batch, n, s)
+
+                        ys[d] = xb
+                        ts[d] = tb
 
                 md = int(np.log2(arg.size))
                 plt.figure(figsize=(arg.size*2, md+1))
@@ -291,10 +304,14 @@ def go(arg):
                         images = ys[row] if col < arg.size else ts[row]
                         im = images[0].view(arg.size, 28, 28)[col%arg.size].data.cpu().numpy()
 
-                        ax.imshow(im, cmap='gray_r')
+                        ax.imshow(im, cmap= 'Blues_r' if col < arg.size else 'YlOrRd_r')
+
                         clean(ax)
 
                         c += 1
+
+                plt.figtext(0.3, 0.95, "input", va="center", ha="center", size=15)
+                plt.figtext(0.7, 0.95, "target", va="center", ha="center", size=15)
 
                 plt.savefig('./mnist-sort/{}/intermediates.{:04}.pdf'.format(r, i))
 
@@ -522,10 +539,10 @@ if __name__ == "__main__":
                         help="Whether to run on the real test set.",
                         action="store_true")
 
-    parser.add_argument("-I", "--intermediates",
-                        dest="use_intermediates",
-                        help="Whether to backwards-sort the target to provide a loss at every step.",
-                        action="store_true")
+    parser.add_argument("-I", "--loss",
+                        dest="loss",
+                        help="Whether to backwards-sort the target to provide a loss at every step. (plain, means, separate)",
+                        default='plain', type=str)
 
 
     options = parser.parse_args()

@@ -5,51 +5,60 @@ import util, logging, time, gc
 import numpy as np
 
 import pickle
-dot_every = 100
 
-plt.figure(figsize=(10, 5))
+plt.figure(figsize=(10.5, 3.5))
 plt.clf()
 
 files  = [
-    'results.004.npy',
-    'results.008.npy']
-sizes  = [4, 8]
-itss   = [8_000, 32_000]
-des    = [500, 500]
-reinfs = [False, False]
+    'results.4.np.npy',
+    'results.8.np.npy',
+    'results.16.np.npy'
+]
+sizes  = [4, 8, 16]
+itss   = [30_000, 60_000, 120_000]
+des    = [500, 500, 1000]
 
-norm = mpl.colors.Normalize(vmin=min(np.log2(sizes)), vmax=max(np.log2(sizes)))
-cmap = plt.get_cmap('viridis')
+norm = mpl.colors.Normalize(vmin=2, vmax=6)
+cmap = plt.get_cmap('Set1')
 map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
 
-for si, (file, size, iterations, dot_every, reinf) in enumerate(zip(files, sizes, itss, des, reinfs)):
+labels = []
+handles = []
+
+for si, (file, size, iterations, dot_every) in enumerate(zip(files, sizes, itss, des)):
     res = np.load('./paper/sort/' + file)
-    print('size ', size, 'reinf', reinf, res.shape)
+    res = 1.0 - res  # acc to error
+    print('size ', size, 'reinf', res.shape)
 
     color = map.to_rgba(np.log2(size))
     ndots = iterations // dot_every
-    additional = int(np.floor(np.log2(size)) * size)
 
-    # print(reinfo, res[rf, :, :])
-    print(size, reinf, np.mean(res, axis=0))
-    # print(reinforce, np.std(res[rf, :, :], axis=0))
+    # print(size,  np.mean(res, axis=0))
 
-    lbl = '{0}x{0}, a={1}, r={2}'.format(size, additional, res.shape[0])
+    labels.append('{0}x{0}, r={1}'.format(size,  res.shape[0]))
     if res.shape[0] > 1:
-        plt.errorbar(
+        h = plt.errorbar(
             x=np.arange(ndots) * dot_every, y=np.mean(res, axis=0), yerr=np.std(res, axis=0),
-            label=lbl, color=color)
+            color=color)
+        handles.append(h)
+
     else:
-        plt.plot(
-            x=np.arange(ndots) * dot_every, y=np.mean(res, axis=0),
-            label=lbl, color=color)
+        h = plt.plot(
+            np.arange(ndots) * dot_every, np.mean(res, axis=0),
+            color=color)
+
+        handles.append(h[0])
 
 ax = plt.gca()
 ax.set_ylim((0, 1))
-ax.set_xlabel('error')
-ax.set_ylabel('mean-squared error')
-ax.legend()
+ax.set_xlabel('iterations')
+ax.set_ylabel('error')
+ax.legend(handles, labels, loc='upper left', bbox_to_anchor= (0.96, 1.0), ncol=1,
+            borderaxespad=0, frameon=False)
 
 util.basic()
+ax.spines["bottom"].set_visible(False)
+
+plt.tight_layout()
 
 plt.savefig('./paper/sort/sort.pdf', dpi=600)

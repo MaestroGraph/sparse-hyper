@@ -42,7 +42,7 @@ the connections to the input nodes beaing learned.
 This version comnbines samples for all index tuples that have the same fixed indices. For instance, is we have fixed
  columns and we are learning across rows, we sample and distribute globally within each row.
 
- This required that the template have equal-sized, contiguous chunks of index tuples for which the fixed values are the
+This requires that the template have equal-sized, contiguous chunks of index tuples for which the fixed values are the
    same.
 """
 

@@ -181,12 +181,12 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--iterations",
                         dest="iterations",
                         help="Size (nr of dimensions) of the input.",
-                        default=None, type=int)
+                        default=10000, type=int)
 
     parser.add_argument("-s", "--size",
                         dest="size",
                         help="Size (nr of dimensions) of the input.",
-                        default=32, type=int)
+                        default=16, type=int)
 
     parser.add_argument("-b", "--batch-size",
                         dest="batch",
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     parser.add_argument("-a", "--additional",
                         dest="additional",
                         help="Number of additional points sampled (automatically chosen if None)",
-                        default=None, type=int)
+                        default=4, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
@@ -224,7 +224,7 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--plot-every",
                         dest="plot_every",
                         help="Plot every x iterations",
-                        default=50, type=int)
+                        default=1000, type=int)
 
     parser.add_argument("-Q", "--subsample",
                         dest="subsample",
@@ -234,12 +234,12 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--dot-every",
                         dest="dot_every",
                         help="A dot in the graph for every x iterations",
-                        default=100, type=int)
+                        default=1000, type=int)
 
     parser.add_argument("-R", "--repeats",
                         dest="reps",
                         help="Number of repeats.",
-                        default=10, type=int)
+                        default=1, type=int)
 
     parser.add_argument("-r", "--random-seed",
                         dest="seed",
@@ -249,15 +249,15 @@ if __name__ == "__main__":
     parser.add_argument("-C", "--chunk-size",
                         dest="rr",
                         help="Size of the sampling region around the index tuple (if None, only uniform sampling is used).",
-                        default=None, type=int)
+                        default=4, type=int)
 
     parser.add_argument("-A", "--chunk-additional",
                         dest="ca",
                         help="Number of points to sample for sampling region.",
-                        default=None, type=int)
+                        default=4, type=int)
 
     parser.add_argument("-B", "--use-reinforce", dest="reinforce",
-                        help="Use reinforce instead of the backprop approach.",
+                        help="Use the reinforce baseline instead of the backprop approach.",
                         action="store_true")
 
     parser.add_argument("-G", "--use-global-sampling", dest="global_sampling",

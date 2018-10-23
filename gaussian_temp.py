@@ -34,7 +34,8 @@ BATCH_NEIGHBORS = True # Faster way of finding neighbor index-tuples
 SIGMA_BOOST = 2.0
 
 """
-Version of the hyperlayer that learns only over a subset of the columns of the index matrix. The rest of the matrix is hardwired.
+Version of the hyperlayer that learns only over a subset of the columns of the index matrix. The rest of the matrix is
+hardwired.
 
 This can, for instance, be used to create a layer that has 3 incoming connections for each node in the output layer, with
 the connections to the input nodes beaing learned.

@@ -24,9 +24,12 @@ PROPER_SAMPLING = False # NB: set to true for very small tranformations.
 BATCH_NEIGHBORS = True
 SIGMA_BOOST = 2.0
 
-SINKHORN_ITS = None
 """
+Original version of the hyperlayer, which takes samples for a particular index tuple, and only distributes the value
+over the sample belonging to that tuple. This is in constrast to the hyperlayer in globalsampling, which distributes all
+values over all samples.
 
+This version is not used in any of the experiments in the paper.
 """
 
 class Bias(Enum):

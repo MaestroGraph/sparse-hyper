@@ -1,7 +1,6 @@
 import sort
-import torch, random, sys
+import torch, random
 from torch.autograd import Variable
-from torch.nn import Parameter
 import torch.nn.functional as F
 from torch import nn, optim
 from tqdm import trange
@@ -12,17 +11,11 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import util, logging, time, gc
 import numpy as np
-from scipy.stats import sem
-from numpy import std
 
 from argparse import ArgumentParser
 
 import torchvision
 from torch.utils.data import TensorDataset, DataLoader
-
-import os, sys
-
-from gaussian import HyperLayer
 
 logging.basicConfig(filename='run.log',level=logging.INFO)
 LOG = logging.getLogger()

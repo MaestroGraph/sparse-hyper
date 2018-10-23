@@ -28,8 +28,7 @@ logging.basicConfig(filename='run.log',level=logging.INFO)
 LOG = logging.getLogger()
 
 """
-Experiment: learn a mapping from a random x, to x sorted.
-
+Experiment learn to sort single mnist digits. See multisort.experiment.py for the experiment reported in the paper.
 """
 tbw = SummaryWriter()
 

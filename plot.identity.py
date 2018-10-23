@@ -5,7 +5,10 @@ import util, logging, time, gc
 import numpy as np
 
 import pickle
-dot_every = 500
+
+"""
+Used to create Figure 2 in the paper
+"""
 
 plt.figure(figsize=(10.5, 3.5))
 plt.clf()

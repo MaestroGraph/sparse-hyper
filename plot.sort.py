@@ -6,6 +6,11 @@ import numpy as np
 
 import pickle
 
+"""
+Used to create Figure 6 in the paper
+
+"""
+
 plt.figure(figsize=(10.5, 3.5))
 plt.clf()
 

@@ -457,7 +457,7 @@ class ConvModel(nn.Module):
         for param in self.decoder_conv.parameters():
             param.requires_grad = False
 
-    def forward(self, depth=1, train=True, data=None, reg=util.kl_batch):
+    def forward(self, depth=1, train=True, data=None): #, reg=util.kl_batch
 
         # x0 = self.embedding_conv.weight
         # x = self.embedding_conv(input=None, adj=self.adj, train=train) # identity matrix input
@@ -478,19 +478,19 @@ class ConvModel(nn.Module):
         n, e = x.size()
 
         results = [x]
-        reg_losses.append(reg(x))
+        # reg_losses.append(reg(x))
 
         for _ in range(1, depth):
             x = self.adj(x, train=train)
 
             results.append(x)
-            reg_losses.append(reg(x))
+            # reg_losses.append(reg(x))
 
         # if self.encoder is None:
         #     return [self.decoder(r) for r in results]
         # else:
 
-        return [self.decoder(r) for r in results], reg_losses
+        return [self.decoder(r) for r in results], None #, reg_losses
 
     def cuda(self):
 
@@ -571,22 +571,21 @@ def go(arg):
         if epoch >= arg.pretrain_epochs:
             model.embedding.requires_grad = False
 
-        outputs, reg_losses = model(
-            depth=depth,
-            data=data,
-            # reg=lambda x: util.kl_batch(x)[None, None].expand(n, 1) * 10000
-            # reg = lambda x: x.norm(dim=1, keepdim=True)
-            # reg=lambda x: F.relu(x.norm(dim=1, keepdim=True) - 1.0) * 1000
-            reg=lambda x : torch.zeros(x.size(0), 1)
-        )
+        outputs, _ = model(depth=depth, data=data)
+
+        # reg=lambda x: util.kl_batch(x)[None, None].expand(n, 1) * 10000
+        # reg = lambda x: x.norm(dim=1, keepdim=True)
+        # reg=lambda x: F.relu(x.norm(dim=1, keepdim=True) - 1.0) * 1000
+        # reg=lambda x : torch.zeros(x.size(0), 1)
+
 
         rec_losses = []
         for i, o in enumerate(outputs):
             rec_losses.append( F.binary_cross_entropy(o, target, reduce=False).view(n, -1).sum(dim=1, keepdim=True) )
+        #
+        # losses = torch.cat(rec_losses + reg_losses, dim=1).mean(dim=0)
 
-        losses = torch.cat(rec_losses + reg_losses, dim=1).mean(dim=0)
-
-        loss = losses.sum()
+        loss = torch.cat(rec_losses, dim=1).sum()
 
         loss.backward()
         optimizer.step()
@@ -596,7 +595,7 @@ def go(arg):
         if epoch % arg.plot_every == 0:
             plt.figure(figsize=(8, 2))
 
-            print(losses)
+            # print(losses)
             # if arg.depth > 1:
             #     print('      adj', model.adj.params.grad.mean().item())
             # #  print('    lin', next(model.decoder.parameters()).grad.mean().item())

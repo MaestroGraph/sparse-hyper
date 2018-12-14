@@ -585,9 +585,19 @@ def go(arg):
         #
         # losses = torch.cat(rec_losses + reg_losses, dim=1).mean(dim=0)
 
+        # regularize sigmas
+        _, sigmas, _ = model.adj.hyper()
+
+        reg = sigmas.norm().mean()
+
         loss = torch.cat(rec_losses, dim=1).sum()
 
-        loss.backward()
+        # print(loss, reg)
+        # sys.exit()
+
+        tloss = loss + 10.0 * reg
+
+        tloss.backward()
         optimizer.step()
 
         writer.add_scalar('conv/train-loss', loss.item(), epoch)
@@ -980,6 +990,11 @@ if __name__ == "__main__":
                         dest="min_sigma",
                         help="Minimal sigma value",
                         default=0.0, type=float)
+
+    parser.add_argument("-R", "--regularization-weight",
+                        dest="regweight",
+                        help="Regularization weight (the bigger this is, the faster the sigma's converge).",
+                        default=1.0, type=float)
 
     args = parser.parse_args()
 

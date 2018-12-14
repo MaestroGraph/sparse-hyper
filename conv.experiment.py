@@ -991,7 +991,7 @@ if __name__ == "__main__":
                         help="Minimal sigma value",
                         default=0.0, type=float)
 
-    parser.add_argument("-R", "--regularization-weight",
+    parser.add_argument("-Q", "--regularization-weight",
                         dest="regweight",
                         help="Regularization weight (the bigger this is, the faster the sigma's converge).",
                         default=1.0, type=float)

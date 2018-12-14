@@ -563,6 +563,8 @@ def go(arg):
         list(model.parameters()), lr=arg.lr)
     n, c, h, w = data.size()
 
+    model.adj.params.requires_grad = False
+
     for epoch in trange(arg.epochs):
 
         optimizer.zero_grad()
@@ -570,6 +572,7 @@ def go(arg):
         depth = 1 if epoch < arg.pretrain_epochs else arg.depth
         if epoch >= arg.pretrain_epochs:
             model.embedding.requires_grad = False
+            model.adj.params.requires_grad = True
 
         outputs, _ = model(depth=depth, data=data)
 

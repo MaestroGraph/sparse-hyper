@@ -518,6 +518,7 @@ class Debug(nn.Module):
         return x
 
 class Flatten(nn.Module):
+
     def forward(self, input):
         return input.view(input.size(0), -1)
 
@@ -660,7 +661,7 @@ def intlist(tensor):
 
     return l
 
-def totensor(dataset, batch_size=512, shuffle=True):
+def totensor(dataset, batch_size=512, shuffle=True, maxclass=None):
     """
     Takes a dataset and loads the whole thing into a tensor
     :param dataset:
@@ -671,7 +672,10 @@ def totensor(dataset, batch_size=512, shuffle=True):
 
     index = 0
     for i, batch in enumerate(loader):
-        batch = batch[0]
+        batch, labels = batch[0], batch[1]
+
+        if maxclass is not None:
+            batch = batch[labels <= maxclass]
 
         if i == 0:
             size = list(batch.size())

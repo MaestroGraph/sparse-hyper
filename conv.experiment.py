@@ -399,6 +399,14 @@ class ConvModel(nn.Module):
         #     self.decoder_conv
         # )
 
+        # Encoder is only used during pretraining
+        self.encoder = nn.Sequential(
+            util.Flatten(),
+            nn.Linear(28*28, h2),    nn.ReLU(),
+            nn.Linear(h2, h3),       nn.ReLU(),
+            nn.Linear(h3, emb_size * 2)
+        )
+
         self.decoder = nn.Sequential(
             nn.Linear(emb_size, h3), nn.ReLU(),
             nn.Linear(h3, h2),       nn.ReLU(),
@@ -407,43 +415,42 @@ class ConvModel(nn.Module):
             util.Reshape((1, 28, 28))
         )
 
-        self.encoder = None
-        if encoder:
-            self.encoder_conv = nn.Sequential(
-                nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-                nn.MaxPool2d((2, 2)),
-                nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-                nn.MaxPool2d((2, 2)),
-                nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-                nn.MaxPool2d((2, 2)),
-                util.Flatten(),
-                nn.Linear(9 * c3, h1)
-            )
-
-            self.encoder_lin = nn.Sequential(
-                util.Flatten(),
-                nn.Linear(h1, h2), nn.ReLU(),
-                nn.Linear(h2, h3), nn.ReLU(),
-                nn.Linear(h3, emb_size * 2),
-            )
-
-            self.encoder = nn.Sequential(
-                self.encoder_conv,
-                self.encoder_lin
-            )
-
+        # self.encoder = None
+        # if encoder:
+        #     self.encoder_conv = nn.Sequential(
+        #         nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
+        #         nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+        #         nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+        #         nn.MaxPool2d((2, 2)),
+        #         nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
+        #         nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+        #         nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+        #         nn.MaxPool2d((2, 2)),
+        #         nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
+        #         nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+        #         nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+        #         nn.MaxPool2d((2, 2)),
+        #         util.Flatten(),
+        #         nn.Linear(9 * c3, h1)
+        #     )
+        #
+        #     self.encoder_lin = nn.Sequential(
+        #         util.Flatten(),
+        #         nn.Linear(h1, h2), nn.ReLU(),
+        #         nn.Linear(h2, h3), nn.ReLU(),
+        #         nn.Linear(h3, emb_size * 2),
+        #     )
+        #
+        #     self.encoder = nn.Sequential(
+        #         self.encoder_conv,
+        #         self.encoder_lin
+        #     )
+        #
 
         self.adj = MatrixHyperlayer(n, n, k, radditional=radd, gadditional=gadd, region=(range,),
                             min_sigma=min_sigma, fix_value=fix_value)
 
-        if not encoder:
-            self.embedding = Parameter(torch.randn(n, emb_size))
+        self.embedding = Parameter(torch.randn(n, emb_size))
 
         self.emb_size = emb_size
 
@@ -497,6 +504,49 @@ class ConvModel(nn.Module):
         super().cuda()
 
         self.adj.apply(lambda t: t.cuda())
+
+    def train_decoder(self, data, epochs=1000, lr=0.0001,
+                      batch_size=256, cuda=torch.cuda.is_available()):
+
+        n, c, h, w = data.size()
+
+        params = list(self.encoder.parameters()) + list(self.decoder.parameters())
+        opt = torch.optim.Adam(params, lr=lr)
+
+        for e in trange(epochs):
+            for fr in range(0, n, batch_size):
+                to = min(fr + batch_size, n)
+                batch, b = data[fr:to], to - fr
+
+                if cuda:
+                    batch = batch.cuda()
+
+                batch = Variable(batch)
+
+                opt.zero_grad()
+
+                # forward
+                z = self.encoder(batch)
+
+                kl = util.kl_loss(z[:, :self.emb_size], z[:, self.emb_size:])
+
+                z = util.vae_sample(z[:, :self.emb_size], z[:, self.emb_size:])
+
+                rec = self.decoder(z)
+
+                # backward
+
+                loss = F.binary_cross_entropy(rec, batch, reduce=False).view(b, -1).sum(dim=1) + kl
+                loss.mean().backward()
+
+                opt.step()
+
+        self.embedding.data = self.encoder(data).data[:, :self.emb_size]
+        self.embedding.requires_grad = False
+
+        for p in self.decoder.parameters():
+            p.requires_grad = False
+
 #
 class ConvModelFlat(nn.Module):
 
@@ -538,7 +588,7 @@ def go(arg):
 
     mnist = torchvision.datasets.MNIST(root=arg.data, train=True, download=True, transform=transforms.ToTensor())
 
-    data = util.totensor(mnist, shuffle=True)
+    data = util.totensor(mnist, shuffle=True, maxclass=None)
 
     assert data.min() == 0 and data.max() == 1.0
 
@@ -563,24 +613,21 @@ def go(arg):
         list(model.parameters()), lr=arg.lr)
     n, c, h, w = data.size()
 
-    model.adj.params.requires_grad = False
+    print('pretraining')
+    model.train_decoder(data, epochs=arg.pretrain_epochs, cuda=arg.cuda)
+
+    print('training')
 
     for epoch in trange(arg.epochs):
 
         optimizer.zero_grad()
 
-        depth = 1 if epoch < arg.pretrain_epochs else arg.depth
-        if epoch >= arg.pretrain_epochs:
-            model.embedding.requires_grad = False
-            model.adj.params.requires_grad = True
-
-        outputs, _ = model(depth=depth, data=data)
+        outputs, _ = model(depth=arg.depth, data=data)
 
         # reg=lambda x: util.kl_batch(x)[None, None].expand(n, 1) * 10000
         # reg = lambda x: x.norm(dim=1, keepdim=True)
         # reg=lambda x: F.relu(x.norm(dim=1, keepdim=True) - 1.0) * 1000
         # reg=lambda x : torch.zeros(x.size(0), 1)
-
 
         rec_losses = []
         for i, o in enumerate(outputs):
@@ -598,7 +645,7 @@ def go(arg):
         # print(loss, reg)
         # sys.exit()
 
-        tloss = loss + 10.0 * reg
+        tloss = loss + arg.regweight * reg
 
         tloss.backward()
         optimizer.step()
@@ -978,7 +1025,7 @@ if __name__ == "__main__":
                         action="store_true")
 
     parser.add_argument("-F", "--fix-value", dest="fix_value",
-                        help="Fix the values of the matrix to 1",
+                        help="Fix the values of the matrix to 1/k",
                         action="store_true")
 
     parser.add_argument("-N", "--use-encoder", dest="encoder",
@@ -997,7 +1044,7 @@ if __name__ == "__main__":
     parser.add_argument("-Q", "--regularization-weight",
                         dest="regweight",
                         help="Regularization weight (the bigger this is, the faster the sigma's converge).",
-                        default=1.0, type=float)
+                        default=0.0, type=float)
 
     args = parser.parse_args()
 

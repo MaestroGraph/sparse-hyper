@@ -25,8 +25,8 @@ We aim to show that in the very low desity regime, the sparse layer is a competi
 The tasks are simple classification on mnist, cifar10 and cifar100.
 """
 
-BATCH_SIZES    = [256] # [16, 32, 64, 128, 256]
-LEARNING_RATES = [0.01, 0.001, 0.0001] # [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]
+BATCH_SIZES    = [16, 32, 64, 128, 256]
+LEARNING_RATES = [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]
 
 def getmodel(arg, insize, numcls, points):
     if arg.method == 'l1':

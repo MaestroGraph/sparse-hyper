@@ -584,7 +584,7 @@ def duplicates(tuples):
     :param tuples: A (batch, k, r)-tensor of containing a batch of k r-dimensional integer tuples
     :return: A size (batch, k) byte tensor. When used as a mask, this masks out all duplicates.
     """
-    dv = 'cuda' if tuples.is_cuda() else 'cpu'
+    dv = 'cuda' if tuples.is_cuda else 'cpu'
 
     b, k, r = tuples.size()
 

@@ -165,7 +165,6 @@ class SparseLayer(nn.Module):
         super().__init__()
         rank = in_rank + len(out_size)
 
-        self.use_cuda = False
         self.in_rank = in_rank
         self.out_size = out_size # without batch dimension
         self.gadditional = gadditional
@@ -190,7 +189,7 @@ class SparseLayer(nn.Module):
 
             self.register_buffer('temp_indices', temp_indices)
 
-    def generate_integer_tuples(self, means, rng=None, use_cuda=False, relative_range=None):
+    def generate_integer_tuples(self, means, rng=None, relative_range=None):
         """
         Take continuous-valued index tuples, and generates integer-valued index tuples.
 
@@ -207,8 +206,8 @@ class SparseLayer(nn.Module):
         """
 
         b, k, c, rank = means.size()
-        dv = 'cuda' if use_cuda else 'cpu'
-        FT = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
+        dv = 'cuda' if self.is_cuda() else 'cpu'
+        FT = torch.cuda.FloatTensor if self.is_cuda() else torch.FloatTensor
 
         # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^rank
         # integerized index-tuples we can make from that one real-valued index-tuple
@@ -276,6 +275,9 @@ class SparseLayer(nn.Module):
 
         return all.view(b, k, -1, rank) # combine all indices sampled within a chunk
 
+    def is_cuda(self):
+        return next(self.parameters()).is_cuda
+
     def forward(self, input, mrange=None, seed=None, **kwargs):
 
         ### Compute and unpack output of hypernetwork
@@ -307,7 +309,7 @@ class SparseLayer(nn.Module):
         if not self.training:
             indices = means.squeeze().round().long()
         else:
-            indices = self.generate_integer_tuples(means, rng=subrange, use_cuda=self.use_cuda, relative_range=self.region)
+            indices = self.generate_integer_tuples(means, rng=subrange, relative_range=self.region)
             indfl = indices.float()
 
             # Mask for duplicate indices
@@ -337,8 +339,8 @@ class SparseLayer(nn.Module):
                 template[:, :, self.learn_cols] = indices
                 indices = template
 
-            if self.use_cuda:
-                indices = indices.cuda()
+            # if self.is_cuda():
+            #     indices = indices.cuda()
 
         size = self.out_size + input.size()[1:]
         output = tensors.contract(indices, values, size, input)

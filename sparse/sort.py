@@ -2,12 +2,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-import util
+import sparse.util
 import numpy as np
 
 """
 Modules to implement differentiable quicksort. ```Split``` implements the half-permutation, and ```SortLayer``` chains
-these into a quicksort.
+these into quicksort.
 """
 
 class Split(nn.Module):

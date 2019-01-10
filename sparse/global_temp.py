@@ -15,9 +15,6 @@ import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 
-from util import *
-import util
-
 import sys
 import time, random, logging
 
@@ -25,7 +22,9 @@ from enum import Enum
 
 from tqdm import trange
 
-from gaussian import Bias, fi_matrix, flatten_indices_mat, tup, fi
+from sparse.util import Bias, sparsemult, contains_nan, bmult
+
+from .tensors import flatten_indices_mat
 
 # added to the sigmas to prevent NaN
 EPSILON = 10e-7
@@ -91,9 +90,14 @@ def densities(points, means, sigmas):
 
     return num
 
-class HyperLayer(nn.Module):
+class THyperLayer(nn.Module):
     """
-        Abstract class for the hyperlayer. Implement by defining a hypernetwork, and returning it from the hyper() method.
+    Abstract class for the templated hyperlayer. Implement by defining a hypernetwork, and returning it from the
+    hyper() method.
+
+    The templated hyperlayer takes certain columns of its index-tuple matrix as fixed (the template), and others as
+    learnable. Image a neural network layer where the connections to the output nodes are fixed, but the connections to
+    the input nodes can be learned.
     """
     @abc.abstractmethod
     def hyper(self, input):
@@ -110,18 +114,27 @@ class HyperLayer(nn.Module):
 
         self.floor_mask = self.floor_mask.cuda()
 
-    def __init__(self, in_rank, out_size, temp_indices, learn_cols, chunk_size, gadditional=0, radditional=0, region=None,
+    def __init__(self, in_rank, out_size,
+                 temp_indices=None,
+                 learn_cols=None,
+                 chunk_size=None, gadditional=0, radditional=0, region=None,
                  bias_type=Bias.DENSE, sparse_input=False, subsample=None):
         """
 
         :param in_rank:
-        :param temp_indices: This should be a tensor (not a variable). It contains all hardwired connections
-        :param lean_cols: A tuple of integers indicating which columns in the index matrix must be learned
-        :param additional:
+        :param out_size:
+        :param temp_indices: The template
+        :param learn_cols: Which columns of the template are 'free' (to be learned). The rest are fixed.
+        :param chunk_size: Size of the 'chunk' of indices that is updated in this pass. This can be used to train a
+        large sparse layer (i.e. one with many index tuples) in multiple forward/backward passes.
+        :param gadditional:
+        :param radditional:
+        :param region:
         :param bias_type:
         :param sparse_input:
         :param subsample:
         """
+
         super().__init__()
 
         self.use_cuda = False
@@ -240,10 +253,6 @@ class HyperLayer(nn.Module):
         """
 
         b, k, c, rank = means.size()
-
-        # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^rank
-        # integerized index-tuples we can make from that one real-valued index-tuple
-        # ints = torch.cuda.FloatTensor(batchsize, n, 2 ** rank + additional, rank) if use_cuda else FloatTensor(batchsize, n, 2 ** rank, rank)
 
         """
         Generate nearby tuples
@@ -389,12 +398,10 @@ class HyperLayer(nn.Module):
 
         x_flat = input.view(batchsize, -1)
 
-        sparsemult = util.sparsemult(self.use_cuda)
-
         # Prevent segfault
         try:
             assert mindices.min() >= 0
-            assert not util.contains_nan(values.data)
+            assert not contains_nan(values.data)
         except AssertionError as ae:
             print('Nan in values or negative index in mindices.')
             print('means', means)
@@ -407,7 +414,7 @@ class HyperLayer(nn.Module):
             raise ae
 
         # Then we flatten the batch dimension as well
-        bm = util.bmult(flat_size[1], flat_size[0], mindices.size()[1], batchsize, self.use_cuda)
+        bm = bmult(flat_size[1], flat_size[0], mindices.size()[1], batchsize, self.use_cuda)
         bfsize = Variable(flat_size * batchsize)
 
         bfindices = mindices + bm
@@ -423,7 +430,8 @@ class HyperLayer(nn.Module):
         bfvalues = values.view(1, -1).squeeze(0)
         bfx = x_flat.view(1, -1).squeeze(0)
 
-        bfy = sparsemult(vindices, bfvalues, bfsize, bfx)
+        spm = sparsemult(self.use_cuda)
+        bfy = spm(vindices, bfvalues, bfsize, bfx)
 
         y_flat = bfy.unsqueeze(0).view(batchsize, -1)
 

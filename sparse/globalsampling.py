@@ -1,7 +1,6 @@
-import gaussian
-from gaussian import Bias
-
 import torch
+from torch import nn
+from torch.autograd import Variable
 from torch.nn import Parameter
 from torch import FloatTensor, LongTensor
 
@@ -10,9 +9,9 @@ from numpy import prod
 
 import torch.nn.functional as F
 
+from .tensors import flatten_indices_mat
 
-from util import *
-import util
+from sparse.util import Bias, sparsemult, contains_nan, bmult
 
 import sys
 import time, random, logging
@@ -74,7 +73,7 @@ def densities(points, means, sigmas):
 
     return num
 
-class HyperLayer(nn.Module):
+class GHyperLayer(nn.Module):
 
     def duplicates(self, tuples):
         """
@@ -117,16 +116,16 @@ class HyperLayer(nn.Module):
         super().cuda(device_id)
 
     def __init__(self,
-                 in_rank, out_shape, additional=0, bias_type=Bias.DENSE, sparse_input=False,
-                 subsample=None, relative_range=None, rr_additional=None):
+                 in_rank, out_shape, gadditional=0, bias_type=Bias.DENSE, sparse_input=False,
+                 subsample=None, range=None, radditional=None):
         super().__init__()
 
         self.use_cuda = False
         self.in_rank = in_rank
         self.out_size = out_shape # without batch dimension
-        self.gadditional = additional
-        self.region = relative_range
-        self.radditional = rr_additional
+        self.gadditional = gadditional
+        self.region = range
+        self.radditional = radditional
         self.subsample = subsample
 
         self.weights_rank = in_rank + len(out_shape) # implied rank of W
@@ -200,57 +199,20 @@ class HyperLayer(nn.Module):
 
         return means, sigmas, values
 
-    def split_shared(self, res, input_size, output_size, values):
+    def generate_integer_tuples(self, means, rng=None, use_cuda=False, relative_range=None, seed=None):
         """
-        Splits res into means and sigmas, samples values according to multinomial parameters
-        in res
+        Takes the doulbe-valued index tuples and generates integer-valuedindex tuples by sampling in three ways
+            - neighbors
+            - locally
+            - globally.
 
-        :param res:
-        :param input_size:
-        :param output_size:
-        :param gain:
+        :param means:
+        :param rng:
+        :param use_cuda:
+        :param relative_range:
+        :param seed:
         :return:
         """
-
-        b, k, width = res.size()
-        w_rank = len(input_size) + len(output_size)
-
-        means = nn.functional.sigmoid(res[:, :, 0:w_rank])
-        means = means.unsqueeze(2).contiguous().view(-1, k, w_rank)
-
-        ## expand the indices to the range [0, max]
-
-        # Limits for each of the w_rank indices
-        # and scales for the sigmas
-        ws = list(output_size) + list(input_size)
-        s = torch.cuda.FloatTensor(ws) if self.use_cuda else FloatTensor(ws)
-        s = Variable(s.contiguous())
-
-        ss = s.unsqueeze(0).unsqueeze(0)
-        sm = s - 1
-        sm = sm.unsqueeze(0).unsqueeze(0)
-
-        means = means * sm.expand_as(means)
-
-        sigmas = nn.functional.softplus(res[:, :, w_rank:w_rank+1]) + EPSILON
-
-        sigmas = sigmas.expand_as(means)
-        sigmas = sigmas * ss.expand_as(sigmas)
-
-        # extract the values
-        vweights = res[:, :, w_rank+1:].contiguous()
-
-        assert vweights.size()[2] == values.size()[0]
-
-        vweights = util.bsoftmax(vweights) + EPSILON
-
-        samples, snode = util.bmultinomial(vweights, num_samples=1)
-
-        weights = values[samples.data.view(-1)].view(b, k)
-
-        return means, sigmas, weights, snode
-
-    def generate_integer_tuples(self, means, rng=None, use_cuda=False, relative_range=None, seed=None):
 
         if seed is not None:
             torch.manual_seed(seed)
@@ -320,7 +282,6 @@ class HyperLayer(nn.Module):
 
         ### Compute and unpack output of hypernetwork
 
-        t0 = time.time()
         bias = None
 
         if self.bias_type == Bias.NONE:
@@ -332,16 +293,12 @@ class HyperLayer(nn.Module):
         else:
             raise Exception('bias type {} not recognized.'.format(self.bias_type))
 
-        logging.info('compute hyper: {} seconds'.format(time.time() - t0))
-
         if self.sparse_input:
             input = input.dense()
 
         return self.forward_inner(input, means, sigmas, values, bias, mrange=mrange, seed=seed, train=train)
 
     def forward_inner(self, input, means, sigmas, values, bias, mrange=None, seed=None, train=True):
-
-        t0total = time.time()
 
         rng = tuple(self.out_size) + tuple(input.size()[1:])
 
@@ -351,8 +308,6 @@ class HyperLayer(nn.Module):
         #     real_values has shape batchsize x K
 
         # turn the real values into integers in a differentiable way
-        t0 = time.time()
-
         if train:
             if self.subsample is None:
                 indices = self.generate_integer_tuples(means, rng=rng, use_cuda=self.use_cuda, relative_range=self.region)
@@ -418,16 +373,15 @@ class HyperLayer(nn.Module):
             indices = indices.cuda()
 
         # translate tensor indices to matrix indices so we can use matrix multiplication to perform the tensor contraction
-        mindices, flat_size = gaussian.flatten_indices_mat(indices, input.size()[1:], self.out_size)
+        mindices, flat_size = flatten_indices_mat(indices, input.size()[1:], self.out_size)
 
         ### Create the sparse weight tensor
 
         x_flat = input.view(batchsize, -1)
 
-        sparsemult = util.sparsemult(self.use_cuda)
 
         # Prevent segfault
-        assert not util.contains_nan(values.data)
+        assert not contains_nan(values.data)
 
         bm = self.bmult(flat_size[1], flat_size[0], mindices.size()[1], batchsize, self.use_cuda)
         bfsize = Variable(flat_size * batchsize)
@@ -439,8 +393,8 @@ class HyperLayer(nn.Module):
         bfvalues = values.view(1, -1).squeeze(0)
         bfx = x_flat.view(1, -1).squeeze(0)
 
-        # print(vindices.size(), bfvalues.size(), bfsize, bfx.size())
-        bfy = sparsemult(vindices, bfvalues, bfsize, bfx)
+        spm = sparsemult(self.use_cuda)
+        bfy = spm(vindices, bfvalues, bfsize, bfx)
 
         y_flat = bfy.unsqueeze(0).view(batchsize, -1)
 
@@ -469,34 +423,35 @@ class HyperLayer(nn.Module):
 
     def backward_sample(self, batch_loss, q_prob, p_prob):
         """
-        Computes the gradient by REINFORCE, using the given batch loss, and the probabilities of the sample (as returned by forward_sample)
-        :param bacth_loss:
+        Computes the gradient by REINFORCE, using the given batch loss, and the probabilities of the sample (as
+        returned by forward_sample)
+        :param batch_loss:
         :param q_prob:
         :param p_prob:
         :return:
         """
 
-class ParamASHLayer(HyperLayer):
+class NASLayer(GHyperLayer):
     """
-    Hyperlayer with free sparse parameters, no hypernetwork (not stricly ASH, should rename).
+    Sparse layer with free sparse parameters, no hypernetwork.
     """
 
-    def __init__(self, in_shape, out_shape, k, additional=0, sigma_scale=0.2, fix_values=False,  has_bias=False,
-                min_sigma=0.0, relative_range=None, rr_additional=None, subsample=None):
-        super().__init__(in_rank=len(in_shape), additional=additional, out_shape=out_shape,
+    def __init__(self, in_size, out_size, k, gadditional=0, sigma_scale=0.2, fix_values=False, has_bias=False,
+                 min_sigma=0.0, range=None, radditional=None, subsample=None):
+        super().__init__(in_rank=len(in_size), gadditional=gadditional, out_shape=out_size,
                          bias_type=Bias.DENSE if has_bias else Bias.NONE,
-                        relative_range=relative_range,
-                         rr_additional=rr_additional, subsample=subsample)
+                         range=range,
+                         radditional=radditional, subsample=subsample)
 
         self.k = k
-        self.in_shape = in_shape
-        self.out_shape = out_shape
+        self.in_size = in_size
+        self.out_size = out_size
         self.sigma_scale = sigma_scale
         self.fix_values = fix_values
         self.has_bias = has_bias
         self.min_sigma = min_sigma
 
-        self.w_rank = len(in_shape) + len(out_shape)
+        self.w_rank = len(in_size) + len(out_size)
 
         p = torch.randn(k, self.w_rank + 2)
 
@@ -505,7 +460,7 @@ class ParamASHLayer(HyperLayer):
         self.params = Parameter(p)
 
         if self.has_bias:
-            self.bias = Parameter(torch.randn(*out_shape))
+            self.bias = Parameter(torch.randn(*out_size))
 
     def hyper(self, input):
         """
@@ -517,7 +472,7 @@ class ParamASHLayer(HyperLayer):
         # Replicate the parameters along the batch dimension
         res = self.params.unsqueeze(0).expand(batch_size, self.k, self.w_rank+2)
 
-        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_shape)
+        means, sigmas, values = self.split_out(res, input.size()[1:], self.out_size)
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
         if self.fix_values:
@@ -527,11 +482,3 @@ class ParamASHLayer(HyperLayer):
             return means, sigmas, values, self.bias
 
         return means, sigmas, values
-
-    def clone(self):
-        result = ParamASHLayer(self.in_shape, self.out_shape, self.k, self.additional, self.gain)
-
-        result.params = Parameter(self.params.data.clone())
-
-        return result
-

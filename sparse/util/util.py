@@ -24,11 +24,33 @@ import numpy as np
 
 import math
 
+from enum import Enum
+
 tics = []
 
 DEBUG = False
 
+class Bias(Enum):
+    """
+
+    """
+    # No bias is used.`c
+    NONE = 1
+
+    # The bias is returned as a single dense tensor of floats.
+    DENSE = 2
+
+    # The bias is returned in sparse format, in the same way as the weight matrix is.
+    SPARSE = 3
+
 def kl_loss(zmean, zlsig):
+    """
+    Computes the KL loss term for a VAE.
+
+    :param zmean: batch of z means
+    :param zlsig: batch of z sigma vectors
+    :return:
+    """
     b, l = zmean.size()
 
     kl = 0.5 * torch.sum(zlsig.exp() - zlsig + zmean.pow(2) - 1, dim=1)
@@ -71,206 +93,6 @@ def toc():
     else:
         return time()-tics.pop()
 
-def clean(axes=None):
-
-    if axes is None:
-        axes = plt.gca()
-
-    axes.spines["right"].set_visible(False)
-    axes.spines["top"].set_visible(False)
-    axes.spines["bottom"].set_visible(False)
-    axes.spines["left"].set_visible(False)
-
-    # axes.get_xaxis().set_tick_params(which='both', top='off', bottom='off', labelbottom='off')
-    # axes.get_yaxis().set_tick_params(which='both', left='off', right='off')
-
-
-def basic(axes=None):
-
-    if axes is None:
-        axes = plt.gca()
-
-    axes.spines["right"].set_visible(False)
-    axes.spines["top"].set_visible(False)
-    axes.spines["bottom"].set_visible(True)
-    axes.spines["left"].set_visible(True)
-
-    axes.get_xaxis().set_tick_params(which='both', top='off', bottom='on', labelbottom='on')
-    axes.get_yaxis().set_tick_params(which='both', left='on', right='off')
-
-def plot(means, sigmas, values, shape=None, axes=None, flip_y=None, alpha_global=1.0):
-    """
-    :param means:
-    :param sigmas:
-    :param values:
-    :param shape:
-    :param axes:
-    :param flip_y: If not None, interpreted as the max y value. y values in the scatterplot are
-            flipped so that the max is equal to zero and vice versa.
-    :return:
-    """
-
-    b, n, d = means.size()
-
-    means = means.data[0, :,:].cpu().numpy()
-    sigmas = sigmas.data[0, :].cpu().numpy()
-    values = nn.functional.tanh(values).data[0, :].cpu().numpy()
-
-    if flip_y is not None:
-        means[:, 0] = flip_y - means[:, 0]
-
-    norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0)
-    cmap = mpl.cm.RdYlBu
-    map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
-
-    if axes is None:
-        axes = plt.gca()
-
-    colors = []
-    for i in range(n):
-        color = map.to_rgba(values[i])
-
-        alpha = min(0.8, max(0.05, ((sigmas[i, 0] * sigmas[i, 0])+1.0)**-2)) * alpha_global
-        axes.add_patch(Ellipse((means[i, 1], means[i, 0]), width=sigmas[i,1], height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
-        colors.append(color)
-
-    axes.scatter(means[:, 1], means[:, 0], s=5, c=colors, zorder=100, linewidth=0, edgecolor='k', alpha=alpha_global)
-
-    if shape is not None:
-
-        m = max(shape)
-        step = 1 if m < 100 else m//25
-
-        # gray points for the integer index tuples
-        x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
-        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.1* alpha_global)
-
-    axes.spines['right'].set_visible(False)
-    axes.spines['top'].set_visible(False)
-    axes.spines['bottom'].set_visible(False)
-    axes.spines['left'].set_visible(False)
-
-
-def plot1d(means, sigmas, values, shape=None, axes=None):
-
-    h = 0.1
-
-    n, d = means.size()
-
-    means = means.cpu().numpy()
-    sigmas = sigmas.cpu().numpy()
-    values = nn.functional.tanh(values).data.cpu().numpy()
-
-    norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0)
-    cmap = mpl.cm.RdYlBu
-    map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
-
-    if axes is None:
-        axes = plt.gca()
-
-    colors = []
-    for i in range(n):
-        color = map.to_rgba(values[i])
-        alpha = 0.7 # max(0.05, (sigmas[i, 0]+1.0)**-1)
-        axes.add_patch(Rectangle(xy=(means[i, 1]  - sigmas[i, 0]*0.5, means[i, 0] - h*0.5), width=sigmas[i,0] , height=h, color=color, alpha=alpha, linewidth=0))
-        colors.append(color)
-
-    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=0, s=5)
-
-    if shape is not None:
-
-        m = max(shape)
-        step = 1 if m < 100 else m//25
-
-        # gray points for the integer index tuples
-        x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
-        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.1)
-
-    axes.spines['right'].set_visible(False)
-    axes.spines['top'].set_visible(False)
-    axes.spines['bottom'].set_visible(False)
-    axes.spines['left'].set_visible(False)
-
-
-def plot1d(means, sigmas, values, shape=None, axes=None):
-
-    h = 0.1
-
-    n, d = means.size()
-
-    means = means.cpu().numpy()
-    sigmas = sigmas.cpu().numpy()
-    values = nn.functional.tanh(values).data.cpu().numpy()
-
-    norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0)
-    cmap = mpl.cm.RdYlBu
-    map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
-
-    if axes is None:
-        axes = plt.gca()
-
-    colors = []
-    for i in range(n):
-        color = map.to_rgba(values[i])
-        alpha = 0.7 # max(0.05, (sigmas[i, 0]+1.0)**-1)
-        axes.add_patch(Rectangle(xy=(means[i, 1]  - sigmas[i, 0]*0.5, means[i, 0] - h*0.5), width=sigmas[i,0] , height=h, color=color, alpha=alpha, linewidth=0))
-        colors.append(color)
-
-    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=0, s=3)
-
-    if shape is not None:
-
-        m = max(shape)
-        step = 1 if m < 100 else m//25
-
-        # gray points for the integer index tuples
-        x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
-        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.1)
-
-    axes.spines['right'].set_visible(False)
-    axes.spines['top'].set_visible(False)
-    axes.spines['bottom'].set_visible(False)
-    axes.spines['left'].set_visible(False)
-
-def plot1dvert(means, sigmas, values, shape=None, axes=None):
-
-    h = 0.1
-
-    n, d = means.size()
-
-    means = means.cpu().numpy()
-    sigmas = sigmas.cpu().numpy()
-    values = nn.functional.tanh(values).data.cpu().numpy()
-
-    norm = mpl.colors.Normalize(vmin=-1.0, vmax=1.0)
-    cmap = mpl.cm.RdYlBu
-    map = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
-
-    if axes is None:
-        axes = plt.gca()
-
-    colors = []
-    for i in range(n):
-        color = map.to_rgba(values[i])
-        alpha = 0.7 # max(0.05, (sigmas[i, 0]+1.0)**-1)
-        axes.add_patch(Rectangle(xy=(means[i, 1]  - h*0.5, means[i, 0] - sigmas[i, 0]*0.5), width=h , height=sigmas[i,0], color=color, alpha=alpha, linewidth=0))
-        colors.append(color)
-
-    axes.scatter(means[:, 1], means[:, 0], c=colors, zorder=100, linewidth=0, s=3)
-
-    if shape is not None:
-
-        m = max(shape)
-        step = 1 if m < 100 else m//25
-
-        # gray points for the integer index tuples
-        x, y = np.mgrid[0:shape[0]:step, 0:shape[1]:step]
-        axes.scatter(x.ravel(),  y.ravel(), c='k', s=5, marker='D', zorder=-100, linewidth=0, alpha=0.1)
-
-    axes.spines['right'].set_visible(False)
-    axes.spines['top'].set_visible(False)
-    axes.spines['bottom'].set_visible(False)
-    axes.spines['left'].set_visible(False)
 
 def norm(x):
     """
@@ -290,6 +112,11 @@ def norm(x):
     return x/n
 
 def makedirs(directory):
+    """
+    Ensure that all directories in the given path exist.
+
+    :param directory:
+    """
     try:
         os.makedirs(directory)
     except OSError as e:
@@ -749,21 +576,17 @@ def normalize(indices, values, size, row=True, cuda=None, epsilon=0.00000001):
 #     print(normalize(tind, tv, (5, 5)))
 #     print(normalize(tind, tv, (5, 5), row=False))
 
-
-PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97]
-
 def duplicates(tuples):
     """
-    Takes a list of tuples, and for each tuple that occurs mutiple times marks all but one of the occurences.
+    Takes a tensor of integer tuples, and for each tuple that occurs multiple times marks all but one of the occurences
+    as duplicate.
 
-    :param tuples: A size (batch, k, rank) tensor of integer tuples
-    :return: A size (batch, k) mask indicating the duplicates
+    :param tuples: A (batch, k, r)-tensor of containing a batch of k r-dimensional integer tuples
+    :return: A size (batch, k) byte tensor. When used as a mask, this masks out all duplicates.
     """
     b, k, r = tuples.size()
 
-    primes = torch.tensor(PRIMES[:r])
-    primes = primes.unsqueeze(0).unsqueeze(0).expand(b, k, r)
-    unique = ((tuples+1) ** primes).prod(dim=2) # unique identifier for each tuple
+    unique = nunique(tuples)
 
     sorted, sort_idx = torch.sort(unique, dim=1)
     _, unsort_idx = torch.sort(sort_idx, dim=1)
@@ -773,30 +596,21 @@ def duplicates(tuples):
     mask = torch.cat([torch.zeros(b, 1, dtype=torch.uint8), mask], dim=1)
 
     return torch.gather(mask, 1, unsort_idx)
-#
-# if __name__ == "__main__":
-#     # tuples = torch.tensor([
-#     #     [[5, 5], [1, 1], [2, 3], [1, 1]],
-#     #     [[3, 2], [3, 2], [5, 5], [5, 5]]
-#     # ])
-#     #
-#     # print(tuples)
-#     # dup = duplicates(tuples)
-#     # tuples[dup, :] = tuples[dup, :] * 0
-#     # print(tuples)
-#
-#     tuples = torch.tensor([[
-#             [3, 1],
-#             [3, 2],
-#             [3, 1],
-#             [0, 3],
-#             [0, 2],
-#             [3, 0],
-#             [0, 3],
-#             [0, 0]]])
-#
-#     print(duplicates(tuples))
 
+def nduplicates(tuples):
+    """
+    Takes a tensor of integer tuples, and for each tuple that occurs multiple times marks all but one of the occurrences
+    as duplicate.
+
+    :param tuples: A (...,k, r)-tensor of containing a batch of k r-dimensional integer tuples
+    :return: A size (..., k) byte tensor. When used as a mask, this masks out all duplicates.
+    """
+    init, k, r = tuples.size()[:-2], tuples.size()[-2], tuples.size()[-1]
+
+    tuples = tuples.view(-1, k, r)
+    mask = duplicates(tuples)
+
+    return mask.view(*init, k)
 
 def scatter_imgs(latents, images, size=None, ax=None, color=None, alpha=1.0):
 
@@ -882,117 +696,6 @@ def linmoid(x, inf_in, up):
 #     clean()
 #     plt.savefig('test_linmoid.png')
 
-
-def sparsemm(use_cuda):
-    return SparseMMGPU.apply if use_cuda else SparseMMCPU.apply
-
-
-class SparseMMCPU(torch.autograd.Function):
-
-    """
-    Sparse matrix multiplication with gradients over the value-vector
-
-    Does not work with batch dim.
-    """
-
-    @staticmethod
-    def forward(ctx, indices, values, size, xmatrix):
-
-        # print(type(size), size, list(size), intlist(size))
-        # print(indices.size(), values.size(), torch.Size(intlist(size)))
-
-        matrix = torch.sparse.FloatTensor(indices, values, torch.Size(intlist(size)))
-
-        ctx.indices, ctx.matrix, ctx.xmatrix = indices, matrix, xmatrix
-
-        return torch.mm(matrix, xmatrix)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        grad_output = grad_output.data
-
-        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
-
-        i_ixs = ctx.indices[0,:]
-        j_ixs = ctx.indices[1,:]
-        output_select = grad_output[i_ixs, :]
-        xmatrix_select = ctx.xmatrix[j_ixs, :]
-
-        grad_values = (output_select * xmatrix_select).sum(dim=1)
-
-        grad_xmatrix = torch.mm(ctx.matrix.t(), grad_output)
-        return None, Variable(grad_values), None, Variable(grad_xmatrix)
-
-
-class SparseMMGPU(torch.autograd.Function):
-
-    """
-    Sparse matrix multiplication with gradients over the value-vector
-
-    Does not work with batch dim.
-    """
-
-    @staticmethod
-    def forward(ctx, indices, values, size, xmatrix):
-
-        # print(type(size), size, list(size), intlist(size))
-
-        matrix = torch.cuda.sparse.FloatTensor(indices, values, torch.Size(intlist(size)))
-
-        ctx.indices, ctx.matrix, ctx.xmatrix = indices, matrix, xmatrix
-
-        return torch.mm(matrix, xmatrix)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        grad_output = grad_output.data
-
-        # -- this will break recursive autograd, but it's the only way to get grad over sparse matrices
-
-        i_ixs = ctx.indices[0,:]
-        j_ixs = ctx.indices[1,:]
-        output_select = grad_output[i_ixs]
-        xmatrix_select = ctx.xmatrix[j_ixs]
-
-        grad_values = (output_select *  xmatrix_select).sum(dim=1)
-
-        grad_xmatrix = torch.mm(ctx.matrix.t(), grad_output)
-        return None, Variable(grad_values), None, Variable(grad_xmatrix)
-
-def batchmm(indices, values, size, xmatrix, cuda=None):
-    """
-    Multiply a batch of sparse matrices with a batch of dense matrices
-    :param indices:
-    :param values:
-    :param size:
-    :param xmatrix:
-    :return:
-    """
-
-    if cuda is None:
-        cuda = indices.is_cuda
-
-    b, n, r = indices.size()
-    dv = 'cuda' if cuda else 'cpu'
-    height, width = size
-
-    size = torch.tensor(size, device=dv, dtype=torch.long)
-    bmult = size[None, None, :].expand(b, n, 2)
-    m = torch.arange(b, device=dv, dtype=torch.long)[:, None, None].expand(b, n, 2)
-
-    bindices = (m * bmult).view(b*n, r) + indices.view(b*n, r)
-
-    bfsize = Variable(size * b)
-    bvalues = values.view(-1)
-
-    b, w, z = xmatrix.size()
-    bxmatrix = xmatrix.view(-1, z)
-
-    sm = sparsemm(cuda)
-    result = sm(bindices.t(), bvalues, bfsize, bxmatrix)
-
-    return result.view(b, height, -1)
-
 def split(offset, depth):
     dv = 'cuda' if offset.is_cuda else 'cpu'
 
@@ -1071,12 +774,46 @@ def shuffle_rows(x):
 
     return out
 
+# def bunique(tuples):
+#     """
+#     Like unique/2, but for batched tuples.
+#
+#     :param tuples: A (b, k, d) tensor of a batch of (k, d) matrices containing d dimensional integer tuples
+#     :return: A (b, k, d, 1) tensor
+#     """
+#
+#     b, k, d = tuples.size()
+#     tuples = tuples.view(b * k, d)
+#
+#     un = unique(tuples)
+#
+#     return un.view(b, k)
+
+def nunique(tuples):
+    """
+
+    :param tuples: A (..., d) tensor containing d dimensional integer tuples
+    :return: A (..., 1) tensor containing a unique single integer for every integer tuple
+    """
+
+    init, d = tuples.size()[:-1], tuples.size()[-1]
+
+    tuples = tuples.view(-1, d)
+
+    un = unique(tuples)
+
+    return un.view(*init)
+
 def unique(tuples):
     """
-    Assigns a single unique identifier to each tuple expressed in the row
-    :param tuples:
-    :return:
+    Takes a (b, s)-matrix and returns a (b, 1)-matrix with a unique integer for each row.
+
+    Uses the cantor tuple function: https://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function
+
+    :param tuples: A matrix of size (b, s)
+    :return: A matrix of size (b, 1).
     """
+
     b, s = tuples.size()
 
     if s == 2:
@@ -1092,10 +829,10 @@ def unique(tuples):
 
     return unique(res)
 
-
 def xent(out, tgt):
     """
     Binary cross-entropy. Manual implementation so we get gradient over both inputs
+
     :param out:
     :param tgt:
     :return:

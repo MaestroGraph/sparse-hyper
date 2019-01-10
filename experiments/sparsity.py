@@ -23,6 +23,9 @@ measures the density of the resulting weight matrices (the number of non-zero we
 We aim to show that in the very low desity regime, the sparse layer is a competitive approach.
 
 The tasks are simple classification on mnist, cifar10 and cifar100.
+
+TODO: Test temp version.
+
 """
 
 BATCH_SIZES    = [16, 32, 64, 128, 256]
@@ -42,15 +45,19 @@ def getmodel(arg, insize, numcls, points):
 
     elif arg.method == 'nas':
 
+        rng = (arg.range, 1, arg.range, arg.range)
+
         one = globalsampling.ParamASHLayer(
             in_shape=insize, out_shape=(arg.hidden,), k=points,
-            additional=arg.gadditional, rr_additional=arg.raditional, relative_range=arg.range, has_bias=True,
+            gadditional=arg.gadditional, radditional=arg.radditional, range=rng, has_bias=True,
             min_sigma=arg.min_sigma
         )
 
+        rng = (3, arg.range)
+
         two = globalsampling.ParamASHLayer(
             in_shape=(arg.hidden,), out_shape=(numcls,), k=points,
-            additional=arg.gadditional, rr_additional=arg.raditional, relative_range=arg.range, has_bias=True,
+            gadditional=arg.gadditional, radditional=arg.radditional, range=rng, has_bias=True,
             min_sigma=arg.min_sigma
         )
 
@@ -284,17 +291,17 @@ if __name__ == "__main__":
     parser.add_argument("-a", "--gadditional",
                         dest="gadditional",
                         help="Number of additional points sampled globally per index-tuple (NAS)",
-                        default=8, type=int)
+                        default=2, type=int)
 
     parser.add_argument("-A", "--radditional",
                         dest="radditional",
                         help="Number of additional points sampled locally per index-tuple (NAS)",
-                        default=8, type=int)
+                        default=2, type=int)
 
     parser.add_argument("-R", "--range",
                         dest="range",
                         help="Range in which the local points are sampled (NAS)",
-                        default=16, type=int)
+                        default=4, type=int)
 
     parser.add_argument("-r", "--repeats",
                         dest="repeats",

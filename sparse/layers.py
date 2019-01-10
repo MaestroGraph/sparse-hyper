@@ -42,15 +42,18 @@ def densities(points, means, sigmas):
     """
 
     # n: number of MVNs
-    # d: number of points per MVN
     # rank: dim of points
 
-    b, k, l, rank = points.size()
-    b, k, c, rank = means.size()
+    # i: number of integer index tuples sampled per chunk
+    # k: number of continuous index tuples per chunk
+    # c: number of chunks
 
-    points = points.unsqueeze(3).expand(b, k, l, c, rank)
-    means  = means.unsqueeze(2).expand_as(points)
-    sigmas = sigmas.unsqueeze(2).expand_as(points)
+    b, c, i, rank = points.size()
+    b, c, k, rank = means.size()
+
+    points = points[:, :, :, None, :].expand(b, c, i, k, rank)
+    means  = means[:, :, None, :, :].expand_as(points)
+    sigmas = sigmas[:, :, None, :, :].expand_as(points)
 
     sigmas_squared = torch.sqrt(1.0/(EPSILON+sigmas))
 
@@ -58,12 +61,12 @@ def densities(points, means, sigmas):
     points = points * sigmas_squared
 
     # Compute dot products for all points
-    # -- unroll the batch/k/l/c dimensions
+    # -- unroll the batch/c/k/l dimensions
     points = points.view(-1, 1, rank)
     # -- dot prod
     products = torch.bmm(points, points.transpose(1, 2))
     # -- reconstruct shape
-    products = products.view(b, k, l, c)
+    products = products.view(b, c, i, k)
 
     num = torch.exp(- 0.5 * products) # the numerator of the Gaussian density
 
@@ -209,10 +212,6 @@ class SparseLayer(nn.Module):
         dv = 'cuda' if self.is_cuda() else 'cpu'
         FT = torch.cuda.FloatTensor if self.is_cuda() else torch.FloatTensor
 
-        # ints is the same size as ind, but for every index-tuple in ind, we add an extra axis containing the 2^rank
-        # integerized index-tuples we can make from that one real-valued index-tuple
-        # ints = torch.cuda.FloatTensor(batchsize, n, 2 ** rank + additional, rank) if use_cuda else FloatTensor(batchsize, n, 2 ** rank, rank)
-
         """
         Generate neighbor tuples
         """
@@ -229,31 +228,31 @@ class SparseLayer(nn.Module):
         Sample uniformly from all integer tuples
         """
 
-        sampled_ints = FT(b, k, c, self.gadditional, rank)
+        global_ints = FT(b, k, c, self.gadditional, rank)
 
-        sampled_ints.uniform_()
-        sampled_ints *= (1.0 - EPSILON)
+        global_ints.uniform_()
+        global_ints *= (1.0 - EPSILON)
 
         rng = FT(rng)
-        rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(sampled_ints)
+        rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(global_ints)
 
-        sampled_ints = torch.floor(sampled_ints * rngxp).long()
+        global_ints = torch.floor(global_ints * rngxp).long()
 
         """
         Sample uniformly from a small range around the given index tuple
         """
-        rr_ints = FT(b, k, c, self.radditional, rank)
+        local_ints = FT(b, k, c, self.radditional, rank)
 
-        rr_ints.uniform_()
-        rr_ints *= (1.0 - EPSILON)
+        local_ints.uniform_()
+        local_ints *= (1.0 - EPSILON)
 
-        rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints) # bounds of the tensor
+        rngxp = rng[None, None, None, :].expand_as(local_ints) # bounds of the tensor
+
         rrng = FT(relative_range) # bounds of the range from which to sample
-
-        rrng = rrng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(rr_ints)
+        rrng = rrng[None, None, None, :].expand_as(local_ints)
 
         # print(means.size())
-        mns_expand = means.round().unsqueeze(3).expand_as(rr_ints)
+        mns_expand = means.round().unsqueeze(3).expand_as(local_ints)
 
         # upper and lower bounds
         lower = mns_expand - rrng * 0.5
@@ -266,12 +265,9 @@ class SparseLayer(nn.Module):
         idxs = upper > rngxp
         lower[idxs] = rngxp[idxs] - rrng[idxs]
 
-        # print('means', means.round().long())
-        # print('lower', lower)
+        local_ints = (local_ints * rrng + lower).long()
 
-        rr_ints = (rr_ints * rrng + lower).long()
-
-        all = torch.cat([neighbor_ints, sampled_ints, rr_ints] , dim=3)
+        all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=3)
 
         return all.view(b, k, -1, rank) # combine all indices sampled within a chunk
 
@@ -295,10 +291,14 @@ class SparseLayer(nn.Module):
 
         b, n, r = means.size()
 
-        c = self.chunk_size if self.chunk_size is not None else n
-        k = n // self.chunk_size if self.chunk_size is not None else 1
+        # We divide the list of index tuples into 'chunks'. Each chunk represents a kind of context:
+        # - duplicate integer index tuples within the chunk are removed
+        # - proportions are normalized over all index tuples within the chunk
+        # This is useful in the templated setting. If no chunk size is requested, we just add a singleton dimension.
+        k = self.chunk_size if self.chunk_size is not None else n      # chunk size
+        c = n // k                                                     # number of chunks
 
-        means, sigmas, values = means.view(b, k, c, r), sigmas.view(b, k, c, r), values.view(b, k, c)
+        means, sigmas, values = means.view(b, c, k, r), sigmas.view(b, c, k, r), values.view(b, c, k)
 
         assert b == input.size(0), 'input batch size ({}) should match parameter batch size ({}).'.format(input.size(0), b)
 
@@ -316,7 +316,7 @@ class SparseLayer(nn.Module):
             dups = nduplicates(indices)
 
             # compute (unnormalized) densities under the given MVNs (proportions)
-            props = densities(indfl, means, sigmas).clone()  # result has size (b, k, l, c), l = indices[2]
+            props = densities(indfl, means, sigmas).clone()  # result has size (b, c, i, k), i = indices[2]
             props[dups, :] = 0
             props = props / props.sum(dim=2, keepdim=True) # normalize over all points of a given index tuple
 

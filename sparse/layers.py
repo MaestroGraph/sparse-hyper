@@ -383,6 +383,7 @@ class SparseLayer(nn.Module):
             #     indices = indices.cuda()
 
         size = self.out_size + input.size()[1:]
+
         output = tensors.contract(indices, values, size, input)
 
         if self.bias_type == Bias.DENSE:

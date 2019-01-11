@@ -3,7 +3,7 @@ from torch import FloatTensor, LongTensor
 from torch.autograd import Variable
 
 from sparse.util import prod
-import util
+import util, sys
 
 """
 Utility functions for manipulation tensors
@@ -84,7 +84,7 @@ def contract(indices, values, size, x, cuda=None):
     assert mindices.min() >= 0, 'negative index in flattened indices: \n {} \n Original indices {}'.format(mindices, indices)
     assert not util.contains_nan(values.data), 'NaN in values:\n {}'.format(values)
 
-    y_flat = batchmm(mindices, values, size, x_flat, cuda)
+    y_flat = batchmm(mindices, values, flat_size, x_flat, cuda)
 
     return y_flat.view(b, *out_size)  # reshape y into a tensor
 

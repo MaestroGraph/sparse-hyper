@@ -1,3 +1,5 @@
+from _context import sparse
+
 import torch, torchvision
 import numpy as np
 
@@ -11,7 +13,9 @@ import torch.nn.functional as F
 
 from argparse import ArgumentParser
 
-import os, util, globalsampling, tqdm
+import os, tqdm
+
+from sparse import util, NASLayer
 
 from tqdm import trange
 
@@ -28,8 +32,8 @@ TODO: Test temp version.
 
 """
 
-BATCH_SIZES    = [16, 32, 64, 128, 256]
-LEARNING_RATES = [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]
+BATCH_SIZES    = [32, 64, 128, 256]
+LEARNING_RATES = [0.0001, 0.0005, 0.001, 0.005, 0.01]
 
 def getmodel(arg, insize, numcls, points):
     if arg.method == 'l1':
@@ -47,17 +51,17 @@ def getmodel(arg, insize, numcls, points):
 
         rng = (arg.range, 1, arg.range, arg.range)
 
-        one = globalsampling.ParamASHLayer(
-            in_shape=insize, out_shape=(arg.hidden,), k=points,
-            gadditional=arg.gadditional, radditional=arg.radditional, range=rng, has_bias=True,
+        one = NASLayer(
+            in_size=insize, out_size=(arg.hidden,), k=points,
+            gadditional=arg.gadditional, radditional=arg.radditional, rrange=rng, has_bias=True,
             min_sigma=arg.min_sigma
         )
 
         rng = (3, arg.range)
 
-        two = globalsampling.ParamASHLayer(
-            in_shape=(arg.hidden,), out_shape=(numcls,), k=points,
-            gadditional=arg.gadditional, radditional=arg.radditional, range=rng, has_bias=True,
+        two = NASLayer(
+            in_size=(arg.hidden,), out_size=(numcls,), k=points,
+            gadditional=arg.gadditional, radditional=arg.radditional, rrange=rng, has_bias=True,
             min_sigma=arg.min_sigma
         )
 
@@ -107,6 +111,7 @@ def go(arg):
             raise Exception('Task {} not recognized'.format(arg.task))
 
         for lr in LEARNING_RATES:
+            print('lr {}, bs {}'.format(lr, batch_size))
 
             model, one, two = getmodel(arg, insize, numcls, points)
             opt = torch.optim.Adam(model.parameters(), lr=lr)
@@ -271,7 +276,7 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--epochs",
                         dest="epochs",
                         help="Number of epochs",
-                        default=300, type=int)
+                        default=50, type=int)
 
     parser.add_argument("-m", "--method",
                         dest="method",
@@ -317,7 +322,6 @@ if __name__ == "__main__":
                         help="Whether to use cuda.",
                         action="store_true")
 
-
     parser.add_argument("-D", "--data", dest="data",
                         help="Data directory",
                         default='./data')
@@ -325,7 +329,7 @@ if __name__ == "__main__":
     parser.add_argument("-M", "--min-sigma",
                         dest="min_sigma",
                         help="Minimal sigma value",
-                        default=0.0, type=float)
+                        default=0.01, type=float)
 
     args = parser.parse_args()
 

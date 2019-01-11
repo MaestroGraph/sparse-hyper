@@ -13,12 +13,13 @@ import torch.nn.functional as F
 
 from argparse import ArgumentParser
 
-import os, tqdm
+import os
 
 from sparse import util, NASLayer
 
-from tqdm import trange
+from tqdm import trange, tqdm
 
+from tensorboardX import SummaryWriter
 
 """
 This experiment trains a simple, fully connected two-layer MLP, using different methods of inducing sparsity, and
@@ -77,7 +78,7 @@ def getmodel(arg, insize, numcls, points):
 
     return model, one, two
 
-def go(arg):
+def sweep(arg):
 
     lambd = 10.0 ** (-5 + arg.control)      # L1 control variable
     points = arg.hidden * (arg.control + 1) # NAS control variable
@@ -117,8 +118,8 @@ def go(arg):
             opt = torch.optim.Adam(model.parameters(), lr=lr)
 
             # Train for fixed number of epochs
-            for e in tqdm.trange(arg.epochs):
-                for input, labels in trainloader:
+            for e in trange(arg.epochs):
+                for input, labels in tqdm(trainloader):
                     opt.zero_grad()
 
                     if arg.cuda:
@@ -174,7 +175,7 @@ def go(arg):
     accuracies = []
     densities = []
 
-    for r in tqdm.trange(arg.repeats):
+    for r in trange(arg.repeats):
 
         if (arg.task == 'mnist'):
             data = arg.data + os.sep + arg.task
@@ -264,6 +265,135 @@ def go(arg):
 
     print('Finished')
 
+
+def single(arg):
+
+    tbw = SummaryWriter()
+
+    lambd = 10.0 ** (-5 + arg.control)      # L1 control variable
+    points = arg.hidden * (arg.control + 1) # NAS control variable
+
+    # Grid search over batch size/learning rate
+    # -- Set up model
+
+    insize = (1, 28, 28) if arg.task == 'mnist' else (3, 32, 32)
+    numcls = 100 if arg.task == 'cifar100' else 10
+
+    # Repeat runs with chosen hyperparameters
+    accuracies = []
+    densities = []
+
+    for r in trange(arg.repeats):
+
+        if arg.task == 'mnist':
+            if arg.final:
+                data = arg.data + os.sep + arg.task
+
+                train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=ToTensor())
+                trainloader = torch.utils.data.DataLoader(train, batch_size=arg.bs, shuffle=True, num_workers=2)
+
+                test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=ToTensor())
+                testloader = torch.utils.data.DataLoader(test, batch_size=arg.bs, shuffle=False, num_workers=2)
+            else:
+
+                NUM_TRAIN = 45000
+                NUM_VAL = 5000
+                total = NUM_TRAIN + NUM_VAL
+
+                train = torchvision.datasets.MNIST(root=arg.data, train=True, download=True, transform=ToTensor())
+
+                trainloader = DataLoader(train, batch_size=arg.bs, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+                testloader = DataLoader(train, batch_size=arg.bs,
+                                        sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+        else:
+            raise Exception('Task {} not recognized'.format(arg.task))
+
+        model, one, two = getmodel(arg, insize, numcls, points) # new model
+        opt = torch.optim.Adam(model.parameters(), lr=arg.lr)
+
+        # Train for fixed number of epochs
+        i = 0
+        for e in trange(arg.epochs):
+
+            model.train(True)
+            for input, labels in trainloader:
+                opt.zero_grad()
+
+                if arg.cuda:
+                    input, labels = input.cuda(), labels.cuda()
+                input, labels = Variable(input), Variable(labels)
+
+                output = model(input)
+
+                loss = F.cross_entropy(output, labels)
+
+                if arg.method == 'l1':
+                    l1 = one.weight.norm(p=1) + two.weight.norm(p=1)
+                    loss = loss + lambd * l1
+
+                loss.backward()
+
+                tbw.add_scalar('sparsity/loss', loss.data.item(), i * arg.bs)
+                i += 1
+
+                opt.step()
+
+            # Compute accuracy on test set
+            with torch.no_grad():
+                model.train(False)
+
+                total, correct = 0.0, 0.0
+                for input, labels in testloader:
+                        opt.zero_grad()
+
+                        if arg.cuda:
+                            input, labels = input.cuda(), labels.cuda()
+                        input, labels = Variable(input), Variable(labels)
+
+                        if arg.method == 'l1':
+                            output = model(input)
+                        else:
+                            output = F.softmax(two(F.sigmoid(one(input, train=False))), dim=1)
+                            # TODO: make sparse layer respond to train
+
+                        outcls = output.argmax(dim=1)
+
+                        total   += outcls.size(0)
+                        correct += (outcls == labels).sum().item()
+
+                acc = correct / float(total)
+
+                print('epoch {}: {}\n'.format(e, acc))
+                tbw.add_scalar('sparsity/test acc', acc, e)
+
+        # Compute density
+        total = util.prod(insize) + arg.hidden * numcls
+
+
+        if arg.method == 'l1':
+            density = ((one.weight != 0.0).sum() + (two.weight != 0.0).sum())/ float(total)
+        elif arg.method == 'nas':
+            density = (points * 2)/total
+        else:
+            raise Exception('Method {} not recognized'.format(arg.task))
+
+        accuracies.append(acc)
+        densities.append(density)
+
+    print('accuracies: ', accuracies)
+    print('densities: ', densities)
+
+    # Save to CSV
+    np.savetxt(
+        'out.{}.{}.csv'.format(arg.method, arg.control),
+        torch.cat([
+                torch.tensor(accuracies, dtype=torch.float)[:, None],
+                torch.tensor(densities, dtype=torch.float)[:, None]
+            ], dim=1).numpy(),
+    )
+
+    print('Finished')
+
 if __name__ == "__main__":
 
     parser = ArgumentParser()
@@ -272,6 +402,16 @@ if __name__ == "__main__":
                         dest="control",
                         help="Control parameter. For l1, lambda = 10^(-5+c). For NAS, k=hidden*(c+1)",
                         default=0, type=int)
+
+    parser.add_argument("-l", "--lr",
+                        dest="lr",
+                        help="Learning rate (ignored in sweep)",
+                        default=None, type=float)
+
+    parser.add_argument("-b", "--batch ",
+                        dest="bs",
+                        help="Batch size (ignored in sweep)",
+                        default=None, type=int)
 
     parser.add_argument("-e", "--epochs",
                         dest="epochs",
@@ -331,8 +471,19 @@ if __name__ == "__main__":
                         help="Minimal sigma value",
                         default=0.01, type=float)
 
+    parser.add_argument("-f", "--final", dest="final",
+                        help="Whether to run on the real test set.",
+                        action="store_true")
+
+    parser.add_argument("--sweep", dest="sweep",
+                        help="Whether to run a rull parameter sweep over batch size/learn rate.",
+                        action="store_true")
+
     args = parser.parse_args()
 
     print('OPTIONS', args)
 
-    go(args)
+    if args.sweep:
+        sweep(args)
+    else:
+        single(args)

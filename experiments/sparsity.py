@@ -32,7 +32,7 @@ TODO: Test temp version.
 
 """
 
-BATCH_SIZES    = [32, 64, 128, 256]
+BATCH_SIZES    = [256, 128, 64, 32]
 LEARNING_RATES = [0.0001, 0.0005, 0.001, 0.005, 0.01]
 
 def getmodel(arg, insize, numcls, points):

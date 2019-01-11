@@ -29,6 +29,68 @@ LOG = logging.getLogger()
 Simple experiment: learn the identity function from one tensor to another
 """
 
+class ReinforceLayer(nn.Module):
+    """
+    Baseline method: reinforcement learning.
+    """
+    def __init__(self, size,
+                 sigma_scale=0.2,
+                 fix_values=False,
+                 min_sigma=0.0):
+
+        super().__init__()
+
+        self.size = size
+        self.sigma_scale = sigma_scale
+        self.fix_values = fix_values
+        self.min_sigma = min_sigma
+
+        self.pmeans = nn.Parameter(torch.randn(self.size, 2))
+        self.psigmas = nn.Parameter(torch.randn(self.size))
+
+        if fix_values:
+            self.register_buffer('pvalues', torch.ones(self.size))
+        else:
+            self.pvalues = nn.Parameter(torch.randn(self.size))
+
+    def is_cuda(self):
+        return next(self.parameters()).is_cuda
+
+    def hyper(self, x):
+
+        b = x.size(0)
+        size = (self.size, self.size)
+
+        # Expand parameters along batch dimension
+        means  = self.pmeans[None, :, :].expand(b, self.size, 2)
+        sigmas = self.psigmas[None, :].expand(b, self.size)
+        values = self.pvalues[None, :].expand(b, self.size)
+
+        means, sigmas = sparse.transform_means(means, size), sparse.transform_sigmas(sigmas, size)
+
+        return means, sigmas, values
+
+    def forward(self, x):
+        size = (self.size, self.size)
+
+        means, sigmas, values = self.hyper(x)
+
+        dists = torch.distributions.Normal(means, sigmas)
+        samples = dists.sample()
+
+        indices = samples.data.round().long()
+
+        # if the sampling puts the indices out of bounds, we just clip to the min and max values
+        indices[indices < 0] = 0
+
+        rngt = torch.tensor(data=size, device='cuda' if self.is_cuda() else 'cpu')
+        maxes = rngt[None, None, :].expand_as(means) - 1
+        indices[indices > maxes] = maxes[indices > maxes]
+
+        y = sparse.contract(indices, values, size, x)
+
+        return y, dists, samples
+
 def go(arg):
 
     MARGIN = 0.1
@@ -56,16 +118,22 @@ def go(arg):
 
         SHAPE = (arg.size,)
 
-        model = sparse.NASLayer(
-            SHAPE, SHAPE,
-            k=arg.size,
-            gadditional=additional,
-            sigma_scale=arg.sigma_scale,
-            has_bias=False,
-            fix_values=arg.fix_values,
-            min_sigma=arg.min_sigma,
-            rrange=(arg.rr, arg.rr),
-            radditional=arg.ca)
+        if not arg.reinforce:
+            model = sparse.NASLayer(
+                SHAPE, SHAPE,
+                k=arg.size,
+                gadditional=additional,
+                sigma_scale=arg.sigma_scale,
+                has_bias=False,
+                fix_values=arg.fix_values,
+                min_sigma=arg.min_sigma,
+                rrange=(arg.rr, arg.rr),
+                radditional=arg.ca)
+        else:
+            model = ReinforceLayer(
+                arg.size,
+                fix_values=arg.fix_values
+            )
 
         if arg.cuda:
             model.cuda()
@@ -92,40 +160,36 @@ def go(arg):
 
                     loss.backward()
                     optimizer.step()
-                else:
-                    raise Exception("Not currently supported.")
-                    # This is difficult to make work together with templating in a single implementation.
-                    # Old implementation here: https://github.com/MaestroGraph/sparse-hyper/blob/ad14d8c131fc835cba89a658ca5d5bdfaa9b7948/globalsampling.py#L373
+                else:   # compute the gradient in multiple passes, useful for large matrices
 
-                    # optimizer.zero_grad()
-                    #
-                    # # multiple forward/backward passes, accumulate gradient
-                    # seed = (torch.rand(1) * 100000).long().item()
-                    #
-                    # for fr in range(0, arg.size, arg.subbatch):
-                    #     to = min(fr + arg.subsample, arg.size)
-                    #
-                    #     y = model(x, mrange=(fr, to), seed=seed)
-                    #
-                    #     loss = F.mse_loss(y, x)
-                    #
-                    #     loss.backward()
-                    # optimizer.step()
+                    optimizer.zero_grad()
+
+                    # multiple forward/backward passes, accumulate gradient
+                    seed = (torch.rand(1) * 100000).long().item()
+
+                    for fr in range(0, arg.size, arg.subbatch):
+                        to = min(fr + arg.subbatch, arg.size)
+
+                        y = model(x, mrange=(fr, to), seed=seed)
+
+                        loss = F.mse_loss(y, x)
+
+                        loss.backward()
+                    optimizer.step()
 
             else:
-                raise Exception("Not currently supported.")
 
-                # optimizer.zero_grad()
-                #
-                # y, dists, actions = model(x)
-                #
-                # mloss = F.mse_loss(y, x, reduce=False).mean(dim=1)
-                # rloss = - dists.log_prob(actions) * - mloss.data.unsqueeze(1).unsqueeze(1).expand_as(actions)
-                #
-                # loss = rloss.mean()
-                #
-                # loss.backward()
-                # optimizer.step()
+                optimizer.zero_grad()
+
+                y, dists, actions = model(x)
+
+                mloss = F.mse_loss(y, x, reduce=False).mean(dim=1)
+                rloss = - dists.log_prob(actions) * - mloss[:, None, None].expand_as(actions)
+
+                loss = rloss.mean()
+
+                loss.backward()
+                optimizer.step()
 
             w.add_scalar('identity/loss/', loss.item(), i*arg.batch)
 
@@ -143,7 +207,10 @@ def go(arg):
                             x = x.cuda()
                         x = Variable(x)
 
-                        y = model(x)
+                        if not arg.reinforce:
+                            y = model(x)
+                        else:
+                            y, _, _ = model(x)
 
                         losses.append(F.mse_loss(y, x).item())
 
@@ -163,8 +230,11 @@ def go(arg):
 
         plt.figure(figsize=(10, 4))
 
-        for rep in range(results.shape[0]):
-            plt.plot(np.arange(ndots) * arg.dot_every, results[rep])
+        # for rep in range(results.shape[0]):
+        #     plt.plot(np.arange(ndots) * arg.dot_every, results[rep])
+        plt.errorbar(
+            x=np.arange(ndots) * arg.dot_every, y=np.mean(results, axis=0), yerr=np.std(results, axis=0))
+
         ax = plt.gca()
         ax.set_ylim(bottom=0)
         ax.set_xlabel('iterations')

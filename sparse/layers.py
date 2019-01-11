@@ -192,7 +192,7 @@ class SparseLayer(nn.Module):
 
             self.register_buffer('temp_indices', temp_indices)
 
-    def generate_integer_tuples(self, means, rng=None, relative_range=None):
+    def generate_integer_tuples(self, means, rng=None, relative_range=None, seed=None):
         """
         Take continuous-valued index tuples, and generates integer-valued index tuples.
 
@@ -211,6 +211,9 @@ class SparseLayer(nn.Module):
         b, k, c, rank = means.size()
         dv = 'cuda' if self.is_cuda() else 'cpu'
         FT = torch.cuda.FloatTensor if self.is_cuda() else torch.FloatTensor
+
+        if seed is not None:
+            torch.manual_seed(seed)
 
         """
         Generate neighbor tuples
@@ -275,6 +278,17 @@ class SparseLayer(nn.Module):
         return next(self.parameters()).is_cuda
 
     def forward(self, input, mrange=None, seed=None, **kwargs):
+        """
+
+        :param input:
+        :param mrange: Specifies a subrange of index tuples to compute the gradient over. This is helpful for gradient
+        accumulation methods. This doesn;t work together with templating.
+        :param seed:
+        :param kwargs:
+        :return:
+        """
+
+        assert mrange is None or not self.templated, "Templating and gradient accumulation do not work together"
 
         ### Compute and unpack output of hypernetwork
 
@@ -290,6 +304,7 @@ class SparseLayer(nn.Module):
             raise Exception('bias type {} not recognized.'.format(self.bias_type))
 
         b, n, r = means.size()
+        dv = 'cuda' if self.is_cuda() else 'cpu'
 
         # We divide the list of index tuples into 'chunks'. Each chunk represents a kind of context:
         # - duplicate integer index tuples within the chunk are removed
@@ -309,7 +324,22 @@ class SparseLayer(nn.Module):
         if not self.training:
             indices = means.squeeze().round().long()
         else:
-            indices = self.generate_integer_tuples(means, rng=subrange, relative_range=self.region)
+            if mrange is not None:
+                fr, to = mrange
+
+                # sample = random.sample(range(nm), self.subsample) # the means we will learn for
+                ids = torch.zeros((k,), dtype=torch.uint8, device=dv)
+                ids[fr:to] = 1
+
+                means, means_out = means[:, :, ids, :], means[:, :, ~ids, :]
+                sigmas, sigmas_out = sigmas[:, :, ids, :], sigmas[:, :, ~ids, :]
+                values, values_out = values[:, :, ids], values[:, :, ~ids]
+
+                # These should not get a gradient, since their means aren't being sampled for
+                # (their gradient will be computed in other passes
+                means_out, sigmas_out, values_out = means_out.detach(), sigmas_out.detach(), values_out.detach()
+
+            indices = self.generate_integer_tuples(means, rng=subrange, relative_range=self.region, seed=seed)
             indfl = indices.float()
 
             # Mask for duplicate indices
@@ -325,6 +355,16 @@ class SparseLayer(nn.Module):
 
             values = props * values
             values = values.sum(dim=3)
+
+            if mrange is not None:
+                indices_out = means_out.data.round().long()
+                #
+                # print(indices.size(), indices_out.size())
+                # print(values.size(), values_out.size())
+                # sys.exit()
+
+                indices = torch.cat([indices, indices_out], dim=2)
+                values = torch.cat([values, values_out], dim=2)
 
             # remove the chunk dimensions
             indices, values = indices.view(b, -1 , r), values.view(b, -1)

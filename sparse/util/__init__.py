@@ -4,4 +4,4 @@ from .util import \
     xent, unique, \
     Bias
 
-from .plot import plot
+from .plot import plot, basic

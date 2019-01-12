@@ -37,6 +37,7 @@ BATCH_SIZES    = [256, 128, 64, 32]
 LEARNING_RATES = [0.0001, 0.0005, 0.001, 0.005, 0.01]
 
 def getmodel(arg, insize, numcls, points):
+
     if arg.method == 'l1':
 
         one = nn.Linear(util.prod(insize), arg.hidden)
@@ -48,32 +49,36 @@ def getmodel(arg, insize, numcls, points):
             two, nn.Softmax()
         )
 
+    # elif arg.method == 'nas':
+    #
+    #     rng = (
+    #         min(arg.hidden, arg.range), 1,
+    #         arg.range, arg.range)
+    #
+    #     one = NASLayer(
+    #         in_size=insize, out_size=(arg.hidden,), k=points,
+    #         gadditional=arg.gadditional, radditional=arg.radditional, rrange=rng, has_bias=True,
+    #         min_sigma=arg.min_sigma
+    #     )
+    #
+    #     rng = (3, min(arg.range, arg.hidden))
+    #
+    #     two = NASLayer(
+    #         in_size=(arg.hidden,), out_size=(numcls,), k=points,
+    #         gadditional=arg.gadditional, radditional=arg.radditional, rrange=rng, has_bias=True,
+    #         min_sigma=arg.min_sigma
+    #     )
+    #
+    #     model = nn.Sequential(
+    #         one, nn.Sigmoid(),
+    #         two, nn.Softmax()
+    #     )
+
     elif arg.method == 'nas':
 
-        rng = (arg.range, 1, arg.range, arg.range)
-
-        one = NASLayer(
-            in_size=insize, out_size=(arg.hidden,), k=points,
-            gadditional=arg.gadditional, radditional=arg.radditional, rrange=rng, has_bias=True,
-            min_sigma=arg.min_sigma
-        )
-
-        rng = (3, arg.range)
-
-        two = NASLayer(
-            in_size=(arg.hidden,), out_size=(numcls,), k=points,
-            gadditional=arg.gadditional, radditional=arg.radditional, rrange=rng, has_bias=True,
-            min_sigma=arg.min_sigma
-        )
-
-        model = nn.Sequential(
-            one, nn.Sigmoid(),
-            two, nn.Softmax()
-        )
-
-    elif arg.method == 'nas-half':
-
-        rng = (arg.range, 1, arg.range, arg.range)
+        rng = (
+            min(arg.hidden, arg.range), 1,
+            arg.range, arg.range)
 
         one = NASLayer(
             in_size=insize, out_size=(arg.hidden,), k=points,
@@ -150,7 +155,7 @@ def sweep(arg):
                     loss = F.cross_entropy(output, labels)
 
                     if arg.method == 'l1':
-                        l1 = one.weight.norm(p=1) + two.weight.norm(p=1)
+                        l1 = one.weight.norm(p=1) # + two.weight.norm(p=1)
                         loss = loss + lambd * l1
 
                     loss.backward()
@@ -219,7 +224,7 @@ def sweep(arg):
                 loss = F.cross_entropy(output, labels)
 
                 if arg.method == 'l1':
-                    l1 = one.weight.norm(p=1) + two.weight.norm(p=1)
+                    l1 = one.weight.norm(p=1) # + two.weight.norm(p=1)
                     loss = loss + lambd * l1
 
                 loss.backward()

@@ -872,3 +872,12 @@ if __name__ == '__main__':
 #
 #     print(batchmm(indices, values, (2,2), inputs))
 
+
+
+def wrapmod(x, mod):
+    neg = x < 0.0
+
+    y = x.fmod(mod)
+    y[neg] = mod + y[neg]
+
+    return y

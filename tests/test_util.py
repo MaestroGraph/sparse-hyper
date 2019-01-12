@@ -84,10 +84,16 @@ class TestLayers(unittest.TestCase):
 
         self.assertEqual([0, 0, 1, 0, 0, 0, 1, 0], list(util.nduplicates(tuples)[0, 0, 0, :, :].view(-1)))
 
+    def test_wrapmod(self):
 
-#
-# if __name__ == "__main__":
-#
+        self.assertAlmostEqual(util.wrapmod(torch.tensor([9.1]), 9).item(), 0.1, places=5)
+
+        self.assertAlmostEqual(util.wrapmod(torch.tensor([-9.1]), 9).item(), 8.9, places=5)
+
+        self.assertAlmostEqual(util.wrapmod(torch.tensor([-0.1]), 9).item(), 8.9, places=5)
+
+        self.assertAlmostEqual(util.wrapmod(torch.tensor([10.0, -9.1]), 9)[1].item(), 8.9, places=5)
+
 
 if __name__ == '__main__':
     unittest.main()

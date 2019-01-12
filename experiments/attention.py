@@ -1,4 +1,10 @@
-import gaussian, gaussian_temp, util, time,  os, math, sys, PIL
+from _context import sparse
+
+from sparse import util
+from util import Lambda, Debug
+from util import od, prod, logit
+
+import time,  os, math, sys, PIL
 import torch, random
 from torch.autograd import Variable
 from torch import nn, optim
@@ -6,7 +12,7 @@ import torch.nn.functional as F
 from torch.nn import Parameter
 from tqdm import trange, tqdm
 from tensorboardX import SummaryWriter
-from util import Lambda, Debug
+
 from torch.utils.serialization import load_lua
 
 from skimage.transform import resize
@@ -20,7 +26,6 @@ import torchvision
 import torchvision.transforms as transforms
 from torchvision.datasets import MNIST, CIFAR10, CIFAR100
 
-from util import od, prod, logit
 
 from argparse import ArgumentParser
 
@@ -37,7 +42,6 @@ fh = logging.FileHandler('ash.log')
 fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
-DROPOUT = 0.0
 SIGMA_BOOST_REINFORCE = 2.0 # ensure that first sigmas are large enough
 
 def inv(i, max):
@@ -49,7 +53,7 @@ def sigmoid(x):
         return 1 / (1 + math.exp(-x))
     return 1 / (1 + torch.exp(-x))
 
-def rescale( image, outsize):
+def rescale(image, outsize):
     image = image.cpu().numpy()
     image = np.transpose(image, (1, 2, 0))
 
@@ -57,41 +61,14 @@ def rescale( image, outsize):
 
     return torch.from_numpy( np.transpose(image, (2, 0, 1)) )
 
-class SimpleImageLayer(gaussian_temp.HyperLayer):
+class SimpleImageLayer(sparse.SparseLayer):
     """
     NB: k is the number of tuples per input dimension. That is, k = 4 results in a 16 * c grid of inputs evenly spaced
      across a bounding box
     """
 
-    def __init__(self, in_size, k, adaptive=True, gadditional=0, radditional=0, region=None, sigma_scale=0.1,
-                 num_values=-1, min_sigma=0.0,
-                 subsample=None, preprocess=None):
-
-        ci, hi, wi = in_size
-        out_size = co, ho, wo = ci, k, k
-
-        num_indices = k * k * ci * co;
-
-        indices = torch.LongTensor(list(np.ndindex( (k, k, co) )))[:, (2, 0, 1)]
-
-        pixel_indices  = indices[:, 1:3].clone()
-
-        indices = torch.cat([
-            indices,
-            indices[:, 0:1],
-            indices[:, 1:3].clone().fill_(0.0)
-            ], dim=1)
-
-        self.lc = [4, 5]
-        self.lc_sizes = [(out_size+in_size)[i] for i in self.lc]
-
-        super().__init__(in_rank=3, out_size=(co, ho, wo), temp_indices=indices, learn_cols=self.lc,
-                         gadditional=gadditional, radditional=radditional, region=region, subsample=subsample)
-
-        # scale to [0,1] in each dim
-        pixel_indices = pixel_indices.float() / torch.FloatTensor([k, k]).unsqueeze(0).expand_as(pixel_indices)
-
-        self.register_buffer('pixel_indices', pixel_indices)
+    def __init__(self, in_size, k,  gadditional=0, radditional=0, region=None, sigma_scale=0.1,
+                 num_values=-1, min_sigma=0.0, preprocess=None):
 
         assert(len(in_size) == 3)
 
@@ -100,79 +77,81 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
         self.sigma_scale = sigma_scale
         self.num_values = num_values
         self.min_sigma = min_sigma
-        self.out_size = out_size
-        self.adaptive = adaptive
 
-        if self.adaptive:
+        ci, hi, wi = in_size
+        out_size = co, ho, wo = ci, k, k
+
+        self.out_size = out_size
+
+
+        template = torch.LongTensor(list(np.ndindex( (k, k, co) )))[:, (2, 0, 1)]
+
+        pixel_indices  = template[:, 1:3].clone()
+
+        template = torch.cat([
+            template,
+            template[:, 0:1],
+            template[:, 1:3].clone().fill_(0.0)
+            ], dim=1)
+
+        self.lc = [4, 5]
+        self.lc_sizes = [(out_size+in_size)[i] for i in self.lc]
+
+        super().__init__(
+            in_rank=3, out_size=(co, ho, wo),
+            temp_indices=template, learn_cols=self.lc,
+            gadditional=gadditional, radditional=radditional, region=region)
+
+        # scale to [0,1] in each dim
+        pixel_indices = pixel_indices.float() / torch.FloatTensor([k, k]).unsqueeze(0).expand_as(pixel_indices)
+        self.register_buffer('pixel_indices', pixel_indices)
+
+        if preprocess is not None:
+            self.preprocess = preprocess
+        else:
             activation = nn.ReLU()
 
             p1 = 4
             p2 = 2
 
-            c , w, h = in_size
+            c, w, h = in_size
 
-            if preprocess is not None:
-                self.preprocess = preprocess
-            else:
-                # default preprocess
-                hid = max(1, floor(floor(w/p1)/p2) * floor(floor(h/p1)/p2)) * 32
+            # default preprocess network
+            hid = max(1, floor(floor(w/p1)/p2) * floor(floor(h/p1)/p2)) * 32
 
-                self.preprocess = nn.Sequential(
-                    #nn.MaxPool2d(kernel_size=4),
-                    # util.Debug(lambda x: print(x.size())),
-                    nn.Conv2d(c, 4, kernel_size=5, padding=2),
-                    activation,
-                    nn.Conv2d(4, 4, kernel_size=5, padding=2),
-                    activation,
-                    nn.MaxPool2d(kernel_size=p1),
-                    nn.Conv2d(4, 16, kernel_size=5, padding=2),
-                    activation,
-                    nn.Conv2d(16, 16, kernel_size=5, padding=2),
-                    activation,
-                    nn.MaxPool2d(kernel_size=p2),
-                    nn.Conv2d(16, 32, kernel_size=5, padding=2),
-                    activation,
-                    nn.Conv2d(32, 32, kernel_size=5, padding=2),
-                    activation,
-                    # util.Debug(lambda x : print(x.size())),
-                    util.Flatten(),
-                    nn.Linear(hid, 64),
-                    nn.Dropout(DROPOUT),
-                    activation,
-                    nn.Linear(64, 64),
-                    nn.Dropout(DROPOUT),
-                    activation,
-                    nn.Linear(64, 4),
-                )
+            self.preprocess = nn.Sequential(
+                #nn.MaxPool2d(kernel_size=4),
+                # util.Debug(lambda x: print(x.size())),
+                nn.Conv2d(c, 4, kernel_size=5, padding=2),
+                activation,
+                nn.Conv2d(4, 4, kernel_size=5, padding=2),
+                activation,
+                nn.MaxPool2d(kernel_size=p1),
+                nn.Conv2d(4, 16, kernel_size=5, padding=2),
+                activation,
+                nn.Conv2d(16, 16, kernel_size=5, padding=2),
+                activation,
+                nn.MaxPool2d(kernel_size=p2),
+                nn.Conv2d(16, 32, kernel_size=5, padding=2),
+                activation,
+                nn.Conv2d(32, 32, kernel_size=5, padding=2),
+                activation,
+                # util.Debug(lambda x : print(x.size())),
+                util.Flatten(),
+                nn.Linear(hid, 64),
+                activation,
+                nn.Linear(64, 64),
+                activation,
+                nn.Linear(64, 4),
+            )
 
-            # else:  # Use a small convnet to select the bounding box
-            #     hid = max(1, floor(w/5) * floor(h/5) * c)
-            #     self.preprocess = nn.Sequential(
-            #         nn.Conv2d(c, c, kernel_size=5, padding=2),
-            #         activation,
-            #         nn.Conv2d(c, c, kernel_size=5, padding=2),
-            #         activation,
-            #         nn.Conv2d(c, c, kernel_size=5, padding=2),
-            #         activation,
-            #         nn.MaxPool2d(kernel_size=5),
-            #         util.Flatten(),
-            #         nn.Linear(hid, 16),
-            #         activation,
-            #         nn.Linear(16, 4)
-            #     )
-
-            self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
-            # boost the size of the glimpse window for the reinforce option (so it has something to start with)
-
-        else: # if not adaptive
-            self.bound = Parameter(torch.FloatTensor([-1, 1, -1, 1]))
-
-        self.sigmas = Parameter(torch.randn( (indices.size(0), ) ))
+        self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
+        self.sigmas = Parameter(torch.randn( (template.size(0), ) ))
 
         if num_values > 0:
             self.values = Parameter(torch.randn((num_values,)))
         else:
-            self.values = Parameter(torch.randn( (indices.size(0), ) ))
+            self.values = Parameter(torch.randn( (template.size(0), ) ))
 
         self.bias = Parameter(torch.zeros(*self.out_size))
 
@@ -180,23 +159,17 @@ class SimpleImageLayer(gaussian_temp.HyperLayer):
         """
         Evaluates hypernetwork.
         """
-        # print('!!!', prep.size())
 
         b, c, h, w = input.size()
         l = self.pixel_indices.size(0)
 
-        if self.adaptive:
-
-            if prep is None:
-                bbox = self.preprocess(input)
-            else:
-                bbox = prep
-
-            # ensure that the bounding box covers a reasonable area of the image at the start
-            bbox = bbox + self.bbox_offset
-
+        if prep is None:
+            bbox = self.preprocess(input)
         else:
-            bbox = self.bound.unsqueeze(0).expand(b, 4)
+            bbox = prep
+
+        # ensure that the bounding box covers a reasonable area of the image at the start
+        bbox = bbox + self.bbox_offset
 
         ymin, ymax, xmin, xmax = bbox[:, 0], bbox[:, 1], bbox[:, 2], bbox[:, 3] # y is vert (height), x is hor (width),
 
@@ -311,28 +284,11 @@ class ASHModel(nn.Module):
             #util.Debug(lambda x : print(x.size())),
             util.Flatten(),
             nn.Linear(hid, hidlin),
-            nn.Dropout(DROPOUT),
             activation,
             nn.Linear(hidlin, hidlin),
-            nn.Dropout(DROPOUT),
             activation,
             nn.Linear(hidlin, (4 if not self.reinforce else 12) * glimpses)
         )
-
-        # hid = max(1, floor(w / 5) * floor(h / 5) * c)
-        # self.preprocess = nn.Sequential(
-        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
-        #     activation,
-        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
-        #     activation,
-        #     nn.Conv2d(c, c, kernel_size=5, padding=2),
-        #     activation,
-        #     nn.MaxPool2d(kernel_size=5),
-        #     util.Flatten(),
-        #     nn.Linear(hid, 16),
-        #     activation,
-        #     nn.Linear(16, (4 if not self.reinforce else 8) * glimpses)
-        # )
 
         self.hyperlayers = []
 
@@ -347,10 +303,6 @@ class ASHModel(nn.Module):
 
         self.k = k
         self.is_cuda = False
-
-        # if self.reinforce:
-        #     b = rfboost
-        #     self.register_buffer('bbox_offset', torch.FloatTensor([-b, b, -b, b]))
 
         self.bbox_offset = Parameter(torch.FloatTensor([-1, 1, -1, 1]) * self.rfboost)
 
@@ -389,9 +341,6 @@ class ASHModel(nn.Module):
 
                 bbox = self.get_bbox(ps)
                 sigs  = F.softplus(ps[:, 8:] + SIGMA_BOOST_REINFORCE)
-
-                # print('bbox', bbox.mean(dim=0))
-                # print('sigs', sigs.mean(dim=0))
 
                 stoch_node = torch.distributions.Normal(bbox, sigs)
                 sample = stoch_node.sample()
@@ -520,166 +469,6 @@ class ASHModel(nn.Module):
             ax.set_ylim(-0.5, h - 0.5)  # NB Axis flipped
 
         plt.gcf()
-
-# class ToImageLayer(gaussian_out.HyperLayer):
-#     """
-#     Simple hyperlayer for the 1D MNIST experiment
-#
-#     NB: k is the number of tuples _per hidden node_.
-#     """
-#
-#     def __init__(self, in_size, out_size, k, adaptive=True, additional=0, sigma_scale=0.1, num_values=-1, min_sigma=0.0, pre=0, subsample=None):
-#
-#         in_indices = torch.LongTensor(list(np.ndindex(in_size)))
-#
-#         in_indices = in_indices.unsqueeze(1).expand(prod(in_size), k, len(in_size))
-#         in_indices = in_indices.contiguous().view(prod(in_size) * k, len(in_size))
-#
-#         print('reconstruction  ',  in_indices.size()[0], ' index tuples')
-#
-#         super().__init__(in_size=in_size, out_size=out_size, in_indices=in_indices, additional=additional, subsample=subsample)
-#
-#         assert(len(out_size) == 3)
-#
-#         self.in_size = in_size
-#         self.k = k
-#         self.sigma_scale = sigma_scale
-#         self.num_values = num_values
-#         self.min_sigma = min_sigma
-#         self.out_size = out_size
-#         self.adaptive = adaptive
-#         self.pre = pre
-#
-#         # outsize = k * prod(out_size) * 5
-#
-#         # one-hot matrix for the inputs to the hypernetwork
-#         one_hots = torch.zeros(in_indices.size()[0], sum(in_size) + k)
-#         for r in range(in_indices.size()[0]):
-#
-#             min = 0
-#             for i in range(len(in_size)):
-#                 one_hots[r, min + int(in_indices[r, i])] = 1
-#                 min += in_size[i]
-#
-#             one_hots[r, min + r % k] = 1
-#             # print(out_indices[r, :], out_size)
-#             # print(one_hots[r, :])
-#
-#         # convert out_indices to float values that return the correct indices when sigmoided.
-#         # out_indices = inv(out_indices, torch.FloatTensor(out_size).unsqueeze(0).expand_as(out_indices))
-#         self.register_buffer('one_hots', one_hots)
-#
-#         if self.adaptive:
-#             activation = nn.ReLU()
-#
-#             assert(pre > 0)
-#
-#             self.preprocess = nn.Sequential(
-#                 util.Flatten(),
-#                 nn.Linear(prod(in_size), 64),
-#                 activation,
-#                 nn.Linear(64, 64),
-#                 activation,
-#                 nn.Linear(64, 64),
-#                 nn.Dropout(DROPOUT),
-#                 activation,
-#                 nn.Linear(64, pre),
-#                 nn.Sigmoid()
-#             )
-#
-#             self.source = nn.Sequential(
-#                 nn.Linear(pre + sum(in_size) + k, 64), # input + output index (one hots) + k (one hot)
-#                 activation,
-#                 nn.Linear(64, 64),
-#                 activation,
-#                 nn.Linear(64, 64),
-#                 activation,
-#                 nn.Linear(64, 4),
-#             )
-#
-#             self.sigmas = Parameter(torch.randn((1, self.k * prod(in_size), 1)))
-#
-#         else:
-#             self.nas = Parameter(torch.randn((self.k * prod(in_size), 5)))
-#
-#         self.bias = Parameter(torch.zeros(*out_size))
-#
-#         if num_values > 0:
-#             self.values = Parameter(torch.randn((num_values,)))
-#
-#     def hyper(self, input):
-#         """
-#         Evaluates hypernetwork.
-#         """
-#
-#         b = input.size()[0]
-#         l, dh = self.one_hots.size()
-#
-#         hots = Variable(self.one_hots.unsqueeze(0).expand(b, l, dh))
-#
-#         if self.adaptive:
-#
-#             input = self.preprocess(input)
-#
-#             b, d = input.size()
-#             assert(d == self.pre)
-#
-#             input = input.unsqueeze(1).expand(b, l, d)
-#             input = torch.cat([input, hots], dim=2)
-#
-#             input = input.view(b*l, -1)
-#
-#             res = self.source(input).view(b, l , 4)
-#
-#             ss = self.sigmas.expand(b, l, 1)
-#
-#             res = torch.cat([res[:, :, :-1], ss, res[:, :, -1:]], dim=2)
-#
-#         else:
-#             res = self.nas.unsqueeze(0).expand(b, l, 5)
-#
-#         means, sigmas, values = self.split_out(res, self.out_size)
-#
-#         sigmas = sigmas * self.sigma_scale + self.min_sigma
-#
-#         if self.num_values > 0:
-#             mult = l // self.num_values
-#
-#             values = self.values.unsqueeze(0).expand(mult, self.num_values)
-#             values = values.contiguous().view(-1)[:l]
-#
-#             values = values.unsqueeze(0).expand(b, l)
-#
-#         self.last_values = values.data
-#
-#         return means, sigmas, values, self.bias
-#
-#     def plot(self, input):
-#         perrow = 5
-#
-#         images = self.forward(input)
-#         num, c, w, h = images.size()
-#
-#         rows = int(math.ceil(num/perrow))
-#
-#         means, sigmas, values, _ = self.hyper(input)
-#
-#         images = images.data
-#
-#         plt.figure(figsize=(perrow * 3, rows*3))
-#
-#         for i in range(num):
-#
-#             ax = plt.subplot(rows, perrow, i+1)
-#
-#             im = np.transpose(images[i, :, :, :].cpu().numpy(), (1, 2, 0))
-#             im = np.squeeze(im)
-#
-#             ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
-#
-#             util.plot(means[i, :, 1:].unsqueeze(0), sigmas[i, :, 1:].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax)
-#
-#         plt.gcf()
 
 PLOT = True
 COLUMN = 13

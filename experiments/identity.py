@@ -31,7 +31,7 @@ Simple experiment: learn the identity function from one tensor to another
 
 class ReinforceLayer(nn.Module):
     """
-    Baseline method: reinforcement learning.
+    Baseline method: use REINFORCE to sample from the continuous index tuples.
     """
     def __init__(self, size,
                  sigma_scale=0.2,

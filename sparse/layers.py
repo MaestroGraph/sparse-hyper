@@ -11,6 +11,7 @@ import torch.nn.functional as F
 
 import tensors
 
+from sparse import util
 from sparse.util import Bias, sparsemult, contains_nan, bmult, nduplicates
 
 import sys
@@ -72,7 +73,7 @@ def densities(points, means, sigmas):
 
     return num
 
-def transform_means(means, size):
+def transform_means(means, size, clamp=False):
     """
     Transforms raw parameters for the index tuples (with values in (-inf, inf)) into parameters within the bound of the
     dimensions of the tensor.
@@ -87,7 +88,10 @@ def transform_means(means, size):
     b, k, rank = means.size()
 
     # Scale to [0, 1]
-    means = F.sigmoid(means)
+    if clamp:
+        means = means.clamp(0.0, 1.0)
+    else:
+        means = F.sigmoid(means)
 
     # Compute upper bounds
     s = torch.tensor(list(size), dtype=torch.float, device='cuda' if means.is_cuda else 'cpu') - 1
@@ -402,6 +406,21 @@ class NASLayer(SparseLayer):
                  gadditional=0,
                  rrange=None,
                  radditional=None):
+        """
+
+        :param in_size:
+        :param out_size:
+        :param k:
+        :param sigma_scale:
+        :param fix_values:
+        :param has_bias:
+        :param min_sigma:
+        :param gadditional:
+        :param rrange:
+        :param radditional:
+        :param clamp:
+
+        """
 
         super().__init__(in_rank=len(in_size),
                          out_size=out_size,
@@ -420,8 +439,11 @@ class NASLayer(SparseLayer):
 
         self.rank = len(in_size) + len(out_size)
 
-        self.pmeans = Parameter(torch.randn(k, self.rank))
-        self.psigmas = Parameter(torch.randn(k))
+        imeans = torch.randn(k, self.rank)
+        isigmas = torch.randn(k)
+
+        self.pmeans = Parameter(imeans)
+        self.psigmas = Parameter(isigmas)
 
         if fix_values:
             self.register_buffer('pvalues', torch.ones(k))

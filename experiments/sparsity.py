@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from argparse import ArgumentParser
 
-import os
+import os, sys
 
 from sparse import util, NASLayer
 
@@ -38,7 +38,7 @@ LEARNING_RATES = [0.0001, 0.0005, 0.001, 0.005, 0.01]
 
 def getmodel(arg, insize, numcls, points):
 
-    if arg.method == 'l1':
+    if arg.method == 'l1' or arg.method == 'lp':
 
         one = nn.Linear(util.prod(insize), arg.hidden)
         two = nn.Linear(arg.hidden, numcls)
@@ -48,31 +48,6 @@ def getmodel(arg, insize, numcls, points):
             one, nn.Sigmoid(),
             two, nn.Softmax()
         )
-
-    # elif arg.method == 'nas':
-    #
-    #     rng = (
-    #         min(arg.hidden, arg.range), 1,
-    #         arg.range, arg.range)
-    #
-    #     one = NASLayer(
-    #         in_size=insize, out_size=(arg.hidden,), k=points,
-    #         gadditional=arg.gadditional, radditional=arg.radditional, rrange=rng, has_bias=True,
-    #         min_sigma=arg.min_sigma
-    #     )
-    #
-    #     rng = (3, min(arg.range, arg.hidden))
-    #
-    #     two = NASLayer(
-    #         in_size=(arg.hidden,), out_size=(numcls,), k=points,
-    #         gadditional=arg.gadditional, radditional=arg.radditional, rrange=rng, has_bias=True,
-    #         min_sigma=arg.min_sigma
-    #     )
-    #
-    #     model = nn.Sequential(
-    #         one, nn.Sigmoid(),
-    #         two, nn.Softmax()
-    #     )
 
     elif arg.method == 'nas':
 
@@ -155,8 +130,11 @@ def sweep(arg):
                     loss = F.cross_entropy(output, labels)
 
                     if arg.method == 'l1':
-                        l1 = one.weight.norm(p=1) # + two.weight.norm(p=1)
+                        l1 = one.weight.norm(p=1)
                         loss = loss + lambd * l1
+                    if arg.method == 'lp':
+                        lp = one.weight.norm(p=arg.p)
+                        loss = loss + lambd * lp
 
                     loss.backward()
 
@@ -224,8 +202,11 @@ def sweep(arg):
                 loss = F.cross_entropy(output, labels)
 
                 if arg.method == 'l1':
-                    l1 = one.weight.norm(p=1) # + two.weight.norm(p=1)
+                    l1 = one.weight.norm(p=1)
                     loss = loss + lambd * l1
+                if arg.method == 'lp':
+                    lp = one.weight.norm(p=arg.p)
+                    loss = loss + lambd * lp
 
                 loss.backward()
 
@@ -254,7 +235,7 @@ def sweep(arg):
         # Compute density
         total = util.prod(insize) * arg.hidden
 
-        if arg.method == 'l1':
+        if arg.method == 'l1' or arg.method== 'lp':
             density = (one.weight.data.abs() > 0.0001).sum().item() / float(total)
         elif arg.method == 'nas':
             density = (points)/float(total)
@@ -341,8 +322,11 @@ def single(arg):
                 loss = F.cross_entropy(output, labels)
 
                 if arg.method == 'l1':
-                    l1 = one.weight.norm(p=1) + two.weight.norm(p=1)
+                    l1 = one.weight.norm(p=1)
                     loss = loss + lambd * l1
+                if arg.method == 'lp':
+                    lp = one.weight.norm(p=arg.p)
+                    loss = loss + lambd * lp
 
                 loss.backward()
 
@@ -379,8 +363,8 @@ def single(arg):
         total = util.prod(insize) * arg.hidden
 
 
-        if arg.method == 'l1':
-            density = (one.weight != 0.0).sum() / float(total)
+        if arg.method == 'l1' or arg.method == 'lp':
+            density = (one.weight > 0.0001).sum().item() / float(total)
         elif arg.method == 'nas':
             density = (points) / total
         else:
@@ -431,6 +415,12 @@ if __name__ == "__main__":
                         dest="method",
                         help="Method to use (l1, nas) ",
                         default='l1', type=str)
+
+
+    parser.add_argument("-P", "--lp-p",
+                        dest="p",
+                        help="Exponent in lp reg",
+                        default=2.0, type=float)
 
     parser.add_argument("-t", "--task",
                         dest="task",

@@ -169,12 +169,7 @@ def sweep(arg):
                             input, labels = input.cuda(), labels.cuda()
                         input, labels = Variable(input), Variable(labels)
 
-                        if arg.method == 'l1':
-                            output = model(input)
-                        else:
-                            output = F.softmax(two(F.sigmoid(one(input, train=False))), dim=1)
-                            # TODO: make sparse layer respond to train
-
+                        output = model(input)
                         outcls = output.argmax(dim=1)
 
                         total   += outcls.size(0)
@@ -369,11 +364,7 @@ def single(arg):
                             input, labels = input.cuda(), labels.cuda()
                         input, labels = Variable(input), Variable(labels)
 
-                        if arg.method == 'l1':
-                            output = model(input)
-                        else:
-                            output = F.softmax(two(F.sigmoid(one(input, train=False))), dim=1)
-                            # TODO: make sparse layer respond to train
+                        output = model(input)
 
                         outcls = output.argmax(dim=1)
 

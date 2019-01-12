@@ -33,8 +33,8 @@ TODO: Test temp version.
 
 """
 
-BATCH_SIZES    = [256, 128, 64, 32]
-LEARNING_RATES = [0.0001, 0.0005, 0.001, 0.005, 0.01]
+BATCH_SIZES    = [32] # [256, 128, 64, 32]
+LEARNING_RATES = [0.01] # [0.0001, 0.0005, 0.001, 0.005, 0.01]
 
 def getmodel(arg, insize, numcls, points):
 
@@ -143,7 +143,7 @@ def sweep(arg):
 
             # Train for fixed number of epochs
             for e in trange(arg.epochs):
-                for input, labels in tqdm(trainloader):
+                for input, labels in trainloader:
                     opt.zero_grad()
 
                     if arg.cuda:
@@ -237,33 +237,27 @@ def sweep(arg):
 
             total, correct = 0.0, 0.0
             for input, labels in testloader:
-                    opt.zero_grad()
+                opt.zero_grad()
 
-                    if arg.cuda:
-                        input, labels = input.cuda(), labels.cuda()
-                    input, labels = Variable(input), Variable(labels)
+                if arg.cuda:
+                    input, labels = input.cuda(), labels.cuda()
+                input, labels = Variable(input), Variable(labels)
 
-                    if arg.method == 'l1':
-                        output = model(input)
-                    else:
-                        output = F.softmax(two(F.sigmoid(one(input, train=False))), dim=1)
-                        # TODO: make sparse layer respond to train
+                output = model(input)
+                outcls = output.argmax(dim=1)
 
-                    outcls = output.argmax(dim=1)
-
-                    total   += outcls.size(0)
-                    correct += (outcls == labels).sum().item()
+                total   += outcls.size(0)
+                correct += (outcls == labels).sum().item()
 
             acc = correct / float(total)
 
         # Compute density
-        total = util.prod(insize) + arg.hidden * numcls
-
+        total = util.prod(insize) * arg.hidden
 
         if arg.method == 'l1':
-            density = ((one.weight != 0.0).sum() + (two.weight != 0.0).sum())/ float(total)
+            density = (one.weight.data.abs() > 0.0001).sum().item() / float(total)
         elif arg.method == 'nas':
-            density = (points * 2)/total
+            density = (points)/float(total)
         else:
             raise Exception('Method {} not recognized'.format(arg.task))
 
@@ -382,13 +376,13 @@ def single(arg):
                 tbw.add_scalar('sparsity/test acc', acc, e)
 
         # Compute density
-        total = util.prod(insize) + arg.hidden * numcls
+        total = util.prod(insize) * arg.hidden
 
 
         if arg.method == 'l1':
-            density = ((one.weight != 0.0).sum() + (two.weight != 0.0).sum())/ float(total)
+            density = (one.weight != 0.0).sum() / float(total)
         elif arg.method == 'nas':
-            density = (points * 2)/total
+            density = (points) / total
         else:
             raise Exception('Method {} not recognized'.format(arg.task))
 

@@ -81,7 +81,7 @@ def contract(indices, values, size, x, cuda=None):
     x_flat = x.view(b, -1, 1)
 
     # Prevent segfault
-    assert mindices.min() >= 0, 'negative index in flattened indices: \n {} \n Original indices {}'.format(mindices, indices)
+    assert mindices.min() >= 0, 'negative index in flattened indices: {} \n {} \n Original indices {} \n {}'.format(mindices.size(), mindices, indices.size(), indices)
     assert not util.contains_nan(values.data), 'NaN in values:\n {}'.format(values)
 
     y_flat = batchmm(mindices, values, flat_size, x_flat, cuda)

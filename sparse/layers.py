@@ -149,7 +149,7 @@ class SparseLayer(nn.Module):
                  temp_indices=None,
                  learn_cols=None,
                  chunk_size=None,
-                 gadditional=0, radditional=0, rrange=None,
+                 gadditional=0, radditional=0, region=None,
                  bias_type=Bias.DENSE):
         """
         :param in_rank: Nr of dimensions in the input. The specific size may vary between inputs.
@@ -163,7 +163,7 @@ class SparseLayer(nn.Module):
             list counts as a single context. This is mostly useful in combination with templating.
         :param gadditional: Number of points to sample globally per index tuple
         :param radditional: Number of points to sample locally per index tuple
-        :param rrange: Tuple describing the size of the region over which the local additional points are sampled (must
+        :param region: Tuple describing the size of the region over which the local additional points are sampled (must
             be smaller than the size of the tensor).
         :param bias_type: The type of bias of the sparse layer (none, dense or sparse).
         :param subsample:
@@ -172,11 +172,13 @@ class SparseLayer(nn.Module):
         super().__init__()
         rank = in_rank + len(out_size)
 
+        assert len(region) == len(learn_cols), "Region should span as many dimensions as there are learnable columns"
+
         self.in_rank = in_rank
         self.out_size = out_size # without batch dimension
         self.gadditional = gadditional
         self.radditional = radditional
-        self.region = rrange
+        self.region = region
         self.chunk_size = chunk_size
 
         self.bias_type = bias_type
@@ -404,7 +406,7 @@ class NASLayer(SparseLayer):
                  fix_values=False, has_bias=False,
                  min_sigma=0.0,
                  gadditional=0,
-                 rrange=None,
+                 region=None,
                  radditional=None):
         """
 
@@ -416,7 +418,7 @@ class NASLayer(SparseLayer):
         :param has_bias:
         :param min_sigma:
         :param gadditional:
-        :param rrange:
+        :param region:
         :param radditional:
         :param clamp:
 
@@ -427,7 +429,7 @@ class NASLayer(SparseLayer):
                          bias_type=Bias.DENSE if has_bias else Bias.NONE,
                          gadditional=gadditional,
                          radditional=radditional,
-                         rrange=rrange)
+                         region=region)
 
         self.k = k
         self.in_size = in_size

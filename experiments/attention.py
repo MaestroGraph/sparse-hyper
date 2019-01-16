@@ -43,6 +43,7 @@ fh.setLevel(logging.INFO)
 LOG.addHandler(fh)
 
 SIGMA_BOOST_REINFORCE = 2.0 # ensure that first sigmas are large enough
+EPSILON = 10e-7
 
 def inv(i, max):
     sc = (i/max) * 0.999 + 0.0005
@@ -61,14 +62,52 @@ def rescale(image, outsize):
 
     return torch.from_numpy( np.transpose(image, (2, 0, 1)) )
 
-class SimpleImageLayer(sparse.SparseLayer):
+HIDLIN = 512
+def prep(ci, hi, wi):
+    """
+    Canonical preprocessing model (list of modules). Results in linear layer
+    of HIDLIN units
+
+    :return:
+    """
+    activation = nn.ReLU()
+
+    p1, p2 = 4, 2
+    ch1, ch2, ch3 = 32, 64, 128
+
+    hid = max(1, floor(floor(wi / p1) / p2) * floor(floor(hi / p1) / p2)) * ch3
+
+    return [
+        nn.Conv2d(ci, ch1, kernel_size=3, padding=1),
+        activation,
+        nn.Conv2d(ch1, ch1, kernel_size=3, padding=1),
+        activation,
+        nn.MaxPool2d(kernel_size=p1),
+        nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
+        activation,
+        nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
+        activation,
+        nn.MaxPool2d(kernel_size=p2),
+        nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
+        activation,
+        nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
+        activation,
+        #util.Debug(lambda x : print(x.size())),
+        util.Flatten(),
+        nn.Linear(hid, HIDLIN),
+        activation,
+        nn.Linear(HIDLIN, HIDLIN)
+    ]
+
+class AttentionImageLayer(sparse.SparseLayer):
     """
     NB: k is the number of tuples per input dimension. That is, k = 4 results in a 16 * c grid of inputs evenly spaced
      across a bounding box
     """
 
-    def __init__(self, in_size, k,  gadditional=0, radditional=0, region=None, sigma_scale=0.1,
-                 num_values=-1, min_sigma=0.0, preprocess=None):
+    def __init__(self, in_size, k,  gadditional=0, radditional=0,
+                 region=None, sigma_scale=0.1,
+                 num_values=-1, min_sigma=0.0, glimpses=1):
 
         assert(len(in_size) == 3)
 
@@ -79,81 +118,50 @@ class SimpleImageLayer(sparse.SparseLayer):
         self.min_sigma = min_sigma
 
         ci, hi, wi = in_size
-        out_size = co, ho, wo = ci, k, k
+        co, ho, wo = ci , k, k
+        out_size = glimpses, co, ho, wo
 
         self.out_size = out_size
 
+        map = (glimpses, co, k, k)
 
-        template = torch.LongTensor(list(np.ndindex( (k, k, co) )))[:, (2, 0, 1)]
+        template = torch.LongTensor(list(np.ndindex( map))) # [:, (2, 0, 1)]
 
-        pixel_indices  = template[:, 1:3].clone()
+        assert template.size() == (prod(map), 4)
 
-        template = torch.cat([
-            template,
-            template[:, 0:1],
-            template[:, 1:3].clone().fill_(0.0)
-            ], dim=1)
+        pixel_indices = template[:, 2:].clone()
 
-        self.lc = [4, 5]
-        self.lc_sizes = [(out_size+in_size)[i] for i in self.lc]
+        template = torch.cat([template, template[:, 1:]], dim=1)
+
+        assert template.size() == (prod(map), 7)
+
+        self.lc = [5, 6] # learnable columns
 
         super().__init__(
-            in_rank=3, out_size=(co, ho, wo),
-            temp_indices=template, learn_cols=self.lc,
-            gadditional=gadditional, radditional=radditional, region=region)
+            in_rank=3, out_size=(glimpses, co, ho, wo),
+            temp_indices=template,
+            learn_cols=self.lc,
+            gadditional=gadditional, radditional=radditional, region=region,
+            bias_type=util.Bias.NONE)
 
         # scale to [0,1] in each dim
-        pixel_indices = pixel_indices.float() / torch.FloatTensor([k, k]).unsqueeze(0).expand_as(pixel_indices)
+        pixel_indices = pixel_indices.float() / torch.FloatTensor([[k, k]]).expand_as(pixel_indices)
         self.register_buffer('pixel_indices', pixel_indices)
 
-        if preprocess is not None:
-            self.preprocess = preprocess
-        else:
-            activation = nn.ReLU()
+        self.num_glimpses = glimpses
 
-            p1 = 4
-            p2 = 2
-
-            c, w, h = in_size
-
-            # default preprocess network
-            hid = max(1, floor(floor(w/p1)/p2) * floor(floor(h/p1)/p2)) * 32
-
-            self.preprocess = nn.Sequential(
-                #nn.MaxPool2d(kernel_size=4),
-                # util.Debug(lambda x: print(x.size())),
-                nn.Conv2d(c, 4, kernel_size=5, padding=2),
-                activation,
-                nn.Conv2d(4, 4, kernel_size=5, padding=2),
-                activation,
-                nn.MaxPool2d(kernel_size=p1),
-                nn.Conv2d(4, 16, kernel_size=5, padding=2),
-                activation,
-                nn.Conv2d(16, 16, kernel_size=5, padding=2),
-                activation,
-                nn.MaxPool2d(kernel_size=p2),
-                nn.Conv2d(16, 32, kernel_size=5, padding=2),
-                activation,
-                nn.Conv2d(32, 32, kernel_size=5, padding=2),
-                activation,
-                # util.Debug(lambda x : print(x.size())),
-                util.Flatten(),
-                nn.Linear(hid, 64),
-                activation,
-                nn.Linear(64, 64),
-                activation,
-                nn.Linear(64, 4),
-            )
+        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, 4 * glimpses), util.Reshape((glimpses, 4))]
+        self.preprocess = nn.Sequential(*modules)
 
         self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
-        self.sigmas = Parameter(torch.randn( (template.size(0), ) ))
+        # -- added to the bounding box, to make sure there's a training signal
+        #    from the initial weights (i.e. in case all outputs are close to zero)
 
-        if num_values > 0:
-            self.values = Parameter(torch.randn((num_values,)))
-        else:
-            self.values = Parameter(torch.randn( (template.size(0), ) ))
+        # One sigma per glimpse
+        self.sigmas = Parameter(torch.randn( (glimpses, ) ))
 
-        self.bias = Parameter(torch.zeros(*self.out_size))
+        # All values 1, no bias. Glimpses extract only pixel information.
+        self.register_buffer('one', torch.FloatTensor([1.0]))
 
     def hyper(self, input, prep=None):
         """
@@ -161,61 +169,41 @@ class SimpleImageLayer(sparse.SparseLayer):
         """
 
         b, c, h, w = input.size()
-        l = self.pixel_indices.size(0)
 
-        if prep is None:
-            bbox = self.preprocess(input)
-        else:
-            bbox = prep
+        bboxes = self.preprocess(input) # (b, g, 4)
+        b, g, _ = bboxes.size()
 
         # ensure that the bounding box covers a reasonable area of the image at the start
-        bbox = bbox + self.bbox_offset
+        bboxes = bboxes + self.bbox_offset[None, None, :]
 
-        ymin, ymax, xmin, xmax = bbox[:, 0], bbox[:, 1], bbox[:, 2], bbox[:, 3] # y is vert (height), x is hor (width),
+        # Fit to the max pixel values
+        bboxes = sparse.transform_means(bboxes, (h, h, w, w))
 
-        yrange, xrange = ymax - ymin, xmax - xmin
+        vmin, vmax, hmin, hmax = bboxes[:, :, 0], bboxes[:, :, 1], bboxes[:, :, 2], bboxes[:, :, 3] # vert (height), hor (width),
 
-        pih, piw = self.pixel_indices.size()
-        pixel_indices = self.pixel_indices.unsqueeze(0).expand(b, pih, piw)
+        vrange, hrange = vmax - vmin, hmax - hmin
 
-        range = torch.cat([yrange.unsqueeze(1), xrange.unsqueeze(1)], dim=1).unsqueeze(1)
-        range = range.expand_as(pixel_indices)
+        pih, _ = self.pixel_indices.size()
+        pixel_indices = self.pixel_indices.view(g, pih // g, 2)
+        pixel_indices = pixel_indices[None, :, :, :].expand(b, g, pih // g, 2)
 
-        min = torch.cat([ymin.unsqueeze(1), xmin.unsqueeze(1)], dim=1).unsqueeze(1)
-        min = min.expand_as(pixel_indices)
+        range = torch.cat([vrange[:, :, None, None], hrange[:, :, None, None]], dim=3)
+        range = range.expand(b, g, pih//g, 2)
 
-        pixel_scaled = pixel_indices * range + min
+        min = torch.cat([vmin[:, :, None, None], hmin[:, :, None,  None]], dim=3)
+        min = min.expand(b, g, pih//g, 2)
 
-        # Expand to batch dim
-        sigmas = self.sigmas.unsqueeze(0).expand(b, l)
+        means = pixel_indices * range + min
+        means = means.view(b, pih, 2)
 
-        # Unpack the values
-        if self.num_values > 0:
-            mult = l // self.num_values
-
-            values = self.values.unsqueeze(0).expand(mult, self.num_values)
-            values = values.contiguous().view(-1)[:l]
-
-            # Expand to batch dim
-            values = values.unsqueeze(0).expand(b, l)
-        else:
-            values = self.values.unsqueeze(0).expand(b, l)
-
-        res = torch.cat([pixel_scaled, sigmas.unsqueeze(2), values.unsqueeze(2)], dim=2)
-
-        means, sigmas, values = self.split_out(res, self.lc_sizes)
-
+        # Expand sigmas
+        sigmas = self.sigmas[None, :, None].expand(b, g, pih//g).contiguous().view(b, pih)
+        sigmas = sparse.transform_sigmas(sigmas, (h, w))
         sigmas = sigmas * self.sigma_scale + self.min_sigma
 
-        self.last_values = values.data
+        values = self.one[None, :].expand(b, pih)
 
-        return means, sigmas, values, self.bias
-
-    def forward(self, input, prep=None):
-
-        self.last_out = super().forward(input, prep=prep)
-
-        return self.last_out
+        return means, sigmas, values
 
     def plot(self, images):
         perrow = 5
@@ -224,7 +212,7 @@ class SimpleImageLayer(sparse.SparseLayer):
 
         rows = int(math.ceil(num/perrow))
 
-        means, sigmas, values, _ = self.hyper(images)
+        means, sigmas, values = self.hyper(images)
 
         images = images.data
 
@@ -239,263 +227,90 @@ class SimpleImageLayer(sparse.SparseLayer):
 
             ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
 
-            util.plot(means[i, :, 1:].unsqueeze(0), sigmas[i, :, 1:].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax, flip_y=h, alpha_global=0.2)
+            util.plot(means[i, :, :].unsqueeze(0), sigmas[i, :, :].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax, flip_y=h, alpha_global=0.2)
 
         plt.gcf()
 
-class ASHModel(nn.Module):
+class ReinforceLayer(nn.Module):
+    """
+    Simple reinforce-based baseline. Assumes a fixed glimpse size.
+    """
 
-    def __init__(self, shape, k, glimpses,  num_values, min_sigma, subsample, hidden,
+    def __init__(self, in_shape, glimpses, glimpse_size,
                  num_classes, reinforce=False, gadditional=None, radditional=None, region=None, rfboost=2.0):
         super().__init__()
 
         self.reinforce = reinforce
         self.rfboost = rfboost
         self.num_glimpses = glimpses
+        self.glimpse_size = glimpse_size
+        self.in_shape = in_shape
 
         activation = nn.ReLU()
 
-        p1 = 4
-        p2 = 2
+        ci, hi, wi = in_shape
 
-        ch1, ch2, ch3 = 32, 64, 128
-
-        c, h, w = shape
-        hid = max(1, floor(floor(w / p1) / p2) * floor(floor(h / p1) / p2)) * ch3
-        hidlin = 512
-
-        self.preprocess = nn.Sequential(
-            # nn.MaxPool2d(kernel_size=4),
-            # util.Debug(lambda x: print(x.size())),
-            nn.Conv2d(c, ch1, kernel_size=3, padding=1),
-            activation,
-            nn.Conv2d(ch1, ch1, kernel_size=3, padding=1),
-            activation,
-            nn.MaxPool2d(kernel_size=p1),
-            nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
-            activation,
-            nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
-            activation,
-            nn.MaxPool2d(kernel_size=p2),
-            nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
-            activation,
-            nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
-            activation,
-            #util.Debug(lambda x : print(x.size())),
-            util.Flatten(),
-            nn.Linear(hid, hidlin),
-            activation,
-            nn.Linear(hidlin, hidlin),
-            activation,
-            nn.Linear(hidlin, (4 if not self.reinforce else 12) * glimpses)
-        )
-
-        self.hyperlayers = []
-
-        for _ in range(glimpses):
-            self.hyperlayers.append(SimpleImageLayer(shape, k=k, adaptive=True,
-                                            gadditional=gadditional, radditional=radditional, region=region,
-                                            num_values=num_values,
-                                            min_sigma=min_sigma, subsample=subsample))
-
-        self.lin1 = nn.Linear(k * k * shape[0] * glimpses, hidden)
-        self.lin2 = nn.Linear(hidden, num_classes)
-
-        self.k = k
-        self.is_cuda = False
-
-        self.bbox_offset = Parameter(torch.FloatTensor([-1, 1, -1, 1]) * self.rfboost)
-
-    def cuda(self):
-
-        super().cuda()
-        self.is_cuda = True
-
-        for hyper in self.hyperlayers:
-            hyper.apply(lambda t: t.cuda())
+        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, glimpses * 2), util.Reshape(glimpses, 3)]
+        self.preprocess = nn.Sequential(*modules)
 
     def forward(self, image):
 
         prep = self.preprocess(image)
+        b, g, _= prep.size()
+        ci, hi, wi = self.in_shape
+        hg, wg = self.glimpse_size
 
-        b = image.size(0)
-        glimpses = []
+        prep = prep.view(b * g, 3)
 
-        if not self.reinforce:
+        means = prep[:, :2]
+        sigmas = prep[:, 2]
 
-            for i, hyper in enumerate(self.hyperlayers):
-                glimpses.append(hyper(image, prep=prep[:, i*4 : (i+1)*4]))
+        sigmas = sparse.transform_sigmas(sigmas, self.in_shape[1:])
 
-            x = torch.cat(glimpses, dim=1).view(b, -1)
-            x = F.relu(self.lin1(x))
-            x = F.softmax(self.lin2(x), dim=1)
+        stoch_means = torch.distributions.Normal(means, sigmas)
+        sample = stoch_means.sample()
 
-            return x
+        point_means = sparse.transform_means(sample, (hi-hg, wi-wg)).round().long()
+        point_means = point_means.view(b, g, -1)
 
-        else:
-            # RL baseline
-            stoch_nodes = []
-            samples = []
-            for i in range(self.num_glimpses):
-                ps = prep[:, i * 12: (i + 1) * 12]
-
-                bbox = self.get_bbox(ps)
-                sigs  = F.softplus(ps[:, 8:] + SIGMA_BOOST_REINFORCE)
-
-                stoch_node = torch.distributions.Normal(bbox, sigs)
-                sample = stoch_node.sample()
-
-                stoch_nodes.append(stoch_node)
-                samples.append(sample)
-
-                glimpses.append(self.extract(image, sample, (self.k, self.k)))
-
-            x = torch.cat(glimpses, dim=1).view(b, -1)
-            x = F.relu(self.lin1(x))
-            x = F.softmax(self.lin2(x), dim=1)
-
-            return x, stoch_nodes, samples
-
-    def extract(self, image, bbox, res=(12,12)):
-        """
-        Extracts a rectangle from the given image and scales it down.
-
-        :param image:
-        :param bbox:
-        :param res:
-        :return:
-        """
-
-        b, c, h, w  = image.size()
-
-        bbox = F.sigmoid(bbox)
-        bbox[:, :2] = (bbox[:, :2] - gaussian.EPSILON) * h
-        bbox[:, 2:] = (bbox[:, 2:] - gaussian.EPSILON) * w
-        bbox = bbox.round().long()
-
-        y, x = bbox[:, :2], bbox[:, 2:]  # y is vert (height), x is hor (width),
-
-        # flip the bounds that are the wrong way around
-        y, _ = torch.sort(y, dim=1)
-        x, _ = torch.sort(x, dim=1)
-
-        extract = torch.cuda.FloatTensor(b, c, res[0], res[1]).zero_() if self.is_cuda else torch.FloatTensor(b, c, res[0], res[1]).zero_()
-
+        # extract
+        batch = []
         for bi in range(b):
-            if (x[bi, 0] - x[bi, 1]).abs() > 2 and (y[bi, 0] - y[bi, 1]).abs() > 2:
+            extracts = []
+            for gi in range(g):
+                h, w = point_means[bi, gi, :]
+                ext = image.data[bi, :, h:h+hg, w:w+wg]
+                extracts.append(ext[None, None, :, :, :])
 
-                temp = image[bi, :, y[bi, 0]:y[bi, 1], x[bi, 0]:x[bi, 1],]
+            batch.append(torch.cat(extracts, dim=1))
+        result = torch.cat(batch, dim=0)
 
-                extract[bi] = rescale(temp, outsize=res)
-
-        extract = Variable(extract)
-
-        return extract
-
-
-    def get_bbox(self, ps):
-
-        bbox = ps[:, :4]
-        bbox_offset = ps[:, 4:8] * 0.0001
-
-        # Center the x and y coordinates
-        bbox[:, :2] = bbox[:, :2] - bbox[:, :2].mean(dim=1, keepdim=True)
-        bbox[:, 2:] = bbox[:, 2:] - bbox[:, 2:].mean(dim=1, keepdim=True)
-
-        bbox = bbox * self.rfboost + bbox_offset
-
-        return bbox
-
-    def debug(self):
-        print(list(self.preprocess.parameters())[0].grad)
-
-    def plot(self, images):
-
-        prep = self.preprocess(images)
-        perrow = 5
-        num, c, w, h = images.size()
-
-        rows = int(math.ceil(num / perrow))
-
-        plt.figure(figsize=(perrow * 3, rows * 3))
-
-        # TODO: remove inefficiency by reversing loops
-        for i in range(num):
-            ax = plt.subplot(rows, perrow, i + 1)
-
-            im = np.transpose(images.data[i, :, :, :].cpu().numpy(), (1, 2, 0))
-            im = np.squeeze(im)
-
-            ax.imshow(im, interpolation='nearest', extent=(-0.5, w - 0.5, -0.5, h - 0.5), origin='upper', cmap='gray_r')
-
-            if not self.reinforce:
-                # Draw dots
-
-                for j, hyper in enumerate(self.hyperlayers):
-                    means, sigmas, values, _ = hyper.hyper(images, prep=prep[:, j * 4: (j + 1) * 4])
-
-                    util.plot(means[i, :].unsqueeze(0), sigmas[i, :].unsqueeze(0), values[i, :].unsqueeze(0),
-                              axes=ax, flip_y=h, alpha_global=0.3)
-            else:
-                # Draw rectangle
-
-                for j in range(self.num_glimpses):
-
-                    ps = prep[:, j * 8: (j + 1) * 8]
-                    bbox = self.get_bbox(ps)
-                    # print(bbox[:3])
-
-                    bbox = F.sigmoid(bbox)
-                    bbox[:, :2] = (bbox[:, :2] - gaussian.EPSILON) * h
-                    bbox[:, 2:] = (bbox[:, 2:] - gaussian.EPSILON) * w
-                    bbox = bbox.round().long()
-
-#                    print(bbox[j])
-
-                    y, x = bbox[:, :2], bbox[:, 2:]  # y is vert (height), x is hor (width),
-
-                    # flip the bounds that are the wrong way around
-                    y, _ = torch.sort(y, dim=1)
-                    x, _ = torch.sort(x, dim=1)
-
-                    ax.add_patch(
-                        mpl.patches.Rectangle(xy = (y[i, 0], x[i, 0]), width =y[i, 1] - y[i, 0], height=x[i, 1] - x[i, 0], linewidth=1, edgecolor='r', facecolor='none', alpha=0.7)
-                    )
-
-            ax.xaxis.set_visible(False)
-            ax.yaxis.set_visible(False)
-
-            ax.set_xlim(-0.5, w - 0.5)
-            ax.set_ylim(-0.5, h - 0.5)  # NB Axis flipped
-
-        plt.gcf()
+        return result, stoch_means.view(b, g, -1)
 
 PLOT = True
 COLUMN = 13
 
-def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
-       seed=1, lr=0.001, subsample=None, num_values=-1, min_sigma=0.0,
-       tb_dir=None, data='./data', hidden=32, task='mnist', final=False, dropout=0.0, plot_every=1):
+def go(arg):
 
-    if seed < 0:
+    if arg.seed < 0:
         seed = random.randint(0, 1000000)
         print('random seed: ', seed)
     else:
-        torch.manual_seed(seed)
+        torch.manual_seed(arg.seed)
 
-    tbw = SummaryWriter(log_dir=tb_dir)
+    tbw = SummaryWriter(log_dir=arg.tb_dir)
 
     normalize = transforms.Compose([transforms.ToTensor()])
 
-    if(task=='mnist'):
-        data = data + os.sep + task
+    if(arg.task=='mnist'):
+        data = arg.data + os.sep + arg.task
 
-        if final:
+        if arg.final:
             train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
-            trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
+            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch, shuffle=True, num_workers=2)
 
             test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
-            testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
+            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=False, num_workers=2)
 
         else:
             NUM_TRAIN = 45000
@@ -504,22 +319,22 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
 
             train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
 
-            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+            trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
         shape = (1, 28, 28)
         num_classes = 10
 
-    elif (task == 'image-folder-bw'):
+    elif (arg.task == 'image-folder-bw'):
 
         tr = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
 
-        if final:
-            train = torchvision.datasets.ImageFolder(root=data + '/train/', transform=tr)
-            test  = torchvision.datasets.ImageFolder(root=data + '/test/', transform=tr)
+        if arg.final:
+            train = torchvision.datasets.ImageFolder(root=arg.data + '/train/', transform=tr)
+            test  = torchvision.datasets.ImageFolder(root=arg.data + '/test/', transform=tr)
 
-            trainloader = DataLoader(train, batch_size=batch, shuffle=True)
-            testloader = DataLoader(train, batch_size=batch, shuffle=True)
+            trainloader = DataLoader(train, batch_size=arg.batch, shuffle=True)
+            testloader = DataLoader(train, batch_size=arg.batch, shuffle=True)
 
         else:
 
@@ -527,185 +342,52 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
             NUM_VAL = 5000
             total = NUM_TRAIN + NUM_VAL
 
-            train = torchvision.datasets.ImageFolder(root=data, transform=tr)
+            train = torchvision.datasets.ImageFolder(root=arg.data, transform=tr)
 
-            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+            trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
         shape = (1, 100, 100)
         num_classes = 10
 
-    elif(task=='cifar10'):
-        data = data + os.sep + task
-
-        if final:
-            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=normalize)
-            trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
-            test = torchvision.datasets.CIFAR10(root=data, train=False, download=True, transform=normalize)
-            testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
-
-        else:
-            NUM_TRAIN = 45000
-            NUM_VAL = 5000
-            total = NUM_TRAIN + NUM_VAL
-
-            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=normalize)
-
-            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
-
-
-        shape = (3, 32, 32)
-        num_classes = 10
-
-    elif(task=='cifar100'):
-
-        data = data + os.sep + task
-
-        if final:
-            train = torchvision.datasets.CIFAR100(root=data, train=True, download=True, transform=normalize)
-            trainloader = torch.utils.data.DataLoader(train, batch_size=batch, shuffle=True, num_workers=2)
-            test = torchvision.datasets.CIFAR100(root=data, train=False, download=True, transform=normalize)
-            testloader = torch.utils.data.DataLoader(test, batch_size=batch, shuffle=False, num_workers=2)
-
-        else:
-            NUM_TRAIN = 45000
-            NUM_VAL = 5000
-            total = NUM_TRAIN + NUM_VAL
-
-            train = torchvision.datasets.CIFAR100(root=data, train=True, download=True, transform=normalize)
-
-            trainloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-            testloader = DataLoader(train, batch_size=batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
-
-        shape = (3, 32, 32)
-        num_classes = 100
-
     else:
-        raise Exception('Task name {} not recognized'.format(task))
+        raise Exception('Task name {} not recognized'.format(arg.task))
 
     activation = nn.ReLU()
 
-    hyperlayer = None
+    if arg.modelname == 'ash':
 
-    reinforce = False
-
-    if modelname == 'baseline':
-
-        model = nn.Sequential(
-            util.Flatten(),
-            nn.Linear(prod(shape), hidden),
-            activation,
-            nn.Linear(hidden, num_classes),
-            nn.Softmax())
-
-    elif modelname == 'baseline-conv':
-
-        c, w, h = shape
-        hid = floor(floor(w / 8) / 4) * floor(floor(h / 8) / 4) * 32
-
-        model = nn.Sequential(
-            nn.Conv2d(c, 4, kernel_size=5, padding=2),
-            activation,
-            nn.Conv2d(4, 4, kernel_size=5, padding=2),
-            activation,
-            nn.MaxPool2d(kernel_size=8),
-            nn.Conv2d(4, 16, kernel_size=5, padding=2),
-            activation,
-            nn.Conv2d(16, 16, kernel_size=5, padding=2),
-            activation,
-            nn.MaxPool2d(kernel_size=4),
-            nn.Conv2d(16, 32, kernel_size=5, padding=2),
-            activation,
-            nn.Conv2d(32, 32, kernel_size=5, padding=2),
-            activation,
-            util.Flatten(),
-            nn.Linear(hid, 128),
-            nn.Dropout(dropout),
-            nn.Linear(128, num_classes),
-            nn.Softmax()
+        hyperlayer = AttentionImageLayer(
+            glimpses=arg.num_glimpses,
+            in_size=shape, k=arg.k,
+            gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
+            min_sigma=arg.min_sigma
         )
 
-    elif modelname == 'ash':
+        model = nn.Sequential(
+             hyperlayer,
+             util.Flatten(),
+             util.Debug(lambda x : print(x.size())),
+             nn.Linear(arg.k * arg.k * shape[0] * arg.num_glimpses, arg.hidden),
+             activation,
+             nn.Linear(arg.hidden, num_classes),
+             nn.Softmax()
+        )
 
-        model = ASHModel(shape=shape, k=k, glimpses=args.num_glimpses, num_values=num_values, min_sigma=min_sigma,
-                         subsample=subsample, hidden=hidden, num_classes=num_classes,
-                         gadditional=args.gadditional, radditional=args.radditional, region=(args.chunk, args.chunk),
-                         reinforce=False)
+        reinforce = False
 
-        # model = nn.Sequential(
-        #     hyperlayer,
-        #     util.Flatten(),
-        #     nn.Linear(k*k*C, hidden),
-        #     activation,
-        #     nn.Linear(hidden, num_classes),
-        #     nn.Softmax())
+    elif arg.modelname == 'reinforce':
+        raise Exception('Not implemented yet')
 
-    elif modelname == 'ash-reinforce':
-
-        model = ASHModel(shape=shape, k=k, glimpses=args.num_glimpses, num_values=num_values, min_sigma=min_sigma,
-                         subsample=subsample, hidden=hidden, num_classes=num_classes, reinforce=True, rfboost=args.rfboost)
-        reinforce = True
-
-    # elif modelname == 'nas':
-    #     C = 1
-    #     hyperlayer = SimpleImageLayer(shape, out_channels=C, k=k, adaptive=False, additional=additional, num_values=num_values,
-    #                             min_sigma=min_sigma, subsample=subsample)
-    #     #
-    #     # if rec_lambda is not None:
-    #     #     reconstruction = ToImageLayer((C, k, k), out_size=shape, k=k, adaptive=False, additional=additional, num_values=num_values,
-    #     #                         min_sigma=min_sigma, subsample=subsample, pre=pre)
-    #
-    #     model = nn.Sequential(
-    #         hyperlayer,
-    #         util.Flatten(),
-    #         nn.Linear(k*k*C, hidden),
-    #         activation,
-    #         nn.Linear(hidden, num_classes),
-    #         nn.Softmax())
-
-    # elif modelname == 'ash-conv':
-    #     C = 1
-    #     hyperlayer = SimpleImageLayer(shape, out_channels=C, k=k, adaptive=True, additional=additional, num_values=num_values,
-    #                             min_sigma=min_sigma, subsample=subsample, big=not small)
-    #
-    #     model = nn.Sequential(
-    #         hyperlayer,
-    #         activation,
-    #         nn.Conv2d(C, 16, kernel_size=5, padding=2), activation,
-    #         nn.Conv2d(16, 16, kernel_size=5, padding=2), activation,
-    #         nn.Conv2d(16, 16, kernel_size=5, padding=2), activation,
-    #         nn.MaxPool2d(kernel_size=2),
-    #         nn.Conv2d(16, 32, kernel_size=5, padding=2), activation,
-    #         nn.Conv2d(32, 32, kernel_size=5, padding=2), activation,
-    #         nn.Conv2d(32, 32, kernel_size=5, padding=2), activation,
-    #         nn.MaxPool2d(kernel_size=2),
-    #         nn.Conv2d(32, 64, kernel_size=5, padding=2), activation,
-    #         nn.Conv2d(64, 64, kernel_size=5, padding=2), activation,
-    #         nn.Conv2d(64, 64, kernel_size=5, padding=2), activation,
-    #         nn.MaxPool2d(kernel_size=2),
-    #         nn.Conv2d(64, 128, kernel_size=5, padding=2), activation,
-    #         nn.MaxPool2d(kernel_size=2),
-    #         util.Flatten(),
-    #         nn.Linear(128, num_classes),
-    #         nn.Softmax())
+        # reinforce = True
 
     else:
-        raise Exception('Model name {} not recognized'.format(modelname))
+        raise Exception('Model name {} not recognized'.format(arg.modelname))
 
-    if cuda:
+    if arg.cuda:
         model.cuda()
-        if hyperlayer is not None:
-            hyperlayer.apply(lambda t: t.cuda())
-        # if rec_lambda is not None:
-        #     reconstruction.apply(lambda t: t.cuda())
 
-    # if rec_lambda is None:
-    #     optimizer = optim.Adam(model.parameters(), lr=lr)
-    # else:
-    #     optimizer = optim.Adam(list(model.parameters()) + list(reconstruction.parameters()), lr=lr)
-
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=arg.lr)
 
     xent = nn.CrossEntropyLoss()
     mse = nn.MSELoss()
@@ -716,19 +398,14 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
 
     util.makedirs('./mnist/')
 
-    for epoch in range(epochs):
+    for epoch in range(arg.epochs):
 
-        model.train()
+        model.train(True)
 
-        for i, data in tqdm(enumerate(trainloader, 0)):
+        for i, (inputs, labels) in tqdm(enumerate(trainloader, 0)):
 
-            # get the inputs
-            inputs, labels = data
-
-            if cuda:
+            if arg.cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
-
-            # wrap them in Variables
             inputs, labels = Variable(inputs), Variable(labels)
 
             optimizer.zero_grad()
@@ -747,8 +424,6 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
                 for node, action in zip(stoch_nodes, actions):
                     rloss = rloss - node.log_prob(action) * - mloss.detach().unsqueeze(1).expand_as(action)
 
-                # print(mloss.size(), rloss.size())
-
                 loss = rloss.sum(dim=1) + mloss
 
                 tbw.add_scalar('mnist/train-loss', float(loss.mean().item()), step)
@@ -763,57 +438,23 @@ def go(args, batch=64, epochs=350, k=3, modelname='baseline', cuda=False,
             loss = loss.sum()
             loss.backward()  # compute the gradients
 
-            # model.debug()
-
-            # print(hyperlayer.values, hyperlayer.values.grad)
-
             optimizer.step()
 
             step += inputs.size(0)
 
-            if epoch % plot_every == 0 and i == 0 and hyperlayer is not None:
-
-                sigmas = list(hyperlayer.last_sigmas[0, :])
-                values = list(hyperlayer.last_values[0, :])
-
-                sigs.append(sigmas)
-                vals.append(values)
-
-                ax = plt.figure().add_subplot(111)
-
-                for j, (s, v) in enumerate(zip(sigs, vals)):
-                    s = [si.item() for si in s]
-                    ax.scatter([j] * len(s), s, c=v, linewidth=0,  alpha=0.2, cmap='RdYlBu', vmin=-1.0, vmax=1.0)
-
-                ax.set_aspect('auto')
-                plt.ylim(ymin=0)
-                util.clean()
-
-                plt.savefig('sigmas.pdf')
-                plt.savefig('sigmas.png')
+            if epoch % arg.plot_every == 0 and i == 0 and hyperlayer is not None:
 
                 hyperlayer.plot(inputs[:10, ...])
                 plt.savefig('mnist/attention.{:03}.pdf'.format(epoch))
-
-            if epoch % plot_every == 0 and i == 0 and type(model) is ASHModel:
-                #
-                # print('post', model.lin1.weight.grad.data.mean())
-                # print('pre', list(model.preprocess.modules())[1].weight.grad.data.mean())
-
-                model.plot(inputs[:10, ...])
-                plt.savefig('mnist/attention.glimpses.{:03}.pdf'.format(epoch))
 
         total = 0.0
         correct = 0.0
 
         model.eval()
 
-        for i, data in enumerate(testloader, 0):
+        for i, (inputs, labels) in enumerate(testloader, 0):
 
-            # get the inputs
-            inputs, labels = data
-
-            if cuda:
+            if arg.cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
 
             # wrap them in Variables
@@ -852,12 +493,12 @@ if __name__ == "__main__":
                         default=1, type=int)
 
     parser.add_argument("-m", "--model",
-                        dest="model",
+                        dest="modelname",
                         help="Which model to train.",
                         default='baseline')
 
     parser.add_argument("-b", "--batch-size",
-                        dest="batch_size",
+                        dest="batch",
                         help="The batch size.",
                         default=64, type=int)
 
@@ -876,18 +517,13 @@ if __name__ == "__main__":
                         help="Number of additional points sampled locally",
                         default=8, type=int)
 
-    parser.add_argument("-C", "--chunk",
-                        dest="chunk",
-                        help="Size of the (square) region to sample from.",
+    parser.add_argument("-R", "--region",
+                        dest="region",
+                        help="Size of the (square) region to use for local sampling.",
                         default=8, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
-                        action="store_true")
-
-    parser.add_argument("-Z", "--small-hyper",
-                        dest="small",
-                        help="Whether to use a small hypernet.",
                         action="store_true")
 
     parser.add_argument("-D", "--data", dest="data",
@@ -937,10 +573,6 @@ if __name__ == "__main__":
                         help="boost the means of the reinforce method.",
                         default=2.0, type=float)
 
-    parser.add_argument("-R", "--reconstruction-loss", dest="rec_loss",
-                        help="Reconstruction loss parameter.",
-                        default=None, type=float)
-
     parser.add_argument("-G", "--num-glimpses", dest="num_glimpses",
                         help="Number of glimpses for the ash model.",
                         default=4, type=int)
@@ -955,11 +587,4 @@ if __name__ == "__main__":
     print('OPTIONS ', options)
     LOG.info('OPTIONS ' + str(options))
 
-    go(args=options, epochs=options.epochs, batch=options.batch_size, k=options.k,
-       modelname=options.model, cuda=options.cuda,
-       lr=options.lr, subsample=options.subsample,
-       num_values=options.num_values, min_sigma=options.min_sigma,
-       tb_dir=options.tb_dir, data=options.data, task=options.task,
-       final=options.final, hidden=options.hidden,
-       dropout=options.dropout, seed=options.seed,
-       plot_every=options.plot_every)
+    go(options)

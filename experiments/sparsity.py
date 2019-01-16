@@ -57,7 +57,7 @@ def getmodel(arg, insize, numcls, points):
 
         one = NASLayer(
             in_size=insize, out_size=(arg.hidden,), k=points,
-            gadditional=arg.gadditional, radditional=arg.radditional, rrange=rng, has_bias=True,
+            gadditional=arg.gadditional, radditional=arg.radditional, region=rng, has_bias=True,
             min_sigma=arg.min_sigma
         )
 

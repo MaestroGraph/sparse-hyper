@@ -11,6 +11,8 @@ import numpy as np
 
 from torch import nn
 
+import sys
+
 
 def clean(axes=None):
 
@@ -53,7 +55,7 @@ def plot(means, sigmas, values, shape=None, axes=None, flip_y=None, alpha_global
 
     b, n, d = means.size()
 
-    means = means.data[0, :,:].cpu().numpy()
+    means = means.data[0, :, :].cpu().numpy()
     sigmas = sigmas.data[0, :].cpu().numpy()
     values = nn.functional.tanh(values).data[0, :].cpu().numpy()
 

@@ -141,6 +141,7 @@ class AttentionImageLayer(sparse.SparseLayer):
             in_rank=3, out_size=(glimpses, co, ho, wo),
             temp_indices=template,
             learn_cols=self.lc,
+            chunk_size=1,
             gadditional=gadditional, radditional=radditional, region=region,
             bias_type=util.Bias.NONE)
 
@@ -227,7 +228,7 @@ class AttentionImageLayer(sparse.SparseLayer):
 
             ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
 
-            util.plot(means[i, :, :].unsqueeze(0), sigmas[i, :, :].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax, flip_y=h, alpha_global=0.2)
+            util.plot(means[i, :, :].unsqueeze(0), sigmas[i, :, :].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax, flip_y=h, alpha_global=0.8/self.num_glimpses)
 
         plt.gcf()
 
@@ -367,7 +368,6 @@ def go(arg):
         model = nn.Sequential(
              hyperlayer,
              util.Flatten(),
-             util.Debug(lambda x : print(x.size())),
              nn.Linear(arg.k * arg.k * shape[0] * arg.num_glimpses, arg.hidden),
              activation,
              nn.Linear(arg.hidden, num_classes),

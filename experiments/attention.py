@@ -343,7 +343,7 @@ def go(arg):
             NUM_VAL = 5000
             total = NUM_TRAIN + NUM_VAL
 
-            train = torchvision.datasets.ImageFolder(root=arg.data, transform=tr)
+            train = torchvision.datasets.ImageFolder(root=arg.data + '/train/', transform=tr)
 
             trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
             testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
@@ -539,10 +539,6 @@ if __name__ == "__main__":
                         dest="subsample",
                         help="Sample a subset of the indices to estimate gradients for",
                         default=None, type=float)
-
-    parser.add_argument("-F", "--num-values", dest="num_values",
-                        help="How many fixed values to allow the network",
-                        default=-1, type=int)
 
     parser.add_argument("-M", "--min-sigma",
                         dest="min_sigma",

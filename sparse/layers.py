@@ -375,15 +375,15 @@ class SparseLayer(nn.Module):
             # remove the chunk dimensions
             indices, values = indices.view(b, -1 , r), values.view(b, -1)
 
-            if self.templated:
-                # stitch the generated indices into the template
-                b, l, r = indices.size()
-                h, w = self.temp_indices.size()
-                template = self.temp_indices[None, :, None, :].expand(b, h, l//h, w)
-                template = template.contiguous().view(b, l, w)
+        if self.templated:
+            # stitch the generated indices into the template
+            b, l, r = indices.size()
+            h, w = self.temp_indices.size()
+            template = self.temp_indices[None, :, None, :].expand(b, h, l//h, w)
+            template = template.contiguous().view(b, l, w)
 
-                template[:, :, self.learn_cols] = indices
-                indices = template
+            template[:, :, self.learn_cols] = indices
+            indices = template
 
             # if self.is_cuda():
             #     indices = indices.cuda()

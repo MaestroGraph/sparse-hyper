@@ -450,7 +450,7 @@ def go(arg):
         total = 0.0
         correct = 0.0
 
-        model.eval()
+        model.train(False)
 
         for i, (inputs, labels) in enumerate(testloader, 0):
 

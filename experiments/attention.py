@@ -238,10 +238,9 @@ class ReinforceLayer(nn.Module):
     """
 
     def __init__(self, in_shape, glimpses, glimpse_size,
-                 num_classes, reinforce=False, gadditional=None, radditional=None, region=None, rfboost=2.0):
+                 num_classes, rfboost=2.0):
         super().__init__()
 
-        self.reinforce = reinforce
         self.rfboost = rfboost
         self.num_glimpses = glimpses
         self.glimpse_size = glimpse_size
@@ -251,7 +250,7 @@ class ReinforceLayer(nn.Module):
 
         ci, hi, wi = in_shape
 
-        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, glimpses * 2), util.Reshape(glimpses, 3)]
+        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, glimpses * 3), util.Reshape((glimpses, 3))]
         self.preprocess = nn.Sequential(*modules)
 
     def forward(self, image):
@@ -261,10 +260,8 @@ class ReinforceLayer(nn.Module):
         ci, hi, wi = self.in_shape
         hg, wg = self.glimpse_size
 
-        prep = prep.view(b * g, 3)
-
-        means = prep[:, :2]
-        sigmas = prep[:, 2]
+        means = prep[:, :, :2]
+        sigmas = prep[:, : , 2]
 
         sigmas = sparse.transform_sigmas(sigmas, self.in_shape[1:])
 
@@ -272,7 +269,6 @@ class ReinforceLayer(nn.Module):
         sample = stoch_means.sample()
 
         point_means = sparse.transform_means(sample, (hi-hg, wi-wg)).round().long()
-        point_means = point_means.view(b, g, -1)
 
         # extract
         batch = []
@@ -286,7 +282,55 @@ class ReinforceLayer(nn.Module):
             batch.append(torch.cat(extracts, dim=1))
         result = torch.cat(batch, dim=0)
 
-        return result, stoch_means.view(b, g, -1)
+        return result, stoch_means, sample
+
+    def plot(self, images):
+        perrow = 5
+
+        num, c, w, h = images.size()
+
+        rows = int(math.ceil(num/perrow))
+
+        prep = self.preprocess(images)
+        b, g, _= prep.size()
+        ci, hi, wi = self.in_shape
+        hg, wg = self.glimpse_size
+
+        means = prep[:, :, :2]
+        means = sparse.transform_means(means, (hi-hg, wi-wg)).round().long()
+        sigmas = prep[:, : , 2]
+        sigmas = sparse.transform_sigmas(sigmas, self.in_shape[1:])
+
+        images = images.data
+
+        plt.figure(figsize=(perrow * 3, rows*3))
+
+        for i in range(num):
+
+            ax = plt.subplot(rows, perrow, i+1)
+
+            im = np.transpose(images[i, :, :, :].cpu().numpy(), (1, 2, 0))
+            im = np.squeeze(im)
+
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
+
+            util.plot(means[i, :, :].unsqueeze(0), sigmas[i, :, :].unsqueeze(0), torch.ones(means[:, :, 0].size()), axes=ax, flip_y=h, alpha_global=0.8/self.num_glimpses)
+
+        plt.gcf()
+
+class R(nn.Module):
+    """
+    Helper module for reinforcement learning pipelines. Passes extra arguments along down the pipeline
+    """
+    def __init__(self, inner):
+        super().__init__()
+        self.inner = inner
+
+    def forward(self, tuple):
+        x, rest = tuple[0], tuple[1:]
+
+        out = self.inner(x)
+        return (out,) + rest
 
 PLOT = True
 COLUMN = 13
@@ -356,7 +400,24 @@ def go(arg):
 
     activation = nn.ReLU()
 
-    if arg.modelname == 'ash':
+    if arg.modelname == 'reinforce':
+
+        hyperlayer = ReinforceLayer(in_shape=shape, glimpses=arg.num_glimpses,
+                glimpse_size=(28, 28),
+                num_classes=num_classes)
+
+        model = nn.Sequential(
+             hyperlayer,
+             R(util.Flatten()),
+             R(nn.Linear(28 * 28 * shape[0] * arg.num_glimpses, arg.hidden)),
+             R(activation),
+             R(nn.Linear(arg.hidden, num_classes)),
+             R(nn.Softmax())
+        )
+
+        reinforce = True
+
+    elif arg.modelname == 'ash':
 
         hyperlayer = AttentionImageLayer(
             glimpses=arg.num_glimpses,
@@ -375,11 +436,6 @@ def go(arg):
         )
 
         reinforce = False
-
-    elif arg.modelname == 'reinforce':
-        raise Exception('Not implemented yet')
-
-        # reinforce = True
 
     else:
         raise Exception('Model name {} not recognized'.format(arg.modelname))
@@ -419,12 +475,9 @@ def go(arg):
 
             if reinforce:
 
-                rloss = 0.0
+                rloss = stoch_nodes.log_prob(actions) * - mloss.detach()[:, None, None]
 
-                for node, action in zip(stoch_nodes, actions):
-                    rloss = rloss - node.log_prob(action) * - mloss.detach().unsqueeze(1).expand_as(action)
-
-                loss = rloss.sum(dim=1) + mloss
+                loss = rloss.sum(dim=1) + mloss[:, None]
 
                 tbw.add_scalar('mnist/train-loss', float(loss.mean().item()), step)
                 tbw.add_scalar('mnist/model-loss', float(rloss.sum(dim=1).mean().item()), step)

@@ -92,7 +92,6 @@ def prep(ci, hi, wi):
         activation,
         nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
         activation,
-        #util.Debug(lambda x : print(x.size())),
         util.Flatten(),
         nn.Linear(hid, HIDLIN),
         activation,
@@ -433,6 +432,39 @@ def go(arg):
              activation,
              nn.Linear(arg.hidden, num_classes),
              nn.Softmax()
+        )
+
+        reinforce = False
+
+    elif arg.modelname == 'ash-conv':
+
+        hyperlayer = AttentionImageLayer(
+            glimpses=arg.num_glimpses,
+            in_size=shape, k=arg.k,
+            gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
+            min_sigma=arg.min_sigma
+        )
+
+        ch1, ch2, ch3 = 16, 32, 64
+        h = (arg.k // 8) ** 2 * 64
+
+        model = nn.Sequential(
+            hyperlayer,
+            util.Reshape((arg.num_glimpses * shape[0], arg.k, arg.k)), # Fold glimpses into channels
+            nn.Conv2d(arg.num_glimpses * shape[0], ch1, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=2),
+            util.Flatten(),
+            nn.Linear(h, 128),
+            activation,
+            nn.Linear(128, num_classes),
+            nn.Softmax()
         )
 
         reinforce = False

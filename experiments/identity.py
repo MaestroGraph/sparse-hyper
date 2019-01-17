@@ -127,7 +127,7 @@ def go(arg):
                 has_bias=False,
                 fix_values=arg.fix_values,
                 min_sigma=arg.min_sigma,
-                rrange=(arg.rr, arg.rr),
+                region=(arg.rr, arg.rr),
                 radditional=arg.ca)
         else:
             model = ReinforceLayer(

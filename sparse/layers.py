@@ -172,7 +172,7 @@ class SparseLayer(nn.Module):
         super().__init__()
         rank = in_rank + len(out_size)
 
-        assert len(region) == len(learn_cols), "Region should span as many dimensions as there are learnable columns"
+        assert learn_cols is None or len(region) == len(learn_cols), "Region should span as many dimensions as there are learnable columns"
 
         self.in_rank = in_rank
         self.out_size = out_size # without batch dimension

@@ -4,18 +4,17 @@ This is the codebase that accompanies the paper [Learning sparse transformations
  
 ## Disclaimer
 
-The code is currently a mess. If you're willing to get your hands dirty, make sure
- you have PyTorch 0.4 installed and start by running ```identity.experiment.py```, 
+We are still cleaning up the code, but it should now be relatively readable. Make sure 
+ you have PyTorch 0.4 installed and start by running ```experiments/identity.py```, 
  which runs the identity experiment:
 ```
- python identity.experiment.py -F -G
+ python experiments/identity.py -F
 ```
+The ```-F``` flag sets all values of the matrix to 1, which makes learning a little easier.  
  
-Feel free to ask me for help by making an issue, or 
-sending [an email](mailto:sparse@peterbloem.nl).
+Feel free to ask me for help by making an issue, or sending [an email](mailto:sparse@peterbloem.nl).
 
-I'll start cleaning up soon. The ```archive``` branch contains a snapshot of the code at
- the time the preprint went up (in case you get started and something suddenly disappears).
+The ```archive``` branch contains a snapshot of the code at the time the preprint went up.
 
 ## Dependencies (probably incomplete)
 

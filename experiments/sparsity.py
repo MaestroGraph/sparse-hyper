@@ -61,7 +61,31 @@ def getmodel(arg, insize, numcls, points):
             min_sigma=arg.min_sigma
         )
 
-        rng = (3, arg.range)
+        two = nn.Linear(arg.hidden, numcls)
+
+        model = nn.Sequential(
+            one, nn.Sigmoid(),
+            two, nn.Softmax()
+        )
+    elif arg.method == 'nas-temp':
+        """
+        Templated NAS model. Fixed in one dimension 
+        """
+
+        rng = (arg.range, arg.range)
+
+        h, c = arg.hidden, arg.control+1
+
+        template = torch.arange(h)[:, None].expand(h, c).view(h*c, 1)
+        template = torch.cat([template, torch.zeros(h*c, 3, dtype=torch.long)], dim=1)
+
+        one = NASLayer(
+            in_size=insize, out_size=(arg.hidden,), k=points,
+            gadditional=arg.gadditional, radditional=arg.radditional, region=rng, has_bias=True,
+            min_sigma=arg.min_sigma,
+            template=template,
+            learn_cols=(2, 3)
+        )
 
         two = nn.Linear(arg.hidden, numcls)
 
@@ -69,6 +93,7 @@ def getmodel(arg, insize, numcls, points):
             one, nn.Sigmoid(),
             two, nn.Softmax()
         )
+
     else:
         raise Exception('Method {} not recognized'.format(arg.method))
 
@@ -415,7 +440,6 @@ if __name__ == "__main__":
                         dest="method",
                         help="Method to use (l1, nas) ",
                         default='l1', type=str)
-
 
     parser.add_argument("-P", "--lp-p",
                         dest="p",

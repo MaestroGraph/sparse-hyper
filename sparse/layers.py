@@ -407,7 +407,9 @@ class NASLayer(SparseLayer):
                  min_sigma=0.0,
                  gadditional=0,
                  region=None,
-                 radditional=None):
+                 radditional=None,
+                 template=None,
+                 learn_cols=None):
         """
 
         :param in_size:
@@ -421,6 +423,9 @@ class NASLayer(SparseLayer):
         :param region:
         :param radditional:
         :param clamp:
+        :param template: LongTensor Template for the matrix of index tuples. Learnable columns are updates through backprop
+            other values are taken from the template.
+        :param learn_cols: tuple of integers. Learnable columns of the template.
 
         """
 
@@ -429,7 +434,9 @@ class NASLayer(SparseLayer):
                          bias_type=Bias.DENSE if has_bias else Bias.NONE,
                          gadditional=gadditional,
                          radditional=radditional,
-                         region=region)
+                         region=region,
+                         temp_indices=template,
+                         learn_cols=learn_cols)
 
         self.k = k
         self.in_size = in_size
@@ -441,7 +448,7 @@ class NASLayer(SparseLayer):
 
         self.rank = len(in_size) + len(out_size)
 
-        imeans = torch.randn(k, self.rank)
+        imeans = torch.randn(k, self.rank if template is None else len(learn_cols))
         isigmas = torch.randn(k)
 
         self.pmeans = Parameter(imeans)
@@ -463,10 +470,15 @@ class NASLayer(SparseLayer):
         b = input.size(0)
         size = self.out_size + input.size()[1:] # total dimensions of the weight tensor
 
+        if self.learn_cols is not None:
+            size = [size[l] for l in self.learn_cols]
+
+        k, r = self.pmeans.size()
+
         # Expand parameters along batch dimension
-        means  = self.pmeans[None, :, :].expand(b, self.k, self.rank)
-        sigmas = self.psigmas[None, :].expand(b, self.k)
-        values = self.pvalues[None, :].expand(b, self.k)
+        means  = self.pmeans[None, :, :].expand(b, k, r)
+        sigmas = self.psigmas[None, :].expand(b, k)
+        values = self.pvalues[None, :].expand(b, k)
 
         means, sigmas = transform_means(means, size), transform_sigmas(sigmas, size)
 

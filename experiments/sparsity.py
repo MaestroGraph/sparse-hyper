@@ -57,6 +57,7 @@ def getmodel(arg, insize, numcls, points):
 
         one = NASLayer(
             in_size=insize, out_size=(arg.hidden,), k=points,
+            fix_values=arg.fix_values,
             gadditional=arg.gadditional, radditional=arg.radditional, region=rng, has_bias=True,
             min_sigma=arg.min_sigma
         )
@@ -82,6 +83,7 @@ def getmodel(arg, insize, numcls, points):
         one = NASLayer(
             in_size=insize, out_size=(arg.hidden,), k=points,
             gadditional=arg.gadditional, radditional=arg.radditional, region=rng, has_bias=True,
+            fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
             template=template,
             learn_cols=(2, 3)
@@ -496,6 +498,10 @@ if __name__ == "__main__":
 
     parser.add_argument("-f", "--final", dest="final",
                         help="Whether to run on the real test set.",
+                        action="store_true")
+
+    parser.add_argument("-F", "--fix-values", dest="fix-values",
+                        help="Whether to fix all values to 1 in the NAS model.",
                         action="store_true")
 
     parser.add_argument("--sweep", dest="sweep",

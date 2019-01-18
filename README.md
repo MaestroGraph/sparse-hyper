@@ -5,7 +5,7 @@ This is the codebase that accompanies the paper [Learning sparse transformations
 ## Disclaimer
 
 We are still cleaning up the code, but it should now be relatively readable. Make sure 
- you have PyTorch 0.4 installed and start by running ```experiments/identity.py```, 
+ you have PyTorch 1.0 installed and start by running ```experiments/identity.py```, 
  which runs the identity experiment:
 ```
  python experiments/identity.py -F

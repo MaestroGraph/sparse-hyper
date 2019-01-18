@@ -13,8 +13,6 @@ from torch.nn import Parameter
 from tqdm import trange, tqdm
 from tensorboardX import SummaryWriter
 
-from torch.utils.serialization import load_lua
-
 from skimage.transform import resize
 
 from math import *

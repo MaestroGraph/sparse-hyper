@@ -77,7 +77,7 @@ def getmodel(arg, insize, numcls, points):
 
         h, c = arg.hidden, arg.control+1
 
-        template = torch.arange(h)[:, None].expand(h, c).view(h*c, 1)
+        template = torch.arange(h, dtype=torch.long)[:, None].expand(h, c).view(h*c, 1)
         template = torch.cat([template, torch.zeros(h*c, 3, dtype=torch.long)], dim=1)
 
         one = NASLayer(

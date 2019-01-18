@@ -500,7 +500,7 @@ if __name__ == "__main__":
                         help="Whether to run on the real test set.",
                         action="store_true")
 
-    parser.add_argument("-F", "--fix-values", dest="fix-values",
+    parser.add_argument("-F", "--fix-values", dest="fix_values",
                         help="Whether to fix all values to 1 in the NAS model.",
                         action="store_true")
 

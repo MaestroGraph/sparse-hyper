@@ -29,8 +29,10 @@ import torch
 from torch.nn.parameter import Parameter
 from torch.nn.modules.module import Module
 """
-Graph convolution experiment. Given output vectors, learn both the convolution weights and the "graph structure" behind
-MNIST.
+Graph convolution experiment: learn a similarity graph for a given dataset end-to-end using simplified graph 
+convolutions. 
+ 
+Abandoned. Let me know if you get it to work.
 """
 
 def clean(axes=None):

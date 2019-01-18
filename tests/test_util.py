@@ -94,6 +94,17 @@ class TestLayers(unittest.TestCase):
 
         self.assertAlmostEqual(util.wrapmod(torch.tensor([10.0, -9.1]), 9)[1].item(), 8.9, places=5)
 
+    def test_interpolation_grid(self):
+
+        g = util.interpolation_grid()
+        self.assertEqual( (torch.abs(g.sum(dim=2) - 1.0) > 0.0001).sum(), 0)
+
+        g = util.interpolation_grid((3, 3))
+        self.assertAlmostEqual(g[0, 0, 0], 1.0, 5)
+        self.assertAlmostEqual(g[0, 2, 1], 1.0, 5)
+        self.assertAlmostEqual(g[2, 2, 2], 1.0, 5)
+        self.assertAlmostEqual(g[2, 0, 3], 1.0, 5)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -4,6 +4,6 @@ from .util import \
     xent, unique, \
     Bias, ChunkSampler, Flatten, Reshape, Debug, Lambda, \
     od, prod, logit, \
-    wrapmod
+    wrapmod, interpolation_grid
 
 from .plot import plot, basic

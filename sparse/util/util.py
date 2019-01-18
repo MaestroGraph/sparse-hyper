@@ -881,3 +881,21 @@ def wrapmod(x, mod):
     y[neg] = mod + y[neg]
 
     return y
+
+def interpolation_grid(size=(10, 10)):
+    """
+    Returns an (h, v, 4) grid, where each point produces a weighted combination of the
+    four corner points. Taking the convex combination of tensors using these factors, will
+    result in a linear interpolation grid.
+
+    Corner points are enumerated in clockwise fashion, starting top left.
+
+    :param size: h, v
+    :return:
+    """
+    h, v = size
+    g1, g2 = torch.meshgrid((torch.linspace(0, 1, h), torch.linspace(0, 1, v)))
+    g1, g2 = g1[:, :, None], g2[:, :, None]
+    p1, p2 = 1.0 - g1, 1.0 - g2
+
+    return torch.cat([p1*p2, p1*g2, g1*g2, g1*p2], dim=2)

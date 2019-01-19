@@ -525,7 +525,21 @@ def go(arg):
 
     activation = nn.ReLU()
 
-    if arg.modelname == 'reinforce':
+    hyperlayer = None
+
+    if arg.modelname == 'conv':
+
+        base = prep(*shape)
+
+        model = nn.Sequential(*(
+            base +
+            [activation, nn.Linear(HIDLIN, num_classes),
+            nn.Softmax()])
+        )
+
+        reinforce = False
+
+    elif arg.modelname == 'reinforce':
 
         hyperlayer = ReinforceLayer(in_shape=shape, glimpses=arg.num_glimpses,
                 glimpse_size=(28, 28),

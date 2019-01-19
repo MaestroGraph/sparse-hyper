@@ -392,10 +392,10 @@ def single(arg):
 
         if arg.method == 'l1' or arg.method == 'lp':
             density = (one.weight > 0.0001).sum().item() / float(total)
-        elif arg.method == 'nas':
+        elif arg.method == 'nas' or arg.method == 'nas-temp':
             density = (points) / total
         else:
-            raise Exception('Method {} not recognized'.format(arg.task))
+            raise Exception('Method {} not recognized'.format(arg.method))
 
         accuracies.append(acc)
         densities.append(density)

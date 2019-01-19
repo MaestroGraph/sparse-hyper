@@ -106,7 +106,7 @@ def getmodel(arg, insize, numcls, points):
 
 def sweep(arg):
 
-    lambd = 10.0 ** (-5 + arg.control)      # L1 control variable
+    lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control]
     points = arg.hidden * (arg.control + 1) # NAS control variable
 
     # Grid search over batch size/learning rate
@@ -291,7 +291,7 @@ def single(arg):
 
     tbw = SummaryWriter()
 
-    lambd = 10.0 ** (-5 + arg.control)      # L1 control variable
+    lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control]
     points = arg.hidden * (arg.control + 1) # NAS control variable
 
     # Grid search over batch size/learning rate
@@ -403,9 +403,21 @@ def single(arg):
     print('accuracies: ', accuracies)
     print('densities: ', densities)
 
+    if arg.method == 'lp':
+        if arg.p == 0.2:
+            name = 'l2'
+        elif arg.p == 0.5:
+            name = 'l5'
+        elif arg.p == 1.0:
+            name = 'l1'
+        else:
+            name = 'l' + arg.p
+    else:
+        name = arg.method
+
     # Save to CSV
     np.savetxt(
-        'out.{}.{}.csv'.format(arg.method, arg.control),
+        'results.{}.{}.csv'.format(name, arg.control),
         torch.cat([
                 torch.tensor(accuracies, dtype=torch.float)[:, None],
                 torch.tensor(densities, dtype=torch.float)[:, None]
@@ -440,7 +452,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-m", "--method",
                         dest="method",
-                        help="Method to use (l1, nas) ",
+                        help="Method to use (lp, nas) ",
                         default='l1', type=str)
 
     parser.add_argument("-P", "--lp-p",
@@ -495,6 +507,21 @@ if __name__ == "__main__":
                         dest="min_sigma",
                         help="Minimal sigma value",
                         default=0.01, type=float)
+
+    parser.add_argument("--rfrom",
+                        dest="rfrom",
+                        help="Minimal control value (for lp baselines)",
+                        default=0.00001, type=float)
+
+    parser.add_argument("--rto",
+                        dest="rto",
+                        help="Maximal control value (for lp baselines)",
+                        default=1.0, type=float)
+
+    parser.add_argument("--rnum",
+                        dest="rnum",
+                        help="Number of control parameters (for lp baseline)",
+                        default=0, type=int)
 
     parser.add_argument("-f", "--final", dest="final",
                         help="Whether to run on the real test set.",

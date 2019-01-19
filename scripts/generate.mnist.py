@@ -86,10 +86,10 @@ def go(arg):
         util.makedirs('./mnist-rsc/test/{}/'.format(i))
 
     train = torchvision.datasets.MNIST(root=arg.data, train=True, download=True, transform=ToTensor())
-    trainloader = torch.utils.data.DataLoader(train, batch_size=128, shuffle=True, num_workers=2)
+    trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch, shuffle=True, num_workers=2)
 
     test = torchvision.datasets.MNIST(root=arg.data, train=False, download=True, transform=ToTensor())
-    testloader = torch.utils.data.DataLoader(test, batch_size=128, shuffle=False, num_workers=2)
+    testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=False, num_workers=2)
 
     indices = Counter()
 
@@ -127,6 +127,11 @@ if __name__ == "__main__":
     parser.add_argument("-D", "--data", dest="data",
                         help="Data directory",
                         default='./data/')
+
+    parser.add_argument("-b", "--batch-size",
+                        dest="batch",
+                        help="The batch size.",
+                        default=64, type=int)
 
     options = parser.parse_args()
 

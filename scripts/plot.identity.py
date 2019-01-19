@@ -1,7 +1,10 @@
+from _context import sparse
+from sparse import util
+
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import util, logging, time, gc
+import logging, time, gc
 import numpy as np
 
 import pickle

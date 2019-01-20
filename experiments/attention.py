@@ -42,6 +42,7 @@ LOG.addHandler(fh)
 
 SIGMA_BOOST_REINFORCE = 2.0 # ensure that first sigmas are large enough
 EPSILON = 10e-7
+STN_SCALE = 0.01
 
 def inv(i, max):
     sc = (i/max) * 0.999 + 0.0005
@@ -114,17 +115,64 @@ class STNAttentionLayer(nn.Module):
         modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, 3 * 2 * glimpses), util.Reshape((glimpses, 2, 3))]
         self.preprocess = nn.Sequential(*modules)
 
+        self.register_buffer('identity', torch.FloatTensor([1, 0, 0, 0, 1, 0]).view(2, 3))
+
     def forward(self, image):
 
+        b, ci, hi, wi = image.size()
         thetas = self.preprocess(image)
+
+        # ensure that the starting point is close enough to the identity transform
+        thetas = thetas * STN_SCALE + self.identity[None, None, :, :]
 
         b, g, _, _ = thetas.size()
 
-        grid = F.affine_grid( thetas.view(b*g, 2, 3), torch.Size((b, self.in_size[0], self.k, self.k)) )
-        out = F.grid_sample(image, grid)
-        bg, c, h, w = out.size()
+        grid = F.affine_grid(thetas.view(b*g, 2, 3), torch.Size((b*g, self.in_size[0], self.k, self.k)) )
 
-        return out.view(b, g, c, h, w)
+        out = F.grid_sample(
+            image[:, None, :, :, :].expand(b, g, ci, hi, wi).contiguous().view(b*g, ci, hi, wi),
+            grid)
+        bg, co, ho, wo = out.size()
+
+        return out.view(b, g, co, ho, wo)
+
+    def plot(self, images):
+        perrow = 5
+
+        num, c, w, h = images.size()
+
+        rows = int(math.ceil(num/perrow))
+
+        thetas = self.preprocess(images)
+        thetas = thetas * STN_SCALE + self.identity[None, None, :, :]
+
+        b, g, _, _ = thetas.size()
+        grid = F.affine_grid( thetas.view(b*g, 2, 3), torch.Size((b*g, self.in_size[0], self.k, self.k)) )
+        means = grid.view(b, -1, 2).data.cpu()
+
+        # scale to image resolution
+        means = ((means + 1.0) * 0.5) * torch.FloatTensor(self.in_size[1:])[None, None, :]
+
+        b, k, _ = means.size()
+        sigmas = torch.ones((b, k, 2)) * 0.001
+        values = torch.ones((b, k))
+
+        images = images.data
+
+        plt.figure(figsize=(perrow * 3, rows*3))
+
+        for i in range(num):
+
+            ax = plt.subplot(rows, perrow, i+1)
+
+            im = np.transpose(images[i, :, :, :].cpu().numpy(), (1, 2, 0))
+            im = np.squeeze(im)
+
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
+
+            util.plot(means[i, :, :].unsqueeze(0), sigmas[i, :, :].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax, flip_y=h, alpha_global=0.8/self.num_glimpses)
+
+        plt.gcf()
 
 class BoxAttentionLayer(sparse.SparseLayer):
     """
@@ -633,13 +681,13 @@ def go(arg):
         Spatial transformer with a convolutional head.
         """
 
-        stnlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses)
+        hyperlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses)
 
         ch1, ch2, ch3 = 16, 32, 64
         h = (arg.k // 8) ** 2 * 64
 
         model = nn.Sequential(
-            stnlayer,
+            hyperlayer,
             util.Reshape((arg.num_glimpses * shape[0], arg.k, arg.k)), # Fold glimpses into channels
             nn.Conv2d(arg.num_glimpses * shape[0], ch1, kernel_size=3, padding=1),
             activation,
@@ -725,6 +773,9 @@ def go(arg):
         model.train(True)
 
         for i, (inputs, labels) in tqdm(enumerate(trainloader, 0)):
+
+            # if i> 2:
+            #     break
 
             if arg.cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()

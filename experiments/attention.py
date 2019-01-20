@@ -676,6 +676,24 @@ def go(arg):
 
         reinforce = False
 
+    elif arg.modelname == 'stn':
+        """
+        Spatial transformer with an MLP head.
+        """
+
+        hyperlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses, scale=arg.stn_scale)
+
+        model = nn.Sequential(
+             hyperlayer,
+             util.Flatten(),
+             nn.Linear(arg.k * arg.k * shape[0] * arg.num_glimpses, arg.hidden),
+             activation,
+             nn.Linear(arg.hidden, num_classes),
+             nn.Softmax()
+        )
+
+        reinforce = False
+
     elif arg.modelname == 'stn-conv':
         """
         Spatial transformer with a convolutional head.

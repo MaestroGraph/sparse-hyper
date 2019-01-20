@@ -42,7 +42,6 @@ LOG.addHandler(fh)
 
 SIGMA_BOOST_REINFORCE = 2.0 # ensure that first sigmas are large enough
 EPSILON = 10e-7
-STN_SCALE = 0.01
 
 def inv(i, max):
     sc = (i/max) * 0.999 + 0.0005
@@ -102,12 +101,13 @@ class STNAttentionLayer(nn.Module):
     Baseline: spatial transformer
     """
 
-    def __init__(self, in_size, k, glimpses=1):
+    def __init__(self, in_size, k, glimpses=1, scale=0.001):
         super().__init__()
 
         self.in_size = in_size
         self.k = k
         self.num_glimpses = glimpses
+        self.scale=scale
 
         ci, hi, wi = in_size
         co, ho, wo = ci , k, k
@@ -123,7 +123,7 @@ class STNAttentionLayer(nn.Module):
         thetas = self.preprocess(image)
 
         # ensure that the starting point is close enough to the identity transform
-        thetas = thetas * STN_SCALE + self.identity[None, None, :, :]
+        thetas = thetas * self.scale + self.identity[None, None, :, :]
 
         b, g, _, _ = thetas.size()
 
@@ -144,7 +144,7 @@ class STNAttentionLayer(nn.Module):
         rows = int(math.ceil(num/perrow))
 
         thetas = self.preprocess(images)
-        thetas = thetas * STN_SCALE + self.identity[None, None, :, :]
+        thetas = thetas * self.scale + self.identity[None, None, :, :]
 
         b, g, _, _ = thetas.size()
         grid = F.affine_grid( thetas.view(b*g, 2, 3), torch.Size((b*g, self.in_size[0], self.k, self.k)) )
@@ -681,7 +681,7 @@ def go(arg):
         Spatial transformer with a convolutional head.
         """
 
-        hyperlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses)
+        hyperlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses, scale=arg.stn_scale)
 
         ch1, ch2, ch3 = 16, 32, 64
         h = (arg.k // 8) ** 2 * 64
@@ -947,6 +947,10 @@ if __name__ == "__main__":
                         dest="seed",
                         help="RNG seed. Negative for random",
                         default=1, type=int)
+
+    parser.add_argument("--stn-scale", dest="stn_scale",
+                        help="Scaling parameter to fintetune the initialiazation of the STN network.",
+                        default=0.01, type=float)
 
     options = parser.parse_args()
 

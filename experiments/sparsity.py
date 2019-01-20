@@ -106,7 +106,7 @@ def getmodel(arg, insize, numcls, points):
 
 def sweep(arg):
 
-    lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control]
+    lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control].item()
     points = arg.hidden * (arg.control + 1) # NAS control variable
 
     # Grid search over batch size/learning rate
@@ -286,12 +286,11 @@ def sweep(arg):
 
     print('Finished')
 
-
 def single(arg):
 
     tbw = SummaryWriter()
 
-    lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control]
+    lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control].item()
     points = arg.hidden * (arg.control + 1) # NAS control variable
 
     # Grid search over batch size/learning rate

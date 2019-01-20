@@ -96,6 +96,36 @@ def prep(ci, hi, wi):
         nn.Linear(HIDLIN, HIDLIN)
     ]
 
+class STNAttentionLayer(nn.Module):
+    """
+    Baseline: spatial transformer
+    """
+
+    def __init__(self, in_size, k, glimpses=1):
+        super().__init__()
+
+        self.in_size = in_size
+        self.k = k
+        self.num_glimpses = glimpses
+
+        ci, hi, wi = in_size
+        co, ho, wo = ci , k, k
+
+        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, 3 * 2 * glimpses), util.Reshape((glimpses, 2, 3))]
+        self.preprocess = nn.Sequential(*modules)
+
+    def forward(self, image):
+
+        thetas = self.preprocess(image)
+
+        b, g, _, _ = thetas.size()
+
+        grid = F.affine_grid( thetas.view(b*g, 2, 3), torch.Size((b, self.in_size[0], self.k, self.k)) )
+        out = F.grid_sample(image, grid)
+        bg, c, h, w = out.size()
+
+        return out.view(b, g, c, h, w)
+
 class BoxAttentionLayer(sparse.SparseLayer):
     """
     NB: k is the number of tuples per input dimension. That is, k = 4 results in a 16 * c grid of inputs evenly spaced
@@ -113,6 +143,7 @@ class BoxAttentionLayer(sparse.SparseLayer):
         self.sigma_scale = sigma_scale
         self.num_values = num_values
         self.min_sigma = min_sigma
+        self.num_glimpses = glimpses
 
         ci, hi, wi = in_size
         co, ho, wo = ci , k, k
@@ -145,8 +176,6 @@ class BoxAttentionLayer(sparse.SparseLayer):
         # scale to [0,1] in each dim
         pixel_indices = pixel_indices.float() / torch.FloatTensor([[k, k]]).expand_as(pixel_indices)
         self.register_buffer('pixel_indices', pixel_indices)
-
-        self.num_glimpses = glimpses
 
         modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, 4 * glimpses), util.Reshape((glimpses, 4))]
         self.preprocess = nn.Sequential(*modules)
@@ -595,6 +624,41 @@ def go(arg):
              activation,
              nn.Linear(arg.hidden, num_classes),
              nn.Softmax()
+        )
+
+        reinforce = False
+
+    elif arg.modelname == 'stn-conv':
+        """
+        Spatial transformer with a convolutional head.
+        """
+
+        stnlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses)
+
+        ch1, ch2, ch3 = 16, 32, 64
+        h = (arg.k // 8) ** 2 * 64
+
+        model = nn.Sequential(
+            stnlayer,
+            util.Reshape((arg.num_glimpses * shape[0], arg.k, arg.k)), # Fold glimpses into channels
+            nn.Conv2d(arg.num_glimpses * shape[0], ch1, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
+            activation,
+            nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
+            activation,
+            nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=2),
+            util.Flatten(),
+            nn.Linear(h, 128),
+            activation,
+            nn.Linear(128, num_classes),
+            nn.Softmax()
         )
 
         reinforce = False

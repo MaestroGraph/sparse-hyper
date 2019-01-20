@@ -109,6 +109,8 @@ def sweep(arg):
     lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control].item()
     points = arg.hidden * (arg.control + 1) # NAS control variable
 
+    print('lambda ', lambd)
+
     # Grid search over batch size/learning rate
     # -- Set up model
 
@@ -292,6 +294,8 @@ def single(arg):
 
     lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control].item()
     points = arg.hidden * (arg.control + 1) # NAS control variable
+
+    print('lambda ', lambd)
 
     # Grid search over batch size/learning rate
     # -- Set up model

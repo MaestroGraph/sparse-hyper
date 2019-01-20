@@ -521,7 +521,7 @@ if __name__ == "__main__":
     parser.add_argument("--rnum",
                         dest="rnum",
                         help="Number of control parameters (for lp baseline)",
-                        default=0, type=int)
+                        default=10, type=int)
 
     parser.add_argument("-f", "--final", dest="final",
                         help="Whether to run on the real test set.",

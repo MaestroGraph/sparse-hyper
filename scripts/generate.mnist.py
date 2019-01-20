@@ -29,7 +29,7 @@ def paste(background, foreground):
     foreground = foreground.rotate(angle_degrees, resample=Image.BICUBIC, expand=True)
 
     # Scale the foreground
-    scale = random.random() * .5 + 1.0  # Pick something between .5 and 1.5
+    scale = random.random() * .5 + 2.0
     new_size = (int(foreground.size[0] * scale), int(foreground.size[1] * scale))
     foreground = foreground.resize(new_size, resample=Image.BICUBIC)
 
@@ -37,7 +37,7 @@ def paste(background, foreground):
     h, w = rh - h, rw - w
     h, w = random.randint(0, h), random.randint(0, w)
 
-    background.paste(foreground, box=(h, w))
+    background.paste(foreground, box=(h, w), mask=foreground)
 
 def make_image(b, images, res=100, noise=10):
     """
@@ -53,6 +53,10 @@ def make_image(b, images, res=100, noise=10):
 
     background = Image.new(mode='RGB', size=(res, res))
 
+    # generate random patch size
+    nm = 10
+    nh, nw = random.randint(4, nm), random.randint(4, nm)
+
     # Paste noise
     for i in range(noise):
 
@@ -61,9 +65,9 @@ def make_image(b, images, res=100, noise=10):
         if ind == b:
             ind += 1
 
-        # clip out a random 8x8 patch
-        h, w = random.randint(0, 20), random.randint(0, 20)
-        nump = (images[ind, 0, h:h+8, h:h+8].numpy() * 255).astype('uint8').squeeze()
+        # clip out a random nh x nw patch
+        h, w = random.randint(0, 28-nh), random.randint(0, 28-nw)
+        nump = (images[ind, 0, h:h+nh, h:h+nw].numpy() * 255).astype('uint8').squeeze()
         patch = Image.fromarray(nump)
 
         paste(background, patch)
@@ -89,7 +93,7 @@ def go(arg):
     trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch, shuffle=True, num_workers=2)
 
     test = torchvision.datasets.MNIST(root=arg.data, train=False, download=True, transform=ToTensor())
-    testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=False, num_workers=2)
+    testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=True, num_workers=2)
 
     indices = Counter()
 
@@ -98,7 +102,7 @@ def go(arg):
         batch_size = labels.size(0)
 
         for b in range(batch_size):
-            image = make_image(b, images)
+            image = make_image(b, images, res=arg.res, noise=arg.noise)
             label = int(labels[b].item())
 
             image.save('./mnist-rsc/train/{}/{:06}.png'.format(label, indices[label]))
@@ -112,7 +116,7 @@ def go(arg):
         batch_size = labels.size(0)
 
         for b in range(batch_size):
-            image = make_image(b, images)
+            image = make_image(b, images, res=arg.res, noise=arg.noise)
             label = int(labels[b].item())
 
             image.save('./mnist-rsc/test/{}/{:06}.png'.format(label, indices[label]))
@@ -132,6 +136,16 @@ if __name__ == "__main__":
                         dest="batch",
                         help="The batch size.",
                         default=64, type=int)
+
+    parser.add_argument("-r", "--resolution",
+                        dest="res",
+                        help="Resolution (one side, imahges are always square).",
+                        default=100, type=int)
+
+    parser.add_argument("-n", "--noise",
+                        dest="noise",
+                        help="Number of noise patches to add.",
+                        default=10, type=int)
 
     options = parser.parse_args()
 

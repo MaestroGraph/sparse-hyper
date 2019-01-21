@@ -75,10 +75,13 @@ for mi, model in enumerate(models):
 
 
 ax = plt.gca()
-ax.set_ylim(bottom=0)
+
 ax.set_xlabel('density')
 ax.set_xscale('log')
+
+ax.set_ylim(0, 1)
 ax.set_ylabel('accuracy')
+
 ax.legend(handles, labels, loc='upper left', bbox_to_anchor= (0.96, 1.0), ncol=1,
             borderaxespad=0, frameon=False)
 

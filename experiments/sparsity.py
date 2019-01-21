@@ -337,9 +337,9 @@ def single(arg):
 
             if arg.final:
                 train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=ToTensor())
-                trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch, shuffle=True, num_workers=2)
+                trainloader = torch.utils.data.DataLoader(train, batch_size=arg.bs, shuffle=True, num_workers=2)
                 test = torchvision.datasets.CIFAR10(root=data, train=False, download=True, transform=ToTensor())
-                testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=False, num_workers=2)
+                testloader = torch.utils.data.DataLoader(test, batch_size=arg.bs, shuffle=False, num_workers=2)
 
             else:
                 NUM_TRAIN = 45000
@@ -348,8 +348,8 @@ def single(arg):
 
                 train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=ToTensor())
 
-                trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-                testloader = DataLoader(train, batch_size=arg.batch,
+                trainloader = DataLoader(train, batch_size=arg.bs, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+                testloader = DataLoader(train, batch_size=arg.bs,
                                         sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
             shape = (3, 32, 32)

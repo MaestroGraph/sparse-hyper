@@ -594,7 +594,11 @@ def go(arg):
             trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
             testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
-        shape = (1, 100, 100)
+
+        for im, labels in trainloader:
+            shape = im[0].size()
+            break
+
         num_classes = 10
 
     else:

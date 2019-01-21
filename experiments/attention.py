@@ -601,29 +601,6 @@ def go(arg):
 
         num_classes = 10
 
-    elif (arg.task == 'cifar10'):
-
-        data = arg.data + os.sep + arg.task
-
-        if arg.final:
-            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=normalize)
-            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch, shuffle=True, num_workers=2)
-            test = torchvision.datasets.CIFAR10(root=data, train=False, download=True, transform=normalize)
-            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=False, num_workers=2)
-
-        else:
-            NUM_TRAIN = 45000
-            NUM_VAL = 5000
-            total = NUM_TRAIN + NUM_VAL
-
-            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=normalize)
-
-            trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-            testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
-
-        shape = (3, 32, 32)
-        num_classes = 10
-
     else:
         raise Exception('Task name {} not recognized'.format(arg.task))
 

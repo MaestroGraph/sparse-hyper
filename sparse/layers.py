@@ -328,7 +328,8 @@ class SparseLayer(nn.Module):
         subrange = [fullrange[r] for r in self.learn_cols]  # submatrix for the learnable dimensions
 
         if not self.training:
-            indices = means.squeeze().round().long()
+            indices = means.view(b, c*k, r).round().long()
+
         else:
             if mrange is not None:
                 fr, to = mrange

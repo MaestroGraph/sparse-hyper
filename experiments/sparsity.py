@@ -86,7 +86,8 @@ def getmodel(arg, insize, numcls, points):
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
             template=template,
-            learn_cols=(2, 3)
+            learn_cols=(2, 3),
+            chunk_size=c
         )
 
         two = nn.Linear(arg.hidden, numcls)
@@ -340,7 +341,7 @@ def single(arg):
         for e in range(arg.epochs):
 
             model.train(True)
-            for input, labels in trainloader:
+            for input, labels in tqdm(trainloader):
                 opt.zero_grad()
 
                 if arg.cuda:

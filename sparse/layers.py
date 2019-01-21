@@ -409,7 +409,8 @@ class NASLayer(SparseLayer):
                  region=None,
                  radditional=None,
                  template=None,
-                 learn_cols=None):
+                 learn_cols=None,
+                 chunk_size=None):
         """
 
         :param in_size:
@@ -436,7 +437,8 @@ class NASLayer(SparseLayer):
                          radditional=radditional,
                          region=region,
                          temp_indices=template,
-                         learn_cols=learn_cols)
+                         learn_cols=learn_cols,
+                         chunk_size=chunk_size)
 
         self.k = k
         self.in_size = in_size

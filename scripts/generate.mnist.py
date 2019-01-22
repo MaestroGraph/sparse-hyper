@@ -24,14 +24,15 @@ def paste(background, foreground, scale=2.0):
 
     rh, rw = background.size
 
-    # Rotate the foreground (this makes the 9s and 6s largely indistinguishable...)
+    # Scale the foreground
+    sch = random.random() * (scale - .5) + .5
+    scw = random.random() * (scale - .5) + .5
+    new_size = (int(foreground.size[0] * sch), int(foreground.size[1] * scw))
+    foreground = foreground.resize(new_size, resample=Image.BICUBIC)
+
+    # Rotate the foreground
     angle_degrees = random.randint(0, 359)
     foreground = foreground.rotate(angle_degrees, resample=Image.BICUBIC, expand=True)
-
-    # Scale the foreground
-    sc = random.random() * (scale - .5) + .5
-    new_size = (int(foreground.size[0] * scale), int(foreground.size[1] * sc))
-    foreground = foreground.resize(new_size, resample=Image.BICUBIC)
 
     h, w = foreground.size
     h, w = rh - h, rw - w

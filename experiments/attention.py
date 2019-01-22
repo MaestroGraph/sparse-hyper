@@ -306,6 +306,142 @@ class BoxAttentionLayer(sparse.SparseLayer):
 
         plt.gcf()
 
+class AffineAttentionLayer(sparse.SparseLayer):
+    """
+    Version of the attention layer performs an affine transformation on the bounding box bounding the whole image.
+
+    NB: k is the number of tuples per input dimension. That is, k = 4 results in a 16 * c grid of inputs evenly spaced
+     across a bounding box
+
+
+    NOTE: May not work for color images... not properly tested yet.
+    """
+
+    def __init__(self, in_size, k,  gadditional=0, radditional=0,
+                 region=None, sigma_scale=0.1,
+                 num_values=-1, min_sigma=0.0, glimpses=1,
+                 scale=0.001):
+
+        assert(len(in_size) == 3)
+
+        self.in_size = in_size
+        self.k = k
+        self.sigma_scale = sigma_scale
+        self.num_values = num_values
+        self.min_sigma = min_sigma
+        self.scale = scale
+
+        ci, hi, wi = in_size
+        co, ho, wo = ci , k, k
+        out_size = glimpses, co, ho, wo
+
+        self.out_size = out_size
+
+        map = (glimpses, co, k, k)
+
+        template = torch.LongTensor(list(np.ndindex( map)))
+
+        assert template.size() == (prod(map), 4)
+
+        template = torch.cat([template, template[:, 1:]], dim=1)
+
+        assert template.size() == (prod(map), 7)
+
+        self.lc = [5, 6] # learnable columns
+
+        super().__init__(
+            in_rank=3, out_size=(glimpses, co, ho, wo),
+            temp_indices=template,
+            learn_cols=self.lc,
+            chunk_size=1,
+            gadditional=gadditional, radditional=radditional, region=region,
+            bias_type=util.Bias.NONE)
+
+        self.num_glimpses = glimpses
+
+        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, (2 * 3) * glimpses), util.Reshape((glimpses, 2, 3))]
+        self.preprocess = nn.Sequential(*modules)
+
+        self.register_buffer('grid', util.interpolation_grid((k, k)))
+
+        self.register_buffer('identity', torch.FloatTensor([1, 0, 0, 0, 1, 0]).view(2, 3))
+
+        self.register_buffer('corners', torch.FloatTensor([-2, 2, 2, 2, 2, -2, -2, -2]).view(4, 2))
+
+        # One sigma per glimpse
+        self.sigmas = Parameter(torch.randn( (glimpses, ) ))
+
+        # All values 1, no bias. Glimpses extract only pixel information.
+        self.register_buffer('one', torch.FloatTensor([1.0]))
+
+    def hyper(self, input, prep=None):
+        """
+        Evaluates hypernetwork.
+        """
+
+        b, c, h, w = input.size()
+
+        thetas = self.preprocess(input) # Cpompute the attention quadrangle
+        b, g, _, _ = thetas.size() # (b, g, 2, 3)
+
+        thetas = thetas * self.scale + self.identity[None, None, :, :]
+        mat, vec = thetas[:, :, :, :2], thetas[:, :, :, 2]
+
+        corners = self.corners[None, None, :, :].expand(b, g, 4, 2)
+
+        # compute the corners of the attention quad
+        quad = torch.bmm(corners.view(b*g, 4, 2), mat.view(b*g, 2, 2)) + vec.view(b*g, 1, 2)
+
+        k, k, _ = self.grid.size()  # k, k, 4
+
+        # Fit to the max pixel values
+        quad = sparse.transform_means(quad.view(b, g*4, 2), (h, w)).view(b, g, 4, 2)
+
+        # Interpolate between the four corners of the quad
+        grid = self.grid[None, None, :,    :,    :, None] # b, g, k, k, 4, 2
+        quad =      quad[:,    :,    None, None, :, :]
+
+        res = (grid * quad).sum(dim=4)
+
+        assert res.size() == (b, g, k, k, 2)
+
+        means = res.view(b, g * k * k, 2)
+
+        # Expand sigmas
+        sigmas = self.sigmas[None, :, None].expand(b, g, (k*k)).contiguous().view(b, (g*k*k))
+        sigmas = sparse.transform_sigmas(sigmas, (h, w))
+        sigmas = sigmas * self.sigma_scale + self.min_sigma
+
+        values = self.one[None, :].expand(b, k*k*g)
+
+        return means, sigmas, values
+
+    def plot(self, images):
+        perrow = 5
+
+        num, c, w, h = images.size()
+
+        rows = int(math.ceil(num/perrow))
+
+        means, sigmas, values = self.hyper(images)
+
+        images = images.data
+
+        plt.figure(figsize=(perrow * 3, rows*3))
+
+        for i in range(num):
+
+            ax = plt.subplot(rows, perrow, i+1)
+
+            im = np.transpose(images[i, :, :, :].cpu().numpy(), (1, 2, 0))
+            im = np.squeeze(im)
+
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
+
+            util.plot(means[i, :, :].unsqueeze(0), sigmas[i, :, :].unsqueeze(0), values[i, :].unsqueeze(0), axes=ax, flip_y=h, alpha_global=0.8/self.num_glimpses)
+
+        plt.gcf()
+
 class QuadAttentionLayer(sparse.SparseLayer):
     """
     Version of the attention layer that uses an attention _quadrangle_, instead of a bounding box.
@@ -667,6 +803,30 @@ def go(arg):
             in_size=shape, k=arg.k,
             gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
             min_sigma=arg.min_sigma
+        )
+
+        model = nn.Sequential(
+             hyperlayer,
+             util.Flatten(),
+             nn.Linear(arg.k * arg.k * shape[0] * arg.num_glimpses, arg.hidden),
+             activation,
+             nn.Linear(arg.hidden, num_classes),
+             nn.Softmax()
+        )
+
+        reinforce = False
+
+    elif arg.modelname == 'aff':
+        """
+        Network with quadrangle attention (instead of bounding box).
+        """
+
+        hyperlayer = AffineAttentionLayer(
+            glimpses=arg.num_glimpses,
+            in_size=shape, k=arg.k,
+            gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
+            min_sigma=arg.min_sigma,
+            scale=arg.stn_scale
         )
 
         model = nn.Sequential(

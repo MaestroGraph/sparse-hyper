@@ -69,24 +69,32 @@ for ti, task in enumerate(tasks):
         color = map.to_rgba(mi)
 
         lbl = '{}, r={}'.format(name[model], repeats)
-        labels.append(lbl)
+        if ti == 0:
+            labels.append(lbl)
 
         if len(dstds) == 0:
             h = ax.plot(
                 densities, accuracies,
-                label=lbl, linestyle='-' if model == 'nas-temp' else ':', marker='s')
-            handles.append(h[0])
+                label=lbl, linestyle='-' if model == 'nas-temp' else ':', marker='s', markersize=2)
+            if ti == 0:
+                handles.append(h[0])
         else:
             h = ax.errorbar(
                 x=densities, y=accuracies, xerr=dstds, yerr=astds,
-                label=lbl, linestyle='-' if model == 'nas-temp' else ':')
-            handles.append(h)
+                label=lbl, linestyle='-' if model == 'nas-temp' else ':', marker='s', markersize=2)
+
+            if ti == 0:
+                handles.append(h)
 
 
     ax.set_xlabel('density')
     ax.set_xscale('log')
 
     ax.set_ylim(0, 1)
+    # if task == 'mnist':
+    #     ax.set_ylim(0.6, 1.0)
+    # if task == 'cifar':
+    #     ax.set_ylim(0.2, 0.5)
 
     ax.set_title(task)
 

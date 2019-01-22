@@ -434,9 +434,9 @@ def single(arg):
 
     if arg.method == 'lp':
         if arg.p == 0.2:
-            name = 'l2'
-        elif arg.p == 0.5:
             name = 'l5'
+        elif arg.p == 0.5:
+            name = 'l2'
         elif arg.p == 1.0:
             name = 'l1'
         else:

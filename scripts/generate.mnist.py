@@ -20,7 +20,7 @@ from collections import Counter
 Generate rotated, and scaled version of MNIST
 """
 
-def paste(background, foreground):
+def paste(background, foreground, scale=2.0):
 
     rh, rw = background.size
 
@@ -29,8 +29,8 @@ def paste(background, foreground):
     foreground = foreground.rotate(angle_degrees, resample=Image.BICUBIC, expand=True)
 
     # Scale the foreground
-    scale = random.random() * 2.0 + + .5
-    new_size = (int(foreground.size[0] * scale), int(foreground.size[1] * scale))
+    sc = random.random() * (scale - .5) + .5
+    new_size = (int(foreground.size[0] * scale), int(foreground.size[1] * sc))
     foreground = foreground.resize(new_size, resample=Image.BICUBIC)
 
     h, w = foreground.size
@@ -39,7 +39,7 @@ def paste(background, foreground):
 
     background.paste(foreground, box=(h, w), mask=foreground)
 
-def make_image(b, images, res=100, noise=10):
+def make_image(b, images, res=100, noise=10, scale=2.0):
     """
 
     Extract the b-th image from the batch of images, and place it into a 100x100 image, rotated and scaled
@@ -70,7 +70,7 @@ def make_image(b, images, res=100, noise=10):
         nump = (images[ind, 0, h:h+nh, h:h+nw].numpy() * 255).astype('uint8').squeeze()
         patch = Image.fromarray(nump)
 
-        paste(background, patch)
+        paste(background, patch, scale=scale)
 
     # Paste image
 
@@ -78,7 +78,7 @@ def make_image(b, images, res=100, noise=10):
 
     foreground = Image.fromarray(nump)
 
-    paste(background, foreground)
+    paste(background, foreground, scale=scale)
 
     return background
 
@@ -102,7 +102,7 @@ def go(arg):
         batch_size = labels.size(0)
 
         for b in range(batch_size):
-            image = make_image(b, images, res=arg.res, noise=arg.noise)
+            image = make_image(b, images, res=arg.res, noise=arg.noise, scale=arg.scale)
             label = int(labels[b].item())
 
             image.save('./mnist-rsc/train/{}/{:06}.png'.format(label, indices[label]))
@@ -116,7 +116,7 @@ def go(arg):
         batch_size = labels.size(0)
 
         for b in range(batch_size):
-            image = make_image(b, images, res=arg.res, noise=arg.noise)
+            image = make_image(b, images, res=arg.res, noise=arg.noise, scale=arg.scale)
             label = int(labels[b].item())
 
             image.save('./mnist-rsc/test/{}/{:06}.png'.format(label, indices[label]))
@@ -146,6 +146,12 @@ if __name__ == "__main__":
                         dest="noise",
                         help="Number of noise patches to add.",
                         default=10, type=int)
+
+
+    parser.add_argument("-s", "--scale",
+                        dest="scale",
+                        help="Maximum scale multiplier.",
+                        default=2.0, type=float)
 
     options = parser.parse_args()
 

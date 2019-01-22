@@ -6,8 +6,11 @@ import sparse.util
 import numpy as np
 
 """
-Modules to implement differentiable quicksort. ```Split``` implements the half-permutation, and ```SortLayer``` chains
-these into quicksort.
+Modules to implement differentiable quicksort. 
+
+```Split``` implements the half-permutation.
+
+```SortLayer``` chains these into quicksort.
 """
 
 class Split(nn.Module):

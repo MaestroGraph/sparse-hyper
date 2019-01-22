@@ -29,7 +29,7 @@ def paste(background, foreground):
     foreground = foreground.rotate(angle_degrees, resample=Image.BICUBIC, expand=True)
 
     # Scale the foreground
-    scale = random.random() * 4.0 + + .5
+    scale = random.random() * 2.0 + + .5
     new_size = (int(foreground.size[0] * scale), int(foreground.size[1] * scale))
     foreground = foreground.resize(new_size, resample=Image.BICUBIC)
 

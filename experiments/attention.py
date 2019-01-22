@@ -151,7 +151,7 @@ class STNAttentionLayer(nn.Module):
         means = grid.view(b, -1, 2).data.cpu()
 
         # scale to image resolution
-        means = ((means + 1.0) * 0.5) * torch.FloatTensor(self.in_size[1:])[None, None, :]
+        means = ((means + 1.0) * 0.5) * torch.tensor(self.in_size[1:], dtype=torch.float)[None, None, :]
 
         b, k, _ = means.size()
         sigmas = torch.ones((b, k, 2)) * 0.001

@@ -73,7 +73,7 @@ def prep(ci, hi, wi, pool=4):
     ch1, ch2, ch3 = 32, 64, 128
 
     #hid = max(1, floor(floor(wi / p1) / p2) * floor(floor(hi / p1) / p2)) * ch3
-    hid = max(1.0, floor(wi/ (pool ** 4)) * floor(hi/ (pool ** 4)) * ch3 )
+    hid = max(1.0, floor(wi/ (pool ** 3 * 2)) * floor(hi/ (pool ** 3 *2)) * ch3 )
 
     return [
         nn.Conv2d(ci, ch1, kernel_size=3, padding=1),
@@ -87,7 +87,7 @@ def prep(ci, hi, wi, pool=4):
         nn.MaxPool2d(kernel_size=pool),
         nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
         activation,
-        nn.MaxPool2d(kernel_size=pool),
+        nn.MaxPool2d(kernel_size=2),
         nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
         activation,
         nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),

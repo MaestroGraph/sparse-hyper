@@ -115,7 +115,7 @@ class STNAttentionLayer(nn.Module):
         modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, 3 * 2 * glimpses), util.Reshape((glimpses, 2, 3))]
         self.preprocess = nn.Sequential(*modules)
 
-        self.register_buffer('identity', torch.FloatTensor([1, 0, 0, 0, 1, 0]).view(2, 3))
+        self.register_buffer('identity', torch.FloatTensor([0.4, 0, 0, 0, 0.4, 0]).view(2, 3))
 
     def forward(self, image):
 
@@ -364,7 +364,7 @@ class AffineAttentionLayer(sparse.SparseLayer):
 
         self.register_buffer('grid', util.interpolation_grid((k, k)))
 
-        self.register_buffer('identity', torch.FloatTensor([1, 0, 0, 0, 1, 0]).view(2, 3))
+        self.register_buffer('identity', torch.FloatTensor([0.4, 0, 0, 0, 0.4, 0]).view(2, 3))
 
         self.register_buffer('corners', torch.FloatTensor([-2, 2, 2, 2, 2, -2, -2, -2]).view(4, 2))
 
@@ -818,7 +818,7 @@ def go(arg):
 
     elif arg.modelname == 'aff':
         """
-        Network with quadrangle attention (instead of bounding box).
+        Network with affine tranformation  (instead of bounding box).
         """
 
         hyperlayer = AffineAttentionLayer(
@@ -839,6 +839,46 @@ def go(arg):
         )
 
         reinforce = False
+
+
+    elif arg.modelname == 'aff-conv':
+        """
+        Network with affine tranformation attention (instead of bounding box).
+        """
+
+        hyperlayer = AffineAttentionLayer(
+            glimpses=arg.num_glimpses,
+            in_size=shape, k=arg.k,
+            gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
+            min_sigma=arg.min_sigma,
+            scale=arg.stn_scale
+        )
+
+        ch1, ch2, ch3 = 16, 32, 64
+        h = (arg.k // 8) ** 2 * 64
+
+        model = nn.Sequential(
+            hyperlayer,
+            util.Reshape((arg.num_glimpses * shape[0], arg.k, arg.k)),  # Fold glimpses into channels
+            nn.Conv2d(arg.num_glimpses * shape[0], ch1, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
+            activation,
+            nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
+            activation,
+            nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
+            activation,
+            nn.MaxPool2d(kernel_size=2),
+            util.Flatten(),
+            nn.Linear(h, 128),
+            activation,
+            nn.Linear(128, num_classes),
+            nn.Softmax()
+        )
 
     elif arg.modelname == 'stn':
         """

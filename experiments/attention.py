@@ -880,6 +880,8 @@ def go(arg):
             nn.Softmax()
         )
 
+        reinforce = False
+
     elif arg.modelname == 'stn':
         """
         Spatial transformer with an MLP head.

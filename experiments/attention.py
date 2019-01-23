@@ -61,7 +61,7 @@ def rescale(image, outsize):
     return torch.from_numpy( np.transpose(image, (2, 0, 1)) )
 
 HIDLIN = 512
-def prep(ci, hi, wi):
+def prep(ci, hi, wi, pool=4):
     """
     Canonical preprocessing model (list of modules). Results in linear layer
     of HIDLIN units
@@ -70,22 +70,24 @@ def prep(ci, hi, wi):
     """
     activation = nn.ReLU()
 
-    p1, p2 = 4, 2
     ch1, ch2, ch3 = 32, 64, 128
 
-    hid = max(1, floor(floor(wi / p1) / p2) * floor(floor(hi / p1) / p2)) * ch3
+    #hid = max(1, floor(floor(wi / p1) / p2) * floor(floor(hi / p1) / p2)) * ch3
+    hid = max(1.0, floor(wi/ (pool ** 4)) * floor(hi/ (pool ** 4)) * ch3 )
 
     return [
         nn.Conv2d(ci, ch1, kernel_size=3, padding=1),
         activation,
+        nn.MaxPool2d(kernel_size=pool),
         nn.Conv2d(ch1, ch1, kernel_size=3, padding=1),
         activation,
-        nn.MaxPool2d(kernel_size=p1),
+        nn.MaxPool2d(kernel_size=pool),
         nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
         activation,
+        nn.MaxPool2d(kernel_size=pool),
         nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
         activation,
-        nn.MaxPool2d(kernel_size=p2),
+        nn.MaxPool2d(kernel_size=pool),
         nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
         activation,
         nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
@@ -101,7 +103,7 @@ class STNAttentionLayer(nn.Module):
     Baseline: spatial transformer
     """
 
-    def __init__(self, in_size, k, glimpses=1, scale=0.001):
+    def __init__(self, in_size, k, glimpses=1, scale=0.001, pool=4):
         super().__init__()
 
         self.in_size = in_size
@@ -112,7 +114,7 @@ class STNAttentionLayer(nn.Module):
         ci, hi, wi = in_size
         co, ho, wo = ci , k, k
 
-        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, 3 * 2 * glimpses), util.Reshape((glimpses, 2, 3))]
+        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, 3 * 2 * glimpses), util.Reshape((glimpses, 2, 3))]
         self.preprocess = nn.Sequential(*modules)
 
         self.register_buffer('identity', torch.FloatTensor([0.4, 0, 0, 0, 0.4, 0]).view(2, 3))
@@ -182,7 +184,7 @@ class BoxAttentionLayer(sparse.SparseLayer):
 
     def __init__(self, in_size, k,  gadditional=0, radditional=0,
                  region=None, sigma_scale=0.1,
-                 num_values=-1, min_sigma=0.0, glimpses=1):
+                 num_values=-1, min_sigma=0.0, glimpses=1, pool=4):
 
         assert(len(in_size) == 3)
 
@@ -225,7 +227,7 @@ class BoxAttentionLayer(sparse.SparseLayer):
         pixel_indices = pixel_indices.float() / torch.FloatTensor([[k, k]]).expand_as(pixel_indices)
         self.register_buffer('pixel_indices', pixel_indices)
 
-        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, 4 * glimpses), util.Reshape((glimpses, 4))]
+        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, 4 * glimpses), util.Reshape((glimpses, 4))]
         self.preprocess = nn.Sequential(*modules)
 
         self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
@@ -320,7 +322,7 @@ class AffineAttentionLayer(sparse.SparseLayer):
     def __init__(self, in_size, k,  gadditional=0, radditional=0,
                  region=None, sigma_scale=0.1,
                  num_values=-1, min_sigma=0.0, glimpses=1,
-                 scale=0.001):
+                 scale=0.001, pool=4):
 
         assert(len(in_size) == 3)
 
@@ -359,7 +361,7 @@ class AffineAttentionLayer(sparse.SparseLayer):
 
         self.num_glimpses = glimpses
 
-        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, (2 * 3) * glimpses), util.Reshape((glimpses, 2, 3))]
+        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, (2 * 3) * glimpses), util.Reshape((glimpses, 2, 3))]
         self.preprocess = nn.Sequential(*modules)
 
         self.register_buffer('grid', util.interpolation_grid((k, k)))
@@ -455,7 +457,7 @@ class QuadAttentionLayer(sparse.SparseLayer):
 
     def __init__(self, in_size, k,  gadditional=0, radditional=0,
                  region=None, sigma_scale=0.1,
-                 num_values=-1, min_sigma=0.0, glimpses=1):
+                 num_values=-1, min_sigma=0.0, glimpses=1, pool=4):
 
         assert(len(in_size) == 3)
 
@@ -493,7 +495,7 @@ class QuadAttentionLayer(sparse.SparseLayer):
 
         self.num_glimpses = glimpses
 
-        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, 8 * glimpses), util.Reshape((glimpses, 4, 2))]
+        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, 8 * glimpses), util.Reshape((glimpses, 4, 2))]
         self.preprocess = nn.Sequential(*modules)
 
         self.register_buffer('grid', util.interpolation_grid((k, k)))
@@ -576,7 +578,7 @@ class ReinforceLayer(nn.Module):
     """
 
     def __init__(self, in_shape, glimpses, glimpse_size,
-                 num_classes, rfboost=2.0):
+                 num_classes, rfboost=2.0, pool=4):
         super().__init__()
 
         self.rfboost = rfboost
@@ -588,7 +590,7 @@ class ReinforceLayer(nn.Module):
 
         ci, hi, wi = in_shape
 
-        modules = prep(ci, hi, wi) + [nn.ReLU(), nn.Linear(HIDLIN, glimpses * 3), util.Reshape((glimpses, 3))]
+        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, glimpses * 3), util.Reshape((glimpses, 3))]
         self.preprocess = nn.Sequential(*modules)
 
     def forward(self, image):
@@ -746,7 +748,7 @@ def go(arg):
 
     if arg.modelname == 'conv':
 
-        base = prep(*shape)
+        base = prep(*shape, pool=arg.pool)
 
         model = nn.Sequential(*(
             base +
@@ -760,7 +762,7 @@ def go(arg):
 
         hyperlayer = ReinforceLayer(in_shape=shape, glimpses=arg.num_glimpses,
                 glimpse_size=(28, 28),
-                num_classes=num_classes)
+                num_classes=num_classes, pool=arg.pool)
 
         model = nn.Sequential(
              hyperlayer,
@@ -779,7 +781,7 @@ def go(arg):
             glimpses=arg.num_glimpses,
             in_size=shape, k=arg.k,
             gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
-            min_sigma=arg.min_sigma
+            min_sigma=arg.min_sigma, pool=arg.pool
         )
 
         model = nn.Sequential(
@@ -802,7 +804,7 @@ def go(arg):
             glimpses=arg.num_glimpses,
             in_size=shape, k=arg.k,
             gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
-            min_sigma=arg.min_sigma
+            min_sigma=arg.min_sigma, pool=arg.pool
         )
 
         model = nn.Sequential(
@@ -826,7 +828,7 @@ def go(arg):
             in_size=shape, k=arg.k,
             gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
             min_sigma=arg.min_sigma,
-            scale=arg.stn_scale
+            scale=arg.stn_scale, pool=arg.pool
         )
 
         model = nn.Sequential(
@@ -851,7 +853,7 @@ def go(arg):
             in_size=shape, k=arg.k,
             gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
             min_sigma=arg.min_sigma,
-            scale=arg.stn_scale
+            scale=arg.stn_scale, pool=arg.pool
         )
 
         ch1, ch2, ch3 = 16, 32, 64
@@ -887,7 +889,7 @@ def go(arg):
         Spatial transformer with an MLP head.
         """
 
-        hyperlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses, scale=arg.stn_scale)
+        hyperlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses, scale=arg.stn_scale, pool=arg.pool)
 
         model = nn.Sequential(
              hyperlayer,
@@ -905,7 +907,7 @@ def go(arg):
         Spatial transformer with a convolutional head.
         """
 
-        hyperlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses, scale=arg.stn_scale)
+        hyperlayer = STNAttentionLayer(in_size=shape, k=arg.k, glimpses=arg.num_glimpses, scale=arg.stn_scale, pool=arg.pool)
 
         ch1, ch2, ch3 = 16, 32, 64
         h = (arg.k // 8) ** 2 * 64
@@ -944,7 +946,7 @@ def go(arg):
             glimpses=arg.num_glimpses,
             in_size=shape, k=arg.k,
             gadditional=arg.gadditional, radditional=arg.radditional, region=(arg.region, arg.region),
-            min_sigma=arg.min_sigma
+            min_sigma=arg.min_sigma, pool=arg.pool
         )
 
         ch1, ch2, ch3 = 16, 32, 64
@@ -1165,6 +1167,10 @@ if __name__ == "__main__":
 
     parser.add_argument("-G", "--num-glimpses", dest="num_glimpses",
                         help="Number of glimpses for the ash model.",
+                        default=4, type=int)
+
+    parser.add_argument("--pool", dest="pool",
+                        help="Kernel size of the maxpool layer in the conv net that reads the image",
                         default=4, type=int)
 
     parser.add_argument("-r", "--random-seed",

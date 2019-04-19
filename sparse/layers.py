@@ -350,7 +350,6 @@ class SparseLayer(nn.Module):
             indfl = indices.float()
 
             # Mask for duplicate indices
-            print(indices)
             dups = nduplicates(indices)
 
             # compute (unnormalized) densities under the given MVNs (proportions)

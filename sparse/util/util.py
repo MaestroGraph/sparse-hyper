@@ -802,7 +802,6 @@ def nunique(tuples):
 
     tuples = tuples.view(-1, d)
 
-    print(tuples.size())
     un = unique(tuples)
 
     return un.view(*init)

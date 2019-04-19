@@ -105,10 +105,10 @@ def getmodel(arg, insize, numcls):
 
     elif arg.method == 'nas-temp':
         """
-        Templated NAS model. Fixed in one dimension 
+        Templated NAS model. Fixed output dimensions.
         """
 
-        rng = (arg.range[0], arg.range[0])
+        rng = getrng(arg.range[0], (insize[1], insize[2]))
 
         c = arg.control+1
 
@@ -125,7 +125,7 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = (arg.range[1], )
+        rng = getrng(arg.range[1], (H1, ))
 
         template = torch.arange(H2, dtype=torch.long)[:, None].expand(H2, c).contiguous().view(H2 * c, 1)
         template = torch.cat([template, torch.zeros(H2*c, 1, dtype=torch.long)], dim=1)
@@ -140,7 +140,7 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = (arg.range[2], )
+        rng = getrng(arg.range[2], (H2, ))
 
         template = torch.arange(numcls, dtype=torch.long)[:, None].expand(numcls, c).contiguous().view(numcls * c, 1)
         template = torch.cat([template, torch.zeros(numcls*c, 1, dtype=torch.long)], dim=1)

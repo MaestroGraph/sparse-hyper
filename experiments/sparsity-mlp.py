@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from argparse import ArgumentParser
 
-import os, sys
+import os, sys, math
 
 from sparse import util, NASLayer
 
@@ -36,6 +36,9 @@ H1, H2 = 300, 100
 BATCH_SIZES    = [128]
 LEARNING_RATES = [0.00005, 0.0001, 0.0005, 0.001, 0.005]
 
+def getrng(p, size):
+    return [max(1, int(math.floor(p * s))) for s in size]
+
 def getmodel(arg, insize, numcls):
 
     if arg.method == 'l1' or arg.method == 'lp':
@@ -56,7 +59,7 @@ def getmodel(arg, insize, numcls):
         Non-templated NAS model
         """
 
-        rng = (arg.range[0], insize[0], arg.range[0], arg.range[0])
+        rng = getrng(arg.range[0], (H1, ) + insize)
 
         c = arg.control+1
 
@@ -70,7 +73,7 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = (arg.range[1], arg.range[1])
+        rng = getrng(arg.range[1], (H2, H1))
 
         two = NASLayer(
             in_size=(H1,), out_size=(H2,), k=H2*c,
@@ -82,7 +85,7 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = (arg.range[2], arg.range[2])
+        rng = getrng(arg.range[2], (numcls, H2))
 
         three = NASLayer(
             in_size=(H2,), out_size=(numcls,), k=numcls*c,
@@ -99,7 +102,6 @@ def getmodel(arg, insize, numcls):
             two, nn.Sigmoid(),
             three, nn.Softmax(),
         )
-
 
     elif arg.method == 'nas-temp':
         """
@@ -385,7 +387,7 @@ if __name__ == "__main__":
                         dest="range",
                         nargs=3,
                         help="Range in which the local points are sampled (NAS)",
-                        default=[12, 8, 6], type=int)
+                        default=[0.3, 0.2, 0.2], type=float)
 
     parser.add_argument("-r", "--repeats",
                         dest="repeats",

@@ -51,6 +51,56 @@ def getmodel(arg, insize, numcls):
             three, nn.Softmax()
         )
 
+    elif arg.method == 'nas':
+        """
+        Non-templated NAS model
+        """
+
+        rng = (arg.range[0], insize[0], arg.range[0], arg.range[0])
+
+        c = arg.control+1
+
+        one = NASLayer(
+            in_size=insize, out_size=(H1,), k=H1*c,
+            gadditional=arg.gadditional[0], radditional=arg.radditional[0], region=rng, has_bias=True,
+            fix_values=arg.fix_values,
+            min_sigma=arg.min_sigma,
+            template=None,
+            learn_cols=None,
+            chunk_size=c
+        )
+
+        rng = (arg.range[1], arg.range[1])
+
+        two = NASLayer(
+            in_size=(H1,), out_size=(H2,), k=H2*c,
+            gadditional=arg.gadditional[1], radditional=arg.radditional[1], region=rng, has_bias=True,
+            fix_values=arg.fix_values,
+            min_sigma=arg.min_sigma,
+            template=None,
+            learn_cols=None,
+            chunk_size=c
+        )
+
+        rng = (arg.range[2], arg.range[2])
+
+        three = NASLayer(
+            in_size=(H2,), out_size=(numcls,), k=numcls*c,
+            gadditional=arg.gadditional[2], radditional=arg.radditional[2], region=rng, has_bias=True,
+            fix_values=arg.fix_values,
+            min_sigma=arg.min_sigma,
+            template=None,
+            learn_cols=None,
+            chunk_size=c
+        )
+
+        model = nn.Sequential(
+            one, nn.Sigmoid(),
+            two, nn.Sigmoid(),
+            three, nn.Softmax(),
+        )
+
+
     elif arg.method == 'nas-temp':
         """
         Templated NAS model. Fixed in one dimension 

@@ -25,7 +25,7 @@ from tensorboardX import SummaryWriter
 This experiment trains a simple, fully connected two-layer MLP, using different methods of inducing sparsity, and
 measures the density of the resulting weight matrices (the number of non-zero weights, divided by the total).
 
-We aim to show that in the very low desity regime, the sparse layer is a competitive approach.
+We aim to show that in the very low density regime, the sparse layer is a competitive approach.
 
 The tasks are simple classification on mnist, cifar10 and cifar100.
 

@@ -350,6 +350,7 @@ class SparseLayer(nn.Module):
             indfl = indices.float()
 
             # Mask for duplicate indices
+            print(indices)
             dups = nduplicates(indices)
 
             # compute (unnormalized) densities under the given MVNs (proportions)
@@ -425,7 +426,7 @@ class NASLayer(SparseLayer):
         :param region:
         :param radditional:
         :param clamp:
-        :param template: LongTensor Template for the matrix of index tuples. Learnable columns are updates through backprop
+        :param template: LongTensor Template for the matrix of index tuples. Learnable columns are updated through backprop
             other values are taken from the template.
         :param learn_cols: tuple of integers. Learnable columns of the template.
 

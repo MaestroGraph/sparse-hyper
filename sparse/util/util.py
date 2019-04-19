@@ -802,6 +802,7 @@ def nunique(tuples):
 
     tuples = tuples.view(-1, d)
 
+    print(tuples.size())
     un = unique(tuples)
 
     return un.view(*init)
@@ -817,6 +818,9 @@ def unique(tuples):
     """
 
     b, s = tuples.size()
+
+    if s == 1:
+        return tuples
 
     if s == 2:
         k1, k2 = tuples[:, 0], tuples[:, 1]

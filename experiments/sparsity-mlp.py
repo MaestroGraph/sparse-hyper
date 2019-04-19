@@ -56,7 +56,7 @@ def getmodel(arg, insize, numcls):
         Templated NAS model. Fixed in one dimension 
         """
 
-        rng = (arg.range, arg.range)
+        rng = (arg.range[0], arg.range[0])
 
         c = arg.control+1
 
@@ -65,7 +65,7 @@ def getmodel(arg, insize, numcls):
 
         one = NASLayer(
             in_size=insize, out_size=(H1,), k=H1*c,
-            gadditional=arg.gadditional, radditional=arg.radditional, region=rng, has_bias=True,
+            gadditional=arg.gadditional[0], radditional=arg.radditional[0], region=rng, has_bias=True,
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
             template=template,
@@ -73,14 +73,14 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = (arg.range, )
+        rng = (arg.range[1], )
 
         template = torch.arange(H2, dtype=torch.long)[:, None].expand(H2, c).contiguous().view(H2 * c, 1)
         template = torch.cat([template, torch.zeros(H2*c, 1, dtype=torch.long)], dim=1)
 
         two = NASLayer(
             in_size=(H1,), out_size=(H2,), k=H2*c,
-            gadditional=arg.gadditional, radditional=arg.radditional, region=rng, has_bias=True,
+            gadditional=arg.gadditional[1], radditional=arg.radditional[1], region=rng, has_bias=True,
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
             template=template,
@@ -88,14 +88,14 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = (arg.range, )
+        rng = (arg.range[2], )
 
         template = torch.arange(numcls, dtype=torch.long)[:, None].expand(numcls, c).contiguous().view(numcls * c, 1)
         template = torch.cat([template, torch.zeros(numcls*c, 1, dtype=torch.long)], dim=1)
 
         three = NASLayer(
             in_size=(H2,), out_size=(numcls,), k=numcls*c,
-            gadditional=arg.gadditional, radditional=arg.radditional, region=rng, has_bias=True,
+            gadditional=arg.gadditional[2], radditional=arg.radditional[2], region=rng, has_bias=True,
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
             template=template,
@@ -321,18 +321,21 @@ if __name__ == "__main__":
 
     parser.add_argument("-a", "--gadditional",
                         dest="gadditional",
+                        nargs=3,
                         help="Number of additional points sampled globally per index-tuple (NAS)",
-                        default=2, type=int)
+                        default=[32, 6, 2], type=int)
 
     parser.add_argument("-A", "--radditional",
                         dest="radditional",
+                        nargs=3,
                         help="Number of additional points sampled locally per index-tuple (NAS)",
-                        default=2, type=int)
+                        default=[32, 6, 2], type=int)
 
     parser.add_argument("-R", "--range",
                         dest="range",
+                        nargs=3,
                         help="Range in which the local points are sampled (NAS)",
-                        default=4, type=int)
+                        default=[12, 8, 6], type=int)
 
     parser.add_argument("-r", "--repeats",
                         dest="repeats",

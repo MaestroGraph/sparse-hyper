@@ -31,8 +31,6 @@ TODO: Test temp version.
 
 """
 
-H1, H2 = 300, 100
-
 BATCH_SIZES    = [128]
 LEARNING_RATES = [0.00005, 0.0001, 0.0005, 0.001, 0.005]
 
@@ -41,30 +39,32 @@ def getrng(p, size):
 
 def getmodel(arg, insize, numcls):
 
-    if arg.method == 'l1' or arg.method == 'lp':
+    h1, h2 = arg.hidden
 
-        one = nn.Linear(util.prod(insize), H1)
-        two = nn.Linear(H1, H2)
-        three = nn.Linear(H2, numcls)
+    # if arg.method == 'l1' or arg.method == 'lp':
+    #
+    #     one = nn.Linear(util.prod(insize), h1)
+    #     two = nn.Linear(h1, h2)
+    #     three = nn.Linear(h2, numcls)
+    #
+    #     model = nn.Sequential(
+    #         util.Flatten(),
+    #         one, nn.Sigmoid(),
+    #         two, nn.Sigmoid(),
+    #         three, nn.Softmax()
+    #     )
 
-        model = nn.Sequential(
-            util.Flatten(),
-            one, nn.Sigmoid(),
-            two, nn.Sigmoid(),
-            three, nn.Softmax()
-        )
-
-    elif arg.method == 'nas':
+    if arg.method == 'nas':
         """
         Non-templated NAS model
         """
 
-        rng = getrng(arg.range[0], (H1, ) + insize)
+        rng = getrng(arg.range[0], (h1, ) + insize)
 
-        c = arg.control+1
+        c = arg.k[0]
 
         one = NASLayer(
-            in_size=insize, out_size=(H1,), k=H1*c,
+            in_size=insize, out_size=(h1,), k=h1*c,
             gadditional=arg.gadditional[0], radditional=arg.radditional[0], region=rng, has_bias=True,
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
@@ -73,10 +73,11 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = getrng(arg.range[1], (H2, H1))
+        rng = getrng(arg.range[1], (h2, h1))
+        c = arg.k[1]
 
         two = NASLayer(
-            in_size=(H1,), out_size=(H2,), k=H2*c,
+            in_size=(h1,), out_size=(h2,), k=h2*c,
             gadditional=arg.gadditional[1], radditional=arg.radditional[1], region=rng, has_bias=True,
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
@@ -85,10 +86,11 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = getrng(arg.range[2], (numcls, H2))
+        rng = getrng(arg.range[2], (numcls, h2))
+        c = arg.k[2]
 
         three = NASLayer(
-            in_size=(H2,), out_size=(numcls,), k=numcls*c,
+            in_size=(h2,), out_size=(numcls,), k=numcls*c,
             gadditional=arg.gadditional[2], radditional=arg.radditional[2], region=rng, has_bias=True,
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
@@ -109,14 +111,13 @@ def getmodel(arg, insize, numcls):
         """
 
         rng = getrng(arg.range[0], (insize[1], insize[2]))
+        c = arg.k[0]
 
-        c = arg.control+1
-
-        template = torch.arange(H1, dtype=torch.long)[:, None].expand(H1, c).contiguous().view(H1*c, 1)
-        template = torch.cat([template, torch.zeros(H1*c, 3, dtype=torch.long)], dim=1)
+        template = torch.arange(h1, dtype=torch.long)[:, None].expand(h1, c).contiguous().view(h1*c, 1)
+        template = torch.cat([template, torch.zeros(h1*c, 3, dtype=torch.long)], dim=1)
 
         one = NASLayer(
-            in_size=insize, out_size=(H1,), k=H1*c,
+            in_size=insize, out_size=(h1,), k=h1*c,
             gadditional=arg.gadditional[0], radditional=arg.radditional[0], region=rng, has_bias=True,
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
@@ -125,13 +126,14 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = getrng(arg.range[1], (H1, ))
+        rng = getrng(arg.range[1], (h1, ))
+        c = arg.k[1]
 
-        template = torch.arange(H2, dtype=torch.long)[:, None].expand(H2, c).contiguous().view(H2 * c, 1)
-        template = torch.cat([template, torch.zeros(H2*c, 1, dtype=torch.long)], dim=1)
+        template = torch.arange(h2, dtype=torch.long)[:, None].expand(h2, c).contiguous().view(h2 * c, 1)
+        template = torch.cat([template, torch.zeros(h2*c, 1, dtype=torch.long)], dim=1)
 
         two = NASLayer(
-            in_size=(H1,), out_size=(H2,), k=H2*c,
+            in_size=(h1,), out_size=(h2,), k=h2*c,
             gadditional=arg.gadditional[1], radditional=arg.radditional[1], region=rng, has_bias=True,
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
@@ -140,13 +142,14 @@ def getmodel(arg, insize, numcls):
             chunk_size=c
         )
 
-        rng = getrng(arg.range[2], (H2, ))
+        rng = getrng(arg.range[2], (h2, ))
+        c = arg.k[2]
 
         template = torch.arange(numcls, dtype=torch.long)[:, None].expand(numcls, c).contiguous().view(numcls * c, 1)
         template = torch.cat([template, torch.zeros(numcls*c, 1, dtype=torch.long)], dim=1)
 
         three = NASLayer(
-            in_size=(H2,), out_size=(numcls,), k=numcls*c,
+            in_size=(h2,), out_size=(numcls,), k=numcls*c,
             gadditional=arg.gadditional[2], radditional=arg.radditional[2], region=rng, has_bias=True,
             fix_values=arg.fix_values,
             min_sigma=arg.min_sigma,
@@ -172,10 +175,10 @@ def getmodel(arg, insize, numcls):
 def single(arg):
 
     tbw = SummaryWriter()
-
-    lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control].item()
-
-    print('lambda ', lambd)
+    #
+    # lambd = torch.logspace(arg.rfrom, arg.rto, arg.rnum)[arg.control].item()
+    #
+    # print('lambda ', lambd)
 
     # Grid search over batch size/learning rate
     # -- Set up model
@@ -291,44 +294,44 @@ def single(arg):
                 print('\nepoch {}: {}\n'.format(e, acc))
                 tbw.add_scalar('sparsity/test acc', acc, e)
 
-        # Compute density
-        total = util.prod(insize) * arg.hidden
-
-        kt = arg.control * (H1 + H2 + numcls)
-
-        if arg.method == 'l1' or arg.method == 'lp':
-            density = (one.weight > 0.0001).sum().item() / float(total)
-        elif arg.method == 'nas' or arg.method == 'nas-temp':
-            density = kt / total
-        else:
-            raise Exception('Method {} not recognized'.format(arg.method))
-
-        accuracies.append(acc)
-        densities.append(density)
-
-    print('accuracies: ', accuracies)
-    print('densities: ', densities)
-
-    if arg.method == 'lp':
-        if arg.p == 0.2:
-            name = 'l5'
-        elif arg.p == 0.5:
-            name = 'l2'
-        elif arg.p == 1.0:
-            name = 'l1'
-        else:
-            name = 'l' + arg.p
-    else:
-        name = arg.method
-
-    # Save to CSV
-    np.savetxt(
-        'results.{}.{}.csv'.format(name, arg.control),
-        torch.cat([
-                torch.tensor(accuracies, dtype=torch.float)[:, None],
-                torch.tensor(densities, dtype=torch.float)[:, None]
-            ], dim=1).numpy(),
-    )
+    #     # Compute density
+    #     total = util.prod(insize) * arg.hidden
+    #
+    #     kt = arg.control[] * (arg.hidden[0] +  + numcls)
+    #
+    #     if arg.method == 'l1' or arg.method == 'lp':
+    #         density = (one.weight > 0.0001).sum().item() / float(total)
+    #     elif arg.method == 'nas' or arg.method == 'nas-temp':
+    #         density = kt / total
+    #     else:
+    #         raise Exception('Method {} not recognized'.format(arg.method))
+    #
+    #     accuracies.append(acc)
+    #     densities.append(density)
+    #
+    # print('accuracies: ', accuracies)
+    # print('densities: ', densities)
+    #
+    # if arg.method == 'lp':
+    #     if arg.p == 0.2:
+    #         name = 'l5'
+    #     elif arg.p == 0.5:
+    #         name = 'l2'
+    #     elif arg.p == 1.0:
+    #         name = 'l1'
+    #     else:
+    #         name = 'l' + arg.p
+    # else:
+    #     name = arg.method
+    #
+    # # Save to CSV
+    # np.savetxt(
+    #     'results.{}.{}.csv'.format(name, arg.control),
+    #     torch.cat([
+    #             torch.tensor(accuracies, dtype=torch.float)[:, None],
+    #             torch.tensor(densities, dtype=torch.float)[:, None]
+    #         ], dim=1).numpy(),
+    # )
 
     print('Finished')
 
@@ -336,20 +339,28 @@ if __name__ == "__main__":
 
     parser = ArgumentParser()
 
-    parser.add_argument("-C", "--control",
-                        dest="control",
-                        help="Control parameter. For l1, lambda = 10^(-5+c). For NAS, k=hidden*(c+1)",
-                        default=0, type=int)
+    parser.add_argument("-H", "--hidden",
+                        dest="hidden",
+                        nargs=2,
+                        help="Sizes of the two hidden layers",
+                        default=[300, 100],
+                        type=int)
+
+    parser.add_argument("-k", "--points-per-out",
+                        dest="k",
+                        nargs=3,
+                        help="Number of sparse points for each output node.",
+                        default=[1, 1, 1], type=int)
 
     parser.add_argument("-l", "--lr",
                         dest="lr",
                         help="Learning rate (ignored in sweep)",
-                        default=None, type=float)
+                        default=0.001, type=float)
 
     parser.add_argument("-b", "--batch ",
                         dest="bs",
                         help="Batch size (ignored in sweep)",
-                        default=None, type=int)
+                        default=64, type=int)
 
     parser.add_argument("-e", "--epochs",
                         dest="epochs",
@@ -359,7 +370,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--method",
                         dest="method",
                         help="Method to use (lp, nas) ",
-                        default='l1', type=str)
+                        default='nas-temp', type=str)
 
     parser.add_argument("-P", "--lp-p",
                         dest="p",

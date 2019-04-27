@@ -34,5 +34,47 @@ class TestLayers(unittest.TestCase):
 
         self.assertEquals((3, 7, 5), density.size())
 
+    def test_ngenerate(self):
+
+        means  = torch.randn(6, 2, 3)
+        sigmas = torch.randn(6, 2)
+        values = torch.randn(6, 2)
+
+        b = 5
+        size = (64, 128, 32)
+
+        ms = means.size()
+
+        xp = (5, ) + means.size()
+        # Expand parameters along batch dimension
+        means = means.expand(*xp)
+        sigmas = sigmas.expand(*xp[:-1])
+        values = values.expand(*xp[:-1])
+
+        means, sigmas = layers.transform_means(means, size), layers.transform_sigmas(sigmas, size)
+
+        indices_old = layers.generate_integer_tuples(means,
+                                   2, 2,
+                                   relative_range=(4, 4, 4),
+                                   rng=size,
+                                   cuda=means.is_cuda)
+
+
+        indices_new = layers.ngenerate(means,
+                                   2, 2,
+                                   relative_range=(4, 4, 4),
+                                   rng=size,
+                                   cuda=means.is_cuda)
+
+        assert indices_old.size() == indices_new.size()
+
+    def test_conv(self):
+
+        x = torch.ones(1, 4, 3, 3)
+
+        c = layers.Convolution((4, 3, 3), 4, k=2, rprop=.5, gadditional=2, radditional=2)
+
+        print(c(x))
+
 if __name__ == '__main__':
     unittest.main()

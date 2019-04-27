@@ -17,6 +17,8 @@ from sparse.util import Bias, sparsemult, contains_nan, bmult, nduplicates
 import sys
 import random
 
+import numpy as np
+
 from enum import Enum
 
 # added to the sigmas to prevent NaN
@@ -49,12 +51,15 @@ def densities(points, means, sigmas):
     # k: number of continuous index tuples per chunk
     # c: number of chunks
 
-    b, c, i, rank = points.size()
-    b, c, k, rank = means.size()
+    c, i, rank = points.size()[-3:]
+    c, k, rank = means.size()[-3:]
 
-    points = points[:, :, :, None, :].expand(b, c, i, k, rank)
-    means  = means[:, :, None, :, :].expand_as(points)
-    sigmas = sigmas[:, :, None, :, :].expand_as(points)
+    pref = points.size()[:-3]
+    assert pref == means.size()[:-3]
+
+    points = points.unsqueeze(-2).expand( *(pref + (c, i, k, rank)) )
+    means  = means.unsqueeze(-3).expand_as(points)
+    sigmas = sigmas.unsqueeze(-3).expand_as(points)
 
     sigmas_squared = torch.sqrt(1.0/(EPSILON+sigmas))
 
@@ -62,12 +67,12 @@ def densities(points, means, sigmas):
     points = points * sigmas_squared
 
     # Compute dot products for all points
-    # -- unroll the batch/c/k/l dimensions
+    # -- unroll the pref/c/k/l dimensions
     points = points.view(-1, 1, rank)
     # -- dot prod
     products = torch.bmm(points, points.transpose(1, 2))
     # -- reconstruct shape
-    products = products.view(b, c, i, k)
+    products = products.view( *(pref + (c, i, k)) )
 
     num = torch.exp(- 0.5 * products) # the numerator of the Gaussian density
 
@@ -85,7 +90,6 @@ def transform_means(means, size, clamp=False):
     :param size: Tuple describing the tensor dimensions.
     :return:
     """
-    b, k, rank = means.size()
 
     # Scale to [0, 1]
     if clamp:
@@ -95,7 +99,8 @@ def transform_means(means, size, clamp=False):
 
     # Compute upper bounds
     s = torch.tensor(list(size), dtype=torch.float, device='cuda' if means.is_cuda else 'cpu') - 1
-    s = s[None, None, :].expand_as(means)
+    s = util.unsqueezen(s, len(means.size()) - 1)
+    s = s.expand_as(means)
 
     return means * s
 
@@ -113,27 +118,31 @@ def transform_sigmas(sigmas, size, min_sigma=EPSILON):
     :param min_sigma: Minimal sigma value.
     :return:
     """
-    b, k = sigmas.size()
+    ssize = sigmas.size()
     r = len(size)
 
     # Scale to [0, 1]
     sigmas = F.softplus(sigmas + SIGMA_BOOST) + min_sigma
-    sigmas = sigmas[:, :, None].expand(b, k, r)
+    # sigmas = sigmas[:, :, None].expand(b, k, r)
+    sigmas = sigmas.unsqueeze(-1).expand(*(ssize + (r, )))
 
     # Compute upper bounds
     s = torch.tensor(list(size), dtype=torch.float, device='cuda' if sigmas.is_cuda else 'cpu')
-    s = s[None, None, :].expand_as(sigmas)
+    s = util.unsqueezen(s, len(sigmas.size()) - 1)
+    s = s.expand_as(sigmas)
 
     return sigmas * s
 
 class SparseLayer(nn.Module):
     """
-    Abstract class for the templated hyperlayer. Implement by defining a hypernetwork, and returning it from the
+    Abstract class for the (templated) hyperlayer. Implement by defining a hypernetwork, and returning it from the
     hyper() method. See NASLayer for an implementation without hypernetwork.
 
     The templated hyperlayer takes certain columns of its index-tuple matrix as fixed (the template), and others as
     learnable. Imagine a neural network layer where the connections to the output nodes are fixed, but the connections to
-    the input nodes can be learned. For a non-templated hypernetwork, just leave the template parameters None.
+    the input nodes can be learned.
+
+    For a non-templated hypernetwork (all columns learnable), just leave the template parameters None.
     """
     @abc.abstractmethod
     def hyper(self, input):
@@ -188,8 +197,7 @@ class SparseLayer(nn.Module):
 
         # create a tensor with all binary sequences of length 'out_rank' as rows
         # (this will be used to compute the nearby integer-indices of a float-index).
-        lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=len(self.learn_cols))]
-        self.register_buffer('floor_mask', torch.ByteTensor(lsts))
+        self.register_buffer('floor_mask', floor_mask(len(learn_cols)))
 
         if self.templated:
             # template for the index matrix containing the hardwired connections
@@ -198,87 +206,87 @@ class SparseLayer(nn.Module):
 
             self.register_buffer('temp_indices', temp_indices)
 
-    def generate_integer_tuples(self, means, rng=None, relative_range=None, seed=None):
-        """
-        Take continuous-valued index tuples, and generates integer-valued index tuples.
-
-        The returned matrix of ints is not a Variable (just a plain LongTensor). autograd of the real valued indices passes
-        through the values alone, not the integer indices used to instantiate the sparse matrix.
-
-        :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
-        :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
-        :return: a triple (ints, props, vals). ints is an N*2^K by K matrix representing the N*2^K integer index-tuples that can
-            be made by flooring or ceiling the indices in 'ind'. 'props' is a vector of length N*2^K, which indicates how
-            much of the original value each integer index-tuple receives (based on the distance to the real-valued
-            index-tuple). vals is vector of length N*2^K, containing the value of the corresponding real-valued index-tuple
-            (ie. vals just repeats each value in the input 'val' 2^K times).
-        """
-
-        b, k, c, rank = means.size()
-        dv = 'cuda' if self.is_cuda() else 'cpu'
-        FT = torch.cuda.FloatTensor if self.is_cuda() else torch.FloatTensor
-
-        if seed is not None:
-            torch.manual_seed(seed)
-
-        """
-        Generate neighbor tuples
-        """
-        fm = self.floor_mask[None, None, None, :].expand(b, k, c, 2 ** rank, rank)
-
-        neighbor_ints = means.data[:, :, :, None, :].expand(b, k, c, 2 ** rank, rank).contiguous()
-
-        neighbor_ints[fm] = neighbor_ints[fm].floor()
-        neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
-
-        neighbor_ints = neighbor_ints.long()
-
-        """
-        Sample uniformly from all integer tuples
-        """
-
-        global_ints = FT(b, k, c, self.gadditional, rank)
-
-        global_ints.uniform_()
-        global_ints *= (1.0 - EPSILON)
-
-        rng = FT(rng)
-        rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(global_ints)
-
-        global_ints = torch.floor(global_ints * rngxp).long()
-
-        """
-        Sample uniformly from a small range around the given index tuple
-        """
-        local_ints = FT(b, k, c, self.radditional, rank)
-
-        local_ints.uniform_()
-        local_ints *= (1.0 - EPSILON)
-
-        rngxp = rng[None, None, None, :].expand_as(local_ints) # bounds of the tensor
-
-        rrng = FT(relative_range) # bounds of the range from which to sample
-        rrng = rrng[None, None, None, :].expand_as(local_ints)
-
-        # print(means.size())
-        mns_expand = means.round().unsqueeze(3).expand_as(local_ints)
-
-        # upper and lower bounds
-        lower = mns_expand - rrng * 0.5
-        upper = mns_expand + rrng * 0.5
-
-        # check for any ranges that are out of bounds
-        idxs = lower < 0.0
-        lower[idxs] = 0.0
-
-        idxs = upper > rngxp
-        lower[idxs] = rngxp[idxs] - rrng[idxs]
-
-        local_ints = (local_ints * rrng + lower).long()
-
-        all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=3)
-
-        return all.view(b, k, -1, rank) # combine all indices sampled within a chunk
+    # def generate_integer_tuples(self, means, rng=None, relative_range=None, seed=None):
+    #     """
+    #     Takes continuous-valued index tuples, and generates integer-valued index tuples.
+    #
+    #     The returned matrix of ints is not a Variable (just a plain LongTensor). Autograd of the real valued indices passes
+    #     through the values alone, not the integer indices used to instantiate the sparse matrix.
+    #
+    #     :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
+    #     :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
+    #     :return: a triple (ints, props, vals). ints is an N*2^K by K matrix representing the N*2^K integer index-tuples that can
+    #         be made by flooring or ceiling the indices in 'ind'. 'props' is a vector of length N*2^K, which indicates how
+    #         much of the original value each integer index-tuple receives (based on the distance to the real-valued
+    #         index-tuple). vals is vector of length N*2^K, containing the value of the corresponding real-valued index-tuple
+    #         (ie. vals just repeats each value in the input 'val' 2^K times).
+    #     """
+    #
+    #     b, k, c, rank = means.size()
+    #     dv = 'cuda' if self.is_cuda() else 'cpu'
+    #     FT = torch.cuda.FloatTensor if self.is_cuda() else torch.FloatTensor
+    #
+    #     if seed is not None:
+    #         torch.manual_seed(seed)
+    #
+    #     """
+    #     Generate neighbor tuples
+    #     """
+    #     fm = self.floor_mask[None, None, None, :].expand(b, k, c, 2 ** rank, rank)
+    #
+    #     neighbor_ints = means.data[:, :, :, None, :].expand(b, k, c, 2 ** rank, rank).contiguous()
+    #
+    #     neighbor_ints[fm] = neighbor_ints[fm].floor()
+    #     neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
+    #
+    #     neighbor_ints = neighbor_ints.long()
+    #
+    #     """
+    #     Sample uniformly from all integer tuples
+    #     """
+    #
+    #     global_ints = FT(b, k, c, self.gadditional, rank)
+    #
+    #     global_ints.uniform_()
+    #     global_ints *= (1.0 - EPSILON)
+    #
+    #     rng = FT(rng)
+    #     rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(global_ints)
+    #
+    #     global_ints = torch.floor(global_ints * rngxp).long()
+    #
+    #     """
+    #     Sample uniformly from a small range around the given index tuple
+    #     """
+    #     local_ints = FT(b, k, c, self.radditional, rank)
+    #
+    #     local_ints.uniform_()
+    #     local_ints *= (1.0 - EPSILON)
+    #
+    #     rngxp = rng[None, None, None, :].expand_as(local_ints) # bounds of the tensor
+    #
+    #     rrng = FT(relative_range) # bounds of the range from which to sample
+    #     rrng = rrng[None, None, None, :].expand_as(local_ints)
+    #
+    #     # print(means.size())
+    #     mns_expand = means.round().unsqueeze(3).expand_as(local_ints)
+    #
+    #     # upper and lower bounds
+    #     lower = mns_expand - rrng * 0.5
+    #     upper = mns_expand + rrng * 0.5
+    #
+    #     # check for any ranges that are out of bounds
+    #     idxs = lower < 0.0
+    #     lower[idxs] = 0.0
+    #
+    #     idxs = upper > rngxp
+    #     lower[idxs] = rngxp[idxs] - rrng[idxs]
+    #
+    #     local_ints = (local_ints * rrng + lower).long()
+    #
+    #     all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=3)
+    #
+    #     return all.view(b, k, -1, rank) # combine all indices sampled within a chunk
 
     def is_cuda(self):
         return next(self.parameters()).is_cuda
@@ -331,7 +339,7 @@ class SparseLayer(nn.Module):
             indices = means.view(b, c*k, r).round().long()
 
         else:
-            if mrange is not None:
+            if mrange is not None: # only compute the gradient for a subset of index tuples
                 fr, to = mrange
 
                 # sample = random.sample(range(nm), self.subsample) # the means we will learn for
@@ -343,7 +351,7 @@ class SparseLayer(nn.Module):
                 values, values_out = values[:, :, ids], values[:, :, ~ids]
 
                 # These should not get a gradient, since their means aren't being sampled for
-                # (their gradient will be computed in other passes
+                # (their gradient will be computed in other passes)
                 means_out, sigmas_out, values_out = means_out.detach(), sigmas_out.detach(), values_out.detach()
 
             indices = self.generate_integer_tuples(means, rng=subrange, relative_range=self.region, seed=seed)
@@ -463,7 +471,7 @@ class NASLayer(SparseLayer):
             self.pvalues = Parameter(torch.randn(k))
 
         if self.has_bias:
-            self.bias = Parameter(torch.randn(*out_size))
+            self.bias = Parameter(torch.zeros(*out_size))
 
     def hyper(self, input, **kwargs):
         """
@@ -488,3 +496,357 @@ class NASLayer(SparseLayer):
         if self.has_bias:
             return means, sigmas, values, self.bias
         return means, sigmas, values
+
+class Convolution(nn.Module):
+    """
+    A non-adaptive hyperlayer that mimics a convolution. That is, the basic structure of the layer is a convolution, but
+    instead of connecting every input in the patch to every output channel, we connect them sparsely, with parameters
+    learned by the hyperlayer.
+
+    The parameters are the same for each instance of the convolution kernel, but they are sampled separately for each.
+
+    The hyperlayer is _templated_ that is, each connection is fixed to one output node. There are k connections per
+    output node.
+
+    The stride is always 1, padding is always added to ensure that the output resolution is the same as the input
+    resolution.
+
+    """
+
+    def __init__(self, in_size, out_channels, k, kernel_size=3,
+                 gadditional=2, radditional=2, rprop=0.2,
+                 fix_values=False,
+                 has_bias=True):
+        """
+        :param in_size: Channels and resolution of the input
+        :param out_size: Tuple describing the size of the output.
+        :param k: Number of points sampled per instance of the kernel.
+        :param kernel_size: Size of the (square) kernel.,
+
+        :param gadditional: Number of points to sample globally per index tuple
+        :param radditional: Number of points to sample locally per index tuple
+        :param rprop: Describes the region over which the local samples are taken, as a proportion of the channels
+        :param bias_type: The type of bias of the sparse layer (none, dense or sparse).
+        :param subsample:
+        """
+
+        super().__init__()
+
+        rank = 6
+
+        self.in_size = in_size
+        self.out_size = (out_channels,) + in_size[1:]
+        self.kernel_size = kernel_size
+        self.gadditional = gadditional
+        self.radditional = radditional
+        self.region = (max(1, math.floor(rprop * in_size[0])), kernel_size-1, kernel_size-1)
+
+        self.has_bias = has_bias
+
+        self.pad = nn.ZeroPad2d(kernel_size // 2)
+
+
+        self.means = nn.Parameter(torch.randn(out_channels, k, 3))
+        self.sigmas = nn.Parameter(torch.randn(out_channels, k))
+        self.values = None if fix_values else nn.Parameter(torch.randn(out_channels, k))
+
+        # out_indices = torch.LongTensor(list(np.ndindex( (in_size[1:]) )))
+        # self.register_buffer('out_indices', out_indices)
+
+        template = torch.LongTensor(list(np.ndindex( (out_channels, in_size[1], in_size[2]) )))
+        assert template.size() == (prod((out_channels, in_size[1], in_size[2])), 3)
+        template = F.pad(template, (0, 3))
+        self.register_buffer('template', template)
+
+        if self.has_bias:
+            self.bias = Parameter(torch.randn(*self.out_size))
+
+    def hyper(self, x):
+        """
+        Returns the means, sigmas and values for a _single_ kernel. The same kernel is applied at every position (but
+        with fresh samples).
+
+        :param x:
+        :return:
+        """
+        b = x.size(0)
+
+        size = x.size()[1:]
+
+        o, k, r = self.means.size()
+
+        # Expand parameters along batch dimension
+        means = self.means[None, :, :].expand(b, o, k, r)
+        sigmas = self.sigmas[None, :].expand(b, o, k)
+        values = self.values[None, :].expand(b, o, k)
+
+        means, sigmas = transform_means(means, size), transform_sigmas(sigmas, size)
+
+        return means, sigmas, values
+
+    def forward(self, x):
+        dv = 'cuda' if self.template.is_cuda else 'cpu'
+
+        # get continuous parameters
+        means, sigmas, values = self.hyper(x)
+
+        # zero pad
+        x = self.pad(x)
+
+        b, o, k, r = means.size()
+        assert sigmas.size() == (b, o, k, r)
+        assert values.size() == (b, o, k)
+
+        # number of instances of the convolution kernel
+        nk = self.in_size[1] * self.in_size[2]
+
+        # expand for all kernels
+        means  = means [:, :, None, :, :].expand(b, o, nk, k, r)
+        sigmas = sigmas[:, :, None, :, :].expand(b, o, nk, k, r)
+        values = values[:, :, None, :]   .expand(b, o, nk, k)
+
+        if not self.training:
+            indices = means.round().long()
+
+            l = k
+
+        else:
+            # sample integer index tuples
+            # print(means.size())
+            indices = ngenerate(means,
+                                self.gadditional, self.radditional,
+                                relative_range=self.region,
+                                rng=(self.in_size[0], self.kernel_size, self.kernel_size),
+                                cuda=means.is_cuda)
+            # print('indices', indices.size())
+            indfl = indices.float()
+
+            b, o, nk, l, r = indices.size()
+            assert l == k * (2 ** r + self.gadditional + self.radditional)
+            assert nk == self.in_size[1] * self.in_size[2]
+
+            # mask for duplicate indices
+            dups = nduplicates(indices)
+
+            # compute unnormalized densities (proportions) under the given MVNs
+            props = densities(indfl, means, sigmas).clone()  # result has size (..., c, i, k), i = indices[2]
+            # print('densities', props.size())
+            # print(util.contains_nan(props))
+
+            props[dups, :] = 0
+            # print('... ', props.size())
+
+            props = props / props.sum(dim=-2, keepdim=True) # normalize over all points of a given index tuple
+
+            # print(util.contains_nan(props))
+            # sys.exit()
+
+            # Weight the values by the proportions
+            values = values[:, :, :, None, :].expand_as(props)
+
+            values = props * values
+            values = values.sum(dim=4)
+
+        template = self.template[None, :, None, :].expand(b, self.out_size[0]*self.in_size[1]*self.in_size[2], l, 6)
+        template = template.view(b, self.out_size[0], nk, l, 6)
+
+        template[:, :, :, :, 3:] = indices
+
+        indices = template.contiguous().view(b, self.out_size[0] * nk * l, 6)
+        offsets = indices[:, :, 1:3]
+
+        indices[:, :, 4:] = indices[:, :, 4:] + offsets
+
+        values = values.view(b, self.out_size[0] * nk * l)
+
+        # apply tensor
+        size = self.out_size + x.size()[1:]
+        output = tensors.contract(indices, values, size, x)
+
+        if self.has_bias:
+            return output + self.bias
+        return output
+
+FLOOR_MASKS = {}
+def floor_mask(num_cols, cuda=False):
+    if num_cols not in FLOOR_MASKS:
+        lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=num_cols)]
+        FLOOR_MASKS[num_cols] = torch.ByteTensor(lsts, device='cpu')
+
+    if cuda:
+        return FLOOR_MASKS[num_cols].cuda()
+    return FLOOR_MASKS[num_cols]
+
+def generate_integer_tuples(means, gadditional, ladditional, rng=None, relative_range=None, seed=None, cuda=False, fm=None):
+    """
+    Takes continuous-valued index tuples, and generates integer-valued index tuples.
+
+    The returned matrix of ints is not a Variable (just a plain LongTensor). Autograd of the real valued indices passes
+    through the values alone, not the integer indices used to instantiate the sparse matrix.
+
+    :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
+    :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
+    :return: a triple (ints, props, vals). ints is an N*2^K by K matrix representing the N*2^K integer index-tuples that can
+        be made by flooring or ceiling the indices in 'ind'. 'props' is a vector of length N*2^K, which indicates how
+        much of the original value each integer index-tuple receives (based on the distance to the real-valued
+        index-tuple). vals is vector of length N*2^K, containing the value of the corresponding real-valued index-tuple
+        (ie. vals just repeats each value in the input 'val' 2^K times).
+    """
+
+    b, k, c, rank = means.size()
+    FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    """
+    Generate neighbor tuples
+    """
+    if fm is None:
+        fm = floor_mask(rank, cuda)
+    fm = fm[None, None, None, :].expand(b, k, c, 2 ** rank, rank)
+
+    neighbor_ints = means.data[:, :, :, None, :].expand(b, k, c, 2 ** rank, rank).contiguous()
+
+    neighbor_ints[fm] = neighbor_ints[fm].floor()
+    neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
+
+    neighbor_ints = neighbor_ints.long()
+
+    """
+    Sample uniformly from all integer tuples
+    """
+
+    global_ints = FT(b, k, c, gadditional, rank)
+
+    global_ints.uniform_()
+    global_ints *= (1.0 - EPSILON)
+
+    rng = FT(rng)
+    rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(global_ints)
+
+    global_ints = torch.floor(global_ints * rngxp).long()
+
+    """
+    Sample uniformly from a small range around the given index tuple
+    """
+    local_ints = FT(b, k, c, ladditional, rank)
+
+    local_ints.uniform_()
+    local_ints *= (1.0 - EPSILON)
+
+    rngxp = rng[None, None, None, :].expand_as(local_ints) # bounds of the tensor
+
+    rrng = FT(relative_range) # bounds of the range from which to sample
+    rrng = rrng[None, None, None, :].expand_as(local_ints)
+
+    # print(means.size())
+    mns_expand = means.round().unsqueeze(3).expand_as(local_ints)
+
+    # upper and lower bounds
+    lower = mns_expand - rrng * 0.5
+    upper = mns_expand + rrng * 0.5
+
+    # check for any ranges that are out of bounds
+    idxs = lower < 0.0
+    lower[idxs] = 0.0
+
+    idxs = upper > rngxp
+    lower[idxs] = rngxp[idxs] - rrng[idxs]
+
+    local_ints = (local_ints * rrng + lower).long()
+
+    all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=3)
+
+    return all.view(b, k, -1, rank) # combine all indices sampled within a chunk
+
+
+def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, seed=None, cuda=False, fm=None):
+    """
+    Takes continuous-valued index tuples, and generates integer-valued index tuples.
+
+    The returned matrix of ints is not a Variable (just a plain LongTensor). Autograd of the real valued indices passes
+    through the values alone, not the integer indices used to instantiate the sparse matrix.
+
+    :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
+    :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
+    :return: a triple (ints, props, vals). ints is an N*2^K by K matrix representing the N*2^K integer index-tuples that can
+        be made by flooring or ceiling the indices in 'ind'. 'props' is a vector of length N*2^K, which indicates how
+        much of the original value each integer index-tuple receives (based on the distance to the real-valued
+        index-tuple). vals is vector of length N*2^K, containing the value of the corresponding real-valued index-tuple
+        (ie. vals just repeats each value in the input 'val' 2^K times).
+    """
+
+    b = means.size(0)
+    k, c, rank = means.size()[-3:]
+    pref = means.size()[:-1]
+
+    FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    """
+    Generate neighbor tuples
+    """
+    if fm is None:
+        fm = floor_mask(rank, cuda)
+
+    size = pref + (2**rank, rank)
+    fm = util.unsqueezen(fm, len(size) - 2).expand(size)
+
+    neighbor_ints = means.data.unsqueeze(-2).expand(*size).contiguous()
+
+    neighbor_ints[fm] = neighbor_ints[fm].floor()
+    neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
+
+    neighbor_ints = neighbor_ints.long()
+
+    """
+    Sample uniformly from all integer tuples
+    """
+    gsize = pref + (gadditional, rank)
+    global_ints = FT(*gsize)
+
+    global_ints.uniform_()
+    global_ints *= (1.0 - EPSILON)
+
+    rng = FT(rng)
+    rngxp = util.unsqueezen(rng, len(gsize) - 1).expand_as(global_ints)
+
+    global_ints = torch.floor(global_ints * rngxp).long()
+
+    """
+    Sample uniformly from a small range around the given index tuple
+    """
+    lsize = pref + (ladditional, rank)
+    local_ints = FT(*lsize)
+
+    local_ints.uniform_()
+    local_ints *= (1.0 - EPSILON)
+
+    rngxp = util.unsqueezen(rng, len(lsize) - 1).expand_as(local_ints) # bounds of the tensor
+
+    rrng = FT(relative_range) # bounds of the range from which to sample
+    rrng = util.unsqueezen(rrng, len(lsize) - 1).expand_as(local_ints)
+
+    # print(means.size())
+    mns_expand = means.round().unsqueeze(-2).expand_as(local_ints)
+
+    # upper and lower bounds
+    lower = mns_expand - rrng * 0.5
+    upper = mns_expand + rrng * 0.5
+
+    # check for any ranges that are out of bounds
+    idxs = lower < 0.0
+    lower[idxs] = 0.0
+
+    idxs = upper > rngxp
+    lower[idxs] = rngxp[idxs] - rrng[idxs]
+
+    local_ints = (local_ints * rrng + lower).long()
+
+    all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=-2)
+
+    fsize = pref[:-1] + (-1, rank)
+    return all.view(*fsize) # combine all indices sampled within a chunk

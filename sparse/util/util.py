@@ -311,7 +311,7 @@ def bsoftmax(input):
     return input.view(b, r, c)
 
 def contains_nan(tensor):
-    return (tensor != tensor).sum() > 0
+    return bool((tensor != tensor).sum() > 0)
 #
 # if __name__ == '__main__':
 #
@@ -601,10 +601,10 @@ def duplicates(tuples):
 
 def nduplicates(tuples):
     """
-    Takes a tensor of integer tuples, and for each tuple that occurs multiple times marks all but one of the occurrences
-    as duplicate.
+    Takes a tensor of integer tuples, and for each tuple that occurs multiple times marks all
+    but one of the occurrences as duplicate.
 
-    :param tuples: A (...,k, r)-tensor of containing a batch of k r-dimensional integer tuples
+    :param tuples: A (..., k, r)-tensor of containing a batch of k r-dimensional integer tuples
     :return: A size (..., k) byte tensor. When used as a mask, this masks out all duplicates.
     """
     init, k, r = tuples.size()[:-2], tuples.size()[-2], tuples.size()[-1]
@@ -662,7 +662,6 @@ def scatter_imgs(latents, images, size=None, ax=None, color=None, alpha=1.0):
     ax.scatter(latents[:, 0], latents[:, 1], linewidth=0, s=2, color=color)
 
     return ax, size
-
 
 def linmoid(x, inf_in, up):
     """
@@ -902,3 +901,14 @@ def interpolation_grid(size=(10, 10)):
     p1, p2 = 1.0 - g1, 1.0 - g2
 
     return torch.cat([p1*p2, p1*g2, g1*g2, g1*p2], dim=2)
+
+def unsqueezen(input, n):
+    """
+    Adds n singular dimensions at the start of the
+    :param input:
+    :param n:
+    :return:
+    """
+    for _ in range(n):
+        input = input.unsqueeze(0)
+    return input

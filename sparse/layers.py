@@ -661,6 +661,7 @@ class Convolution(nn.Module):
 
         # apply tensor
         size = self.out_size + x.size()[1:]
+        print(size)
         output = tensors.contract(indices, values, size, x)
 
         if self.has_bias:

@@ -15,7 +15,7 @@ from argparse import ArgumentParser
 
 import os, sys, math
 
-from sparse import util, NASLayer
+from sparse import util, NASLayer, Convolution
 
 from tqdm import trange, tqdm
 
@@ -163,7 +163,31 @@ def getmodel(arg, insize, numcls):
             two, nn.Sigmoid(),
             three, nn.Softmax(),
         )
+    elif arg.method == 'nas-conv':
+        """
+        Convolutional NAS model.
+        """
+        c1, c2 = h1, h2
 
+        one = Convolution(in_size=(1, 28, 28), out_channels=c1, k=arg.k[0], kernel_size=3,
+                          gadditional=arg.gadditional[0], radditional=arg.radditional[1], rprop=arg.range[0],
+                          fix_values=arg.fix_values, has_bias=True)
+
+        two = Convolution(in_size=(c1, 14, 14), out_channels=c2, k=arg.k[1], kernel_size=3,
+                          gadditional=arg.gadditional[1], radditional=arg.radditional[1], rprop=arg.range[1],
+                          fix_values=arg.fix_values, has_bias=True)
+
+        three = Convolution(in_size=(c2, 7, 7), out_channels=numcls, k=arg.k[2], kernel_size=3,
+                          gadditional=arg.gadditional[2], radditional=arg.radditional[2], rprop=arg.range[2],
+                          fix_values=arg.fix_values, has_bias=True)
+
+        model = nn.Sequential(
+            one, nn.Sigmoid(), nn.MaxPool2d(2),
+            two, nn.Sigmoid(), nn.MaxPool2d(2),
+            three, nn.Sigmoid(), nn.MaxPool2d(2),
+            util.Lambda(lambda x : x.mean(dim=-1).mean(dim=-1)), # global average pool
+            nn.Softmax()
+        )
     else:
         raise Exception('Method {} not recognized'.format(arg.method))
 
@@ -255,14 +279,6 @@ def single(arg):
                 output = model(input)
 
                 loss = F.cross_entropy(output, labels)
-
-                if arg.method == 'l1':
-                    l1 = one.weight.norm(p=1)
-                    loss = loss + lambd * l1
-                if arg.method == 'lp':
-                    lp = one.weight.norm(p=arg.p)
-                    loss = loss + lambd * lp
-
                 loss.backward()
 
                 tbw.add_scalar('sparsity/loss', loss.data.item(), i * arg.bs)

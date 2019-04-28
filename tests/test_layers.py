@@ -68,6 +68,9 @@ class TestLayers(unittest.TestCase):
 
         assert indices_old.size() == indices_new.size()
 
+        for i in range(indices_new.view(-1, 3).size(0)):
+            print(indices_new.view(-1, 3)[i])
+
     def test_conv(self):
 
         x = torch.ones(1, 4, 3, 3)

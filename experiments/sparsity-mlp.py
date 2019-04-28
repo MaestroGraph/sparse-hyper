@@ -169,15 +169,15 @@ def getmodel(arg, insize, numcls):
         """
         c1, c2 = h1, h2
 
-        one = Convolution(in_size=(1, 28, 28), out_channels=c1, k=arg.k[0], kernel_size=3,
+        one = Convolution(in_size=(1, 28, 28), out_channels=c1, k=arg.k[0], kernel_size=7,
                           gadditional=arg.gadditional[0], radditional=arg.radditional[1], rprop=arg.range[0],
                           fix_values=arg.fix_values, has_bias=True)
 
-        two = Convolution(in_size=(c1, 14, 14), out_channels=c2, k=arg.k[1], kernel_size=3,
+        two = Convolution(in_size=(c1, 14, 14), out_channels=c2, k=arg.k[1], kernel_size=7,
                           gadditional=arg.gadditional[1], radditional=arg.radditional[1], rprop=arg.range[1],
                           fix_values=arg.fix_values, has_bias=True)
 
-        three = Convolution(in_size=(c2, 7, 7), out_channels=numcls, k=arg.k[2], kernel_size=3,
+        three = Convolution(in_size=(c2, 7, 7), out_channels=numcls, k=arg.k[2], kernel_size=7,
                           gadditional=arg.gadditional[2], radditional=arg.radditional[2], rprop=arg.range[2],
                           fix_values=arg.fix_values, has_bias=True)
 

@@ -618,6 +618,11 @@ class Convolution(nn.Module):
                                 relative_range=self.region,
                                 rng=(self.in_size[0], self.kernel_size, self.kernel_size),
                                 cuda=means.is_cuda)
+
+            for i in range(indices.contiguous().view(-1, 3).size(0)):
+                print(indices.contiguous().view(-1, 3)[i, :])
+            sys.exit()
+
             # print('indices', indices.size())
             indfl = indices.float()
 
@@ -655,13 +660,16 @@ class Convolution(nn.Module):
         indices = template.contiguous().view(b, self.out_size[0] * nk * l, 6)
         offsets = indices[:, :, 1:3]
 
+        # for i in range(indices.view(-1, 6).size(0)):
+        #     print(indices.view(-1, 6)[i, :], values.view(-1)[i].data)
+        # sys.exit()
+
         indices[:, :, 4:] = indices[:, :, 4:] + offsets
 
         values = values.view(b, self.out_size[0] * nk * l)
 
         # apply tensor
         size = self.out_size + x.size()[1:]
-        print(size)
         output = tensors.contract(indices, values, size, x)
 
         if self.has_bias:

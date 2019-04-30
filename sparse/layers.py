@@ -571,7 +571,7 @@ class Convolution(nn.Module):
         """
         b = x.size(0)
 
-        size = x.size()[1:]
+        size = (self.in_size[0], self.kernel_size, self.kernel_size)
 
         o, k, r = self.means.size()
 
@@ -775,7 +775,8 @@ def generate_integer_tuples(means, gadditional, ladditional, rng=None, relative_
 
 def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, seed=None, cuda=False, fm=None):
     """
-    Takes continuous-valued index tuples, and generates integer-valued index tuples.
+    Takes continuous-valued index tuples, and generates integer-valued index tuples. Works for inputs with an arbitrary
+    number of vectors.
 
     The returned matrix of ints is not a Variable (just a plain LongTensor). Autograd of the real valued indices passes
     through the values alone, not the integer indices used to instantiate the sparse matrix.
@@ -813,8 +814,8 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
 
     neighbor_ints = neighbor_ints.long()
-
-    print('neighbors ', neighbor_ints.view(-1, rank).max(dim=0)[0])
+    # print('means     ', means.contiguous().view(-1, rank).max(dim=0)[0])
+    # print('neighbors ', neighbor_ints.view(-1, rank).max(dim=0)[0])
 
     """
     Sample uniformly from all integer tuples
@@ -830,7 +831,7 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
 
     global_ints = torch.floor(global_ints * rngxp).long()
 
-    print('globals ', global_ints.view(-1, rank).max(dim=0)[0])
+    # print('globals ', global_ints.view(-1, rank).max(dim=0)[0])
 
     """
     Sample uniformly from a small range around the given index tuple
@@ -849,6 +850,7 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     # print(means.size())
     mns_expand = means.round().unsqueeze(-2).expand_as(local_ints)
 
+
     # upper and lower bounds
     lower = mns_expand - rrng * 0.5
     upper = mns_expand + rrng * 0.5
@@ -862,7 +864,8 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
 
     local_ints = (local_ints * rrng + lower).long()
 
-    print('local ', local_ints.view(-1, rank).max(dim=0)[0])
+    # print('mns_expand ', mns_expand.view(-1, rank).max(dim=0)[0])
+    # print('local      ', local_ints.view(-1, rank).max(dim=0)[0])
 
     all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=-2)
 

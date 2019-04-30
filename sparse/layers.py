@@ -671,12 +671,7 @@ class Convolution(nn.Module):
         # apply tensor
         size = self.out_size + x.size()[1:]
 
-        assert (indices.view(-1, 6).max(dim=0)[0] < torch.tensor(size, device=dv)).sum() == 0, "Max values of indices ({}) out of bounds ({})".format(indices.view(-1, 6).max(dim=0)[0], size)
-
-        print(indices.view(-1, 6).max(dim=0)[0])
-        print(indices.view(-1, 6).max(dim=0)[0] < torch.tensor(size, device=dv))
-        print((indices.view(-1, 6).max(dim=0)[0] < torch.tensor(size, device=dv)).sum())
-        print(size)
+        assert (indices.view(-1, 6).max(dim=0)[0] >= torch.tensor(size, device=dv)).sum() == 0, "Max values of indices ({}) out of bounds ({})".format(indices.view(-1, 6).max(dim=0)[0], size)
 
         output = tensors.contract(indices, values, size, x)
 
@@ -819,6 +814,8 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
 
     neighbor_ints = neighbor_ints.long()
 
+    print('neighbors ', neighbor_ints.view(-1, rank).max(dim=0)[0])
+
     """
     Sample uniformly from all integer tuples
     """
@@ -832,6 +829,8 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     rngxp = util.unsqueezen(rng, len(gsize) - 1).expand_as(global_ints)
 
     global_ints = torch.floor(global_ints * rngxp).long()
+
+    print('globals ', global_ints.view(-1, rank).max(dim=0)[0])
 
     """
     Sample uniformly from a small range around the given index tuple
@@ -862,6 +861,8 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     lower[idxs] = rngxp[idxs] - rrng[idxs]
 
     local_ints = (local_ints * rrng + lower).long()
+
+    print('local ', local_ints.view(-1, rank).max(dim=0)[0])
 
     all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=-2)
 

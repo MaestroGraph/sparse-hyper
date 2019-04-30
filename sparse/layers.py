@@ -666,7 +666,7 @@ class Convolution(nn.Module):
 
         indices[:, :, 4:] = indices[:, :, 4:] + offsets
 
-        values = values.view(b, self.out_size[0] * nk * l)
+        values = values.contiguous().view(b, self.out_size[0] * nk * l)
 
         # apply tensor
         size = self.out_size + x.size()[1:]

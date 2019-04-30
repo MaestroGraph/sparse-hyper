@@ -619,9 +619,9 @@ class Convolution(nn.Module):
                                 rng=(self.in_size[0], self.kernel_size, self.kernel_size),
                                 cuda=means.is_cuda)
 
-            for i in range(indices.contiguous().view(-1, 3).size(0)):
-                print(indices.contiguous().view(-1, 3)[i, :])
-            sys.exit()
+            # for i in range(indices.contiguous().view(-1, 3).size(0)):
+            #     print(indices.contiguous().view(-1, 3)[i, :])
+            # sys.exit()
 
             # print('indices', indices.size())
             indfl = indices.float()

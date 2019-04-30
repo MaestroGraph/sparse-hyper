@@ -670,6 +670,9 @@ class Convolution(nn.Module):
 
         # apply tensor
         size = self.out_size + x.size()[1:]
+
+        assert (indices.view(-1, 6).max(dim=0)[0] < torch.tensor(size, device=dv)).sum() > 0, "Max values of indices ({}) out of bounds ({})".format(indices.view(-1, 6).max(dim=0)[0], size)
+
         output = tensors.contract(indices, values, size, x)
 
         if self.has_bias:

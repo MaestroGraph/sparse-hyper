@@ -204,7 +204,7 @@ def getmodel(arg, insize, numcls):
             nn.Softmax()
         )
 
-    elif arg.method == 'half':
+    elif arg.method == 'one':
         """
         Convolutional NAS model.
         """
@@ -215,6 +215,29 @@ def getmodel(arg, insize, numcls):
                           fix_values=arg.fix_values, has_bias=True)
 
         two = nn.Conv2d(c1, c2, kernel_size=3, padding=1)
+        three = nn.Conv2d(c2, numcls, kernel_size=3, padding=1)
+
+        model = nn.Sequential(
+            one, nn.Sigmoid(), nn.MaxPool2d(2),
+            two, nn.Sigmoid(), nn.MaxPool2d(2),
+            three, nn.Sigmoid(), nn.MaxPool2d(2),
+            util.Lambda(lambda x : x.mean(dim=-1).mean(dim=-1)), # global average pool
+            nn.Softmax()
+        )
+    elif arg.method == 'two':
+        """
+        Convolutional NAS model.
+        """
+        c1, c2 = h1, h2
+
+        one = Convolution(in_size=(1, 28, 28), out_channels=c1, k=arg.k[0], kernel_size=7,
+                          gadditional=arg.gadditional[0], radditional=arg.radditional[1], rprop=arg.range[0],
+                          fix_values=arg.fix_values, has_bias=True)
+
+        two = Convolution(in_size=(c1, 14, 14), out_channels=c2, k=arg.k[1], kernel_size=7,
+                          gadditional=arg.gadditional[1], radditional=arg.radditional[1], rprop=arg.range[1],
+                          fix_values=arg.fix_values, has_bias=True)
+
         three = nn.Conv2d(c2, numcls, kernel_size=3, padding=1)
 
         model = nn.Sequential(

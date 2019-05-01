@@ -188,6 +188,43 @@ def getmodel(arg, insize, numcls):
             util.Lambda(lambda x : x.mean(dim=-1).mean(dim=-1)), # global average pool
             nn.Softmax()
         )
+
+    elif arg.method == 'conv':
+        c1, c2 = h1, h2
+
+        one =  nn.Conv2d(insize[0], c1, kernel_size=3, padding=1)
+        two = nn.Conv2d(c1, c2, kernel_size=3, padding=1)
+        three = nn.Conv2d(c2, numcls, kernel_size=3, padding=1)
+
+        model = nn.Sequential(
+            one, nn.Sigmoid(), nn.MaxPool2d(2),
+            two, nn.Sigmoid(), nn.MaxPool2d(2),
+            three, nn.Sigmoid(), nn.MaxPool2d(2),
+            util.Lambda(lambda x : x.mean(dim=-1).mean(dim=-1)), # global average pool
+            nn.Softmax()
+        )
+
+    elif arg.method == 'half':
+        """
+        Convolutional NAS model.
+        """
+        c1, c2 = h1, h2
+
+        one = Convolution(in_size=(1, 28, 28), out_channels=c1, k=arg.k[0], kernel_size=7,
+                          gadditional=arg.gadditional[0], radditional=arg.radditional[1], rprop=arg.range[0],
+                          fix_values=arg.fix_values, has_bias=True)
+
+        two = nn.Conv2d(c1, c2, kernel_size=3, padding=1)
+        three = nn.Conv2d(c2, numcls, kernel_size=3, padding=1)
+
+        model = nn.Sequential(
+            one, nn.Sigmoid(), nn.MaxPool2d(2),
+            two, nn.Sigmoid(), nn.MaxPool2d(2),
+            three, nn.Sigmoid(), nn.MaxPool2d(2),
+            util.Lambda(lambda x : x.mean(dim=-1).mean(dim=-1)), # global average pool
+            nn.Softmax()
+        )
+
     else:
         raise Exception('Method {} not recognized'.format(arg.method))
 

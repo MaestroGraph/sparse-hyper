@@ -171,14 +171,17 @@ def getmodel(arg, insize, numcls):
 
         one = Convolution(in_size=(1, 28, 28), out_channels=c1, k=arg.k[0], kernel_size=7,
                           gadditional=arg.gadditional[0], radditional=arg.radditional[1], rprop=arg.range[0],
+                          min_sigma=arg.min_sigma, sigma_scale=arg.sigma_scale,
                           fix_values=arg.fix_values, has_bias=True)
 
         two = Convolution(in_size=(c1, 14, 14), out_channels=c2, k=arg.k[1], kernel_size=7,
                           gadditional=arg.gadditional[1], radditional=arg.radditional[1], rprop=arg.range[1],
+                          min_sigma=arg.min_sigma, sigma_scale=arg.sigma_scale,
                           fix_values=arg.fix_values, has_bias=True)
 
         three = Convolution(in_size=(c2, 7, 7), out_channels=numcls, k=arg.k[2], kernel_size=7,
                           gadditional=arg.gadditional[2], radditional=arg.radditional[2], rprop=arg.range[2],
+                          min_sigma=arg.min_sigma, sigma_scale=arg.sigma_scale,
                           fix_values=arg.fix_values, has_bias=True)
 
         model = nn.Sequential(
@@ -212,6 +215,7 @@ def getmodel(arg, insize, numcls):
 
         one = Convolution(in_size=(1, 28, 28), out_channels=c1, k=arg.k[0], kernel_size=7,
                           gadditional=arg.gadditional[0], radditional=arg.radditional[1], rprop=arg.range[0],
+                          min_sigma=arg.min_sigma, sigma_scale=arg.sigma_scale,
                           fix_values=arg.fix_values, has_bias=True)
 
         two = nn.Conv2d(c1, c2, kernel_size=3, padding=1)
@@ -232,10 +236,12 @@ def getmodel(arg, insize, numcls):
 
         one = Convolution(in_size=(1, 28, 28), out_channels=c1, k=arg.k[0], kernel_size=7,
                           gadditional=arg.gadditional[0], radditional=arg.radditional[1], rprop=arg.range[0],
+                          min_sigma=arg.min_sigma, sigma_scale=arg.sigma_scale,
                           fix_values=arg.fix_values, has_bias=True)
 
         two = Convolution(in_size=(c1, 14, 14), out_channels=c2, k=arg.k[1], kernel_size=7,
                           gadditional=arg.gadditional[1], radditional=arg.radditional[1], rprop=arg.range[1],
+                          min_sigma=arg.min_sigma, sigma_scale=arg.sigma_scale,
                           fix_values=arg.fix_values, has_bias=True)
 
         three = nn.Conv2d(c2, numcls, kernel_size=3, padding=1)
@@ -498,6 +504,11 @@ if __name__ == "__main__":
                         dest="min_sigma",
                         help="Minimal sigma value",
                         default=0.01, type=float)
+
+    parser.add_argument("-S", "--sigma-scale",
+                        dest="sigma_scale",
+                        help="Sigma scale",
+                        default=0.1, type=float)
 
     parser.add_argument("--rfrom",
                         dest="rfrom",

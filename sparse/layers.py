@@ -197,7 +197,7 @@ class SparseLayer(nn.Module):
 
         # create a tensor with all binary sequences of length 'out_rank' as rows
         # (this will be used to compute the nearby integer-indices of a float-index).
-        self.register_buffer('floor_mask', floor_mask(len(learn_cols)))
+        self.register_buffer('floor_mask', floor_mask(len(self.learn_cols)))
 
         if self.templated:
             # template for the index matrix containing the hardwired connections
@@ -354,7 +354,7 @@ class SparseLayer(nn.Module):
                 # (their gradient will be computed in other passes)
                 means_out, sigmas_out, values_out = means_out.detach(), sigmas_out.detach(), values_out.detach()
 
-            indices = self.generate_integer_tuples(means, rng=subrange, relative_range=self.region, seed=seed)
+            indices = generate_integer_tuples(means, self.gadditional, self.radditional, rng=subrange, relative_range=self.region, seed=seed)
             indfl = indices.float()
 
             # Mask for duplicate indices
@@ -491,7 +491,7 @@ class NASLayer(SparseLayer):
         sigmas = self.psigmas[None, :].expand(b, k)
         values = self.pvalues[None, :].expand(b, k)
 
-        means, sigmas = transform_means(means, size), transform_sigmas(sigmas, size)
+        means, sigmas = transform_means(means, size), transform_sigmas(sigmas, size, min_sigma=self.min_sigma) * self.sigma_scale
 
         if self.has_bias:
             return means, sigmas, values, self.bias
@@ -515,6 +515,8 @@ class Convolution(nn.Module):
 
     def __init__(self, in_size, out_channels, k, kernel_size=3,
                  gadditional=2, radditional=2, rprop=0.2,
+                 min_sigma=0.0,
+                 sigma_scale=0.1,
                  fix_values=False,
                  has_bias=True):
         """
@@ -540,6 +542,9 @@ class Convolution(nn.Module):
         self.gadditional = gadditional
         self.radditional = radditional
         self.region = (max(1, math.floor(rprop * in_size[0])), kernel_size-1, kernel_size-1)
+
+        self.min_sigma = min_sigma
+        self.sigma_scale = sigma_scale
 
         self.has_bias = has_bias
 
@@ -580,7 +585,7 @@ class Convolution(nn.Module):
         sigmas = self.sigmas[None, :].expand(b, o, k)
         values = self.values[None, :].expand(b, o, k)
 
-        means, sigmas = transform_means(means, size), transform_sigmas(sigmas, size)
+        means, sigmas = transform_means(means, size), transform_sigmas(sigmas, size, min_sigma=self.min_sigma) * self.sigma_scale
 
         return means, sigmas, values
 

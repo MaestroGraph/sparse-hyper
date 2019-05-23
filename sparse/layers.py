@@ -71,7 +71,7 @@ def densities(points, means, sigmas):
     points = points.view(-1, 1, rank)
     # -- dot prod
 
-    print(points[0])
+    print(points)
     products = torch.bmm(points, points.transpose(1, 2))
     # -- reconstruct shape
     products = products.view( *(pref + (c, i, k)) )

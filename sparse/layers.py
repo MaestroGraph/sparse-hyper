@@ -356,7 +356,7 @@ class SparseLayer(nn.Module):
                 # (their gradient will be computed in other passes)
                 means_out, sigmas_out, values_out = means_out.detach(), sigmas_out.detach(), values_out.detach()
 
-            indices = generate_integer_tuples(means, self.gadditional, self.radditional, rng=subrange, relative_range=self.region, seed=seed)
+            indices = generate_integer_tuples(means, self.gadditional, self.radditional, rng=subrange, relative_range=self.region, seed=seed, cuda=self.is_cuda())
             indfl = indices.float()
 
             # Mask for duplicate indices

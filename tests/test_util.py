@@ -192,7 +192,7 @@ class TestLayers(unittest.TestCase):
         B, H, W = 16, RES, RES
         BATCHES = 16000
 
-        for baseline in (False, True):
+        for baseline in (True, False):
             print('baseline', baseline)
 
             C = nn.Conv2d if baseline else util.CConv2d
@@ -208,7 +208,7 @@ class TestLayers(unittest.TestCase):
                 #nn.ReLU(),
                 nn.Conv2d(8, 2, stride=1, kernel_size=3, padding=1),
                 nn.MaxPool2d(kernel_size=(RES, RES)),
-                util.Lambda(lambda x : x.squeeze())
+                # util.Lambda(lambda x : x.squeeze())
             )
 
             opt = torch.optim.Adam(lr=0.005, params=model.parameters())
@@ -237,17 +237,17 @@ class TestLayers(unittest.TestCase):
 
                 input_train, input_test, target_train, target_test = Variable(input_train), Variable(input_test), Variable(target_train), Variable(target_test)
 
+                if input_train.size(0) > 0:
+                    opt.zero_grad()
+                    # list(model.modules())[1].master.weight.retain_grad()
 
-                opt.zero_grad()
-                # list(model.modules())[1].master.weight.retain_grad()
+                    out = model(input_train)
+                    loss = F.mse_loss(out, target_train.to(torch.float))
 
-                out = model(input_train)
-                loss = F.mse_loss(out, target_train.to(torch.float))
+                    loss.backward()
+                    opt.step()
 
-                loss.backward()
-                opt.step()
-
-                if it % 2000 == 0:
+                if it % 2000 == 0 and input_test.size(0) > 0:
                     with torch.no_grad():
                         out = model(input_test)
                         tloss = F.mse_loss(out, target_test.to(torch.float))

@@ -61,13 +61,17 @@ def rescale(image, outsize):
     return torch.from_numpy( np.transpose(image, (2, 0, 1)) )
 
 HIDLIN = 512
-def prep(ci, hi, wi, pool=4):
+def prep(ci, hi, wi, pool=4, coord='none'):
     """
     Canonical preprocessing model (list of modules). Results in linear layer
     of HIDLIN units
 
     :return:
     """
+    
+    CFirst = nn.Conv2d if coord == 'none' else util.CConv2d
+    CRest = util.CConv2d if coord == 'all' else nn.Conv2d
+    
     activation = nn.ReLU()
 
     ch1, ch2, ch3 = 32, 64, 128
@@ -76,21 +80,21 @@ def prep(ci, hi, wi, pool=4):
     hid = max(1.0, floor(wi/ (pool ** 3 * 2)) * floor(hi/ (pool ** 3 *2)) * ch3 )
 
     return [
-        nn.Conv2d(ci, ch1, kernel_size=3, padding=1),
+        CFirst(ci, ch1, kernel_size=3, padding=1),
         activation,
         nn.MaxPool2d(kernel_size=pool),
-        nn.Conv2d(ch1, ch1, kernel_size=3, padding=1),
+        CRest(ch1, ch1, kernel_size=3, padding=1),
         activation,
         nn.MaxPool2d(kernel_size=pool),
-        nn.Conv2d(ch1, ch2, kernel_size=3, padding=1),
+        CRest(ch1, ch2, kernel_size=3, padding=1),
         activation,
         nn.MaxPool2d(kernel_size=pool),
-        nn.Conv2d(ch2, ch2, kernel_size=3, padding=1),
+        CRest(ch2, ch2, kernel_size=3, padding=1),
         activation,
         nn.MaxPool2d(kernel_size=2),
-        nn.Conv2d(ch2, ch3, kernel_size=3, padding=1),
+        CRest(ch2, ch3, kernel_size=3, padding=1),
         activation,
-        nn.Conv2d(ch3, ch3, kernel_size=3, padding=1),
+        CRest(ch3, ch3, kernel_size=3, padding=1),
         activation,
         util.Flatten(),
         nn.Linear(hid, HIDLIN),
@@ -103,7 +107,7 @@ class STNAttentionLayer(nn.Module):
     Baseline: spatial transformer
     """
 
-    def __init__(self, in_size, k, glimpses=1, scale=0.001, pool=4):
+    def __init__(self, in_size, k, glimpses=1, scale=0.001, pool=4, coord='none'):
         super().__init__()
 
         self.in_size = in_size
@@ -114,7 +118,7 @@ class STNAttentionLayer(nn.Module):
         ci, hi, wi = in_size
         co, ho, wo = ci , k, k
 
-        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, 3 * 2 * glimpses), util.Reshape((glimpses, 2, 3))]
+        modules = prep(ci, hi, wi, pool, coord) + [nn.ReLU(), nn.Linear(HIDLIN, 3 * 2 * glimpses), util.Reshape((glimpses, 2, 3))]
         self.preprocess = nn.Sequential(*modules)
 
         self.register_buffer('identity', torch.FloatTensor([0.4, 0, 0, 0, 0.4, 0]).view(2, 3))
@@ -184,7 +188,7 @@ class BoxAttentionLayer(sparse.SparseLayer):
 
     def __init__(self, in_size, k,  gadditional=0, radditional=0,
                  region=None, sigma_scale=0.1,
-                 num_values=-1, min_sigma=0.0, glimpses=1, pool=4):
+                 num_values=-1, min_sigma=0.0, glimpses=1, pool=4, coord='none'):
 
         assert(len(in_size) == 3)
 
@@ -227,7 +231,7 @@ class BoxAttentionLayer(sparse.SparseLayer):
         pixel_indices = pixel_indices.float() / torch.FloatTensor([[k, k]]).expand_as(pixel_indices)
         self.register_buffer('pixel_indices', pixel_indices)
 
-        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, 4 * glimpses), util.Reshape((glimpses, 4))]
+        modules = prep(ci, hi, wi, pool, coord) + [nn.ReLU(), nn.Linear(HIDLIN, 4 * glimpses), util.Reshape((glimpses, 4))]
         self.preprocess = nn.Sequential(*modules)
 
         self.register_buffer('bbox_offset', torch.FloatTensor([-1, 1, -1, 1]))
@@ -322,7 +326,7 @@ class AffineAttentionLayer(sparse.SparseLayer):
     def __init__(self, in_size, k,  gadditional=0, radditional=0,
                  region=None, sigma_scale=0.1,
                  num_values=-1, min_sigma=0.0, glimpses=1,
-                 scale=0.001, pool=4):
+                 scale=0.001, pool=4, coord='none'):
 
         assert(len(in_size) == 3)
 
@@ -361,7 +365,7 @@ class AffineAttentionLayer(sparse.SparseLayer):
 
         self.num_glimpses = glimpses
 
-        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, (2 * 3) * glimpses), util.Reshape((glimpses, 2, 3))]
+        modules = prep(ci, hi, wi, pool, coord) + [nn.ReLU(), nn.Linear(HIDLIN, (2 * 3) * glimpses), util.Reshape((glimpses, 2, 3))]
         self.preprocess = nn.Sequential(*modules)
 
         self.register_buffer('grid', util.interpolation_grid((k, k)))
@@ -457,7 +461,7 @@ class QuadAttentionLayer(sparse.SparseLayer):
 
     def __init__(self, in_size, k,  gadditional=0, radditional=0,
                  region=None, sigma_scale=0.1,
-                 num_values=-1, min_sigma=0.0, glimpses=1, pool=4):
+                 num_values=-1, min_sigma=0.0, glimpses=1, pool=4, coord='none'):
 
         assert(len(in_size) == 3)
 
@@ -495,7 +499,7 @@ class QuadAttentionLayer(sparse.SparseLayer):
 
         self.num_glimpses = glimpses
 
-        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, 8 * glimpses), util.Reshape((glimpses, 4, 2))]
+        modules = prep(ci, hi, wi, pool, coord) + [nn.ReLU(), nn.Linear(HIDLIN, 8 * glimpses), util.Reshape((glimpses, 4, 2))]
         self.preprocess = nn.Sequential(*modules)
 
         self.register_buffer('grid', util.interpolation_grid((k, k)))
@@ -578,7 +582,7 @@ class ReinforceLayer(nn.Module):
     """
 
     def __init__(self, in_shape, glimpses, glimpse_size,
-                 num_classes, rfboost=2.0, pool=4):
+                 num_classes, rfboost=2.0, pool=4, coord='none'):
         super().__init__()
 
         self.rfboost = rfboost
@@ -590,7 +594,7 @@ class ReinforceLayer(nn.Module):
 
         ci, hi, wi = in_shape
 
-        modules = prep(ci, hi, wi, pool) + [nn.ReLU(), nn.Linear(HIDLIN, glimpses * 3), util.Reshape((glimpses, 3))]
+        modules = prep(ci, hi, wi, pool, coord) + [nn.ReLU(), nn.Linear(HIDLIN, glimpses * 3), util.Reshape((glimpses, 3))]
         self.preprocess = nn.Sequential(*modules)
 
     def forward(self, image):
@@ -1181,6 +1185,11 @@ if __name__ == "__main__":
     parser.add_argument("--stn-scale", dest="stn_scale",
                         help="Scaling parameter to fintetune the initialiazation of the STN network.",
                         default=0.01, type=float)
+
+    parser.add_argument("-C", "--coordconv",
+                        dest="coord",
+                        help="Where to apply the coordconv trick: nowhere ('none'), in the first layer ('first'), in all convolutions ('all')",
+                        default='none', type=str)
 
     options = parser.parse_args()
 

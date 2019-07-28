@@ -912,3 +912,57 @@ def unsqueezen(input, n):
     for _ in range(n):
         input = input.unsqueeze(0)
     return input
+
+
+class CConv2d(nn.Module):
+    """
+    Implementation of the CoordConv layer from https://arxiv.org/abs/1807.03247
+
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, res=None, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super().__init__()
+
+        # layer to which we'll defer the actual convolution
+        self.master = nn.Conv2d(in_channels + 2, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+
+
+        if res is None:
+            self.coords = None
+        else:
+            self.register_buffer(self.coordinates(res), 'coords')
+
+    def forward(self, x):
+
+        b, c, h, w = x.size()
+        cuda = x.is_cuda
+
+        # get the coordinate channels
+        if self.coords is None:
+            coords = self.coordinates(x.size()[-2:])
+        else:
+            coords = self.coords
+
+        bcoords = coords[None, :, :, :].expand(b, 2, h, w)
+
+        x = torch.cat([bcoords, x], dim=1)
+
+        return self.master(x)
+
+    def coordinates(self, res, cuda=False):
+        """
+        Compute the coordinate channels for a given resolution.
+        :param res:
+        :return:
+        """
+        dv = 'cuda' if cuda else 'cpu'
+
+        h, w = res
+
+        hvec, wvec = torch.arange(h, device=dv, dtype=torch.float), torch.arange(w, device=dv, dtype=torch.float)
+        hvec, wvec = hvec / (h - 1), wvec / (w - 1)
+        hmat, wmat = hvec[None, :, None].expand(1, h, w), wvec[None, None, :].expand(1, h, w)
+
+        return torch.cat([hmat, wmat], dim=0).to(torch.float)
+
+

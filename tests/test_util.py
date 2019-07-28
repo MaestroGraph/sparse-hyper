@@ -2,9 +2,12 @@ import _context
 
 import unittest
 import torch, sys
+from torch.autograd import Variable
+from torch import nn
+import torch.nn.functional as F
 #import sparse.layers.densities
 
-import util
+import util, sys
 
 class TestLayers(unittest.TestCase):
 
@@ -174,6 +177,85 @@ class TestLayers(unittest.TestCase):
         self.assertAlmostEqual(g[2, 2, 2], 1.0, 5)
         self.assertAlmostEqual(g[2, 0, 3], 1.0, 5)
 
+    def test_coordconv(self):
+
+        """
+        Performs the regression experiment from https://arxiv.org/abs/1807.03247
+
+        Tests whether the coord_conv layer behaves as expected. Baseline false should not converge to zero, baseline true
+        should.
+
+        :return:
+        """
+
+        RES = 64
+        B, H, W = 16, RES, RES
+        BATCHES = 16000
+
+        for baseline in (False, True):
+            print('baseline', baseline)
+
+            C = nn.Conv2d if baseline else util.CConv2d
+
+            model = nn.Sequential(
+                C(1, 8, stride=1, kernel_size=1, padding=0),
+                #nn.ReLU(),
+                nn.Conv2d(8, 8, stride=1, kernel_size=1, padding=0),
+                #nn.ReLU(),
+                nn.Conv2d(8, 8, stride=1, kernel_size=1, padding=0),
+                #nn.ReLU(),
+                nn.Conv2d(8, 8, stride=1, kernel_size=3, padding=1),
+                #nn.ReLU(),
+                nn.Conv2d(8, 2, stride=1, kernel_size=3, padding=1),
+                nn.MaxPool2d(kernel_size=(RES, RES)),
+                util.Lambda(lambda x : x.squeeze())
+            )
+
+            opt = torch.optim.Adam(lr=0.005, params=model.parameters())
+
+            for it in range(BATCHES):
+
+                # generate data
+
+                target = (torch.rand(size=(B, 2)) * RES).to(torch.long)
+
+                hf = RES // 2
+
+                test_indices = (target[:, 0] < hf) & (target[:, 1] < hf)
+
+                target_train = target[~ test_indices, :]
+                target_test  = target[  test_indices, :]
+
+                input_train = torch.zeros(target_train.size(0), H, W)
+                input_test  = torch.zeros( target_test.size(0), H, W)
+
+                input_train[torch.arange(input_train.size(0), dtype=torch.long), target_train[:, 0], target_train[:, 1]] = 1
+                input_test [torch.arange(input_test.size(0),  dtype=torch.long), target_test [:, 0], target_test [:, 1]] = 1
+
+                input_train = input_train[:, None, :, :]
+                input_test = input_test[:, None, :, :]
+
+                input_train, input_test, target_train, target_test = Variable(input_train), Variable(input_test), Variable(target_train), Variable(target_test)
+
+
+                opt.zero_grad()
+                # list(model.modules())[1].master.weight.retain_grad()
+
+                out = model(input_train)
+                loss = F.mse_loss(out, target_train.to(torch.float))
+
+                loss.backward()
+                opt.step()
+
+                if it % 2000 == 0:
+                    with torch.no_grad():
+                        out = model(input_test)
+                        tloss = F.mse_loss(out, target_test.to(torch.float))
+
+                        print(f'train loss at {it}: { loss.item():.04}')
+                        print(f' test loss at {it}: {tloss.item():.04}')
+
+                        # print(list(model.modules())[1].master.weight.grad)
 
 if __name__ == '__main__':
     unittest.main()

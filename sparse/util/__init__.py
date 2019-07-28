@@ -5,6 +5,7 @@ from .util import \
     Bias, ChunkSampler, Flatten, Reshape, Debug, Lambda, \
     od, prod, logit, \
     wrapmod, interpolation_grid, unsqueezen, \
-    sample_offsets, split
+    sample_offsets, split, \
+    CConv2d
 
 from .plot import plot, basic

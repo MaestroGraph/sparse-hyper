@@ -55,7 +55,7 @@ def make_image(b, images, res=100, noise=10, scale=2.0):
     background = Image.new(mode='RGB', size=(res, res))
 
     # generate random patch size
-    nm = 10
+    nm = 14
     nh, nw = random.randint(4, nm), random.randint(4, nm)
 
     # Paste noise
@@ -84,6 +84,8 @@ def make_image(b, images, res=100, noise=10, scale=2.0):
     return background
 
 def go(arg):
+
+    assert arg.scale * 28 < arg.res, 'Maximum scaled image should be smaller than resolution.'
 
     # make directories
     for i in range(10):
@@ -136,11 +138,11 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--batch-size",
                         dest="batch",
                         help="The batch size.",
-                        default=64, type=int)
+                        default=256, type=int)
 
     parser.add_argument("-r", "--resolution",
                         dest="res",
-                        help="Resolution (one side, imahges are always square).",
+                        help="Resolution (one side, images are always square).",
                         default=100, type=int)
 
     parser.add_argument("-n", "--noise",

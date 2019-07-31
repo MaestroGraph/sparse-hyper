@@ -8,11 +8,13 @@ from sparse import util
 from tqdm import tqdm
 import numpy as np
 
-import random
+import random, sys
 
 from PIL import Image
 
 from argparse import ArgumentParser
+
+from math import ceil
 
 from collections import Counter
 
@@ -20,15 +22,17 @@ from collections import Counter
 Generate rotated, and scaled version of MNIST
 """
 
-def paste(background, foreground, scale=2.0):
+def paste(background, foreground, scale=[1.5, 2.0]):
 
     rh, rw = background.size
 
-    # Scale the foreground
-    sch = random.random() * (scale - .5) + .5
-    scw = random.random() * (scale - .5) + .5
-    new_size = (int(foreground.size[0] * sch), int(foreground.size[1] * scw))
-    foreground = foreground.resize(new_size, resample=Image.BICUBIC)
+    sch, scw = scale
+    new_size = (int(ceil(foreground.size[0] * sch)), int(ceil(foreground.size[1] * scw)))
+    try:
+        foreground = foreground.resize(new_size, resample=Image.BICUBIC)
+    except:
+        print(f'pasting with size {new_size} failed. ({(sch, scw)})')
+        sys.exit()
 
     # Rotate the foreground
     angle_degrees = random.randint(0, 359)
@@ -40,7 +44,7 @@ def paste(background, foreground, scale=2.0):
 
     background.paste(foreground, box=(h, w), mask=foreground)
 
-def make_image(b, images, res=100, noise=10, scale=2.0):
+def make_image(b, images, res=100, noise=10, scale=[1.0, 2.0], aspect=2.0):
     """
 
     Extract the b-th image from the batch of images, and place it into a 100x100 image, rotated and scaled
@@ -51,6 +55,19 @@ def make_image(b, images, res=100, noise=10, scale=2.0):
     :param res:
     :return:
     """
+
+
+    # Sample a uniform scale for the noise and target
+    sr = scale[1] - scale[0]
+    ar = aspect - 1.0
+    sc = random.random() * sr + scale[0]
+    ap = random.random() * ar + 1.0
+
+    sch, scw = sc, sc
+    if random.choice([True, False]):
+        sch *= ap
+    else:
+        scw *= ap
 
     background = Image.new(mode='RGB', size=(res, res))
 
@@ -71,7 +88,7 @@ def make_image(b, images, res=100, noise=10, scale=2.0):
         nump = (images[ind, 0, h:h+nh, h:h+nw].numpy() * 255).astype('uint8').squeeze()
         patch = Image.fromarray(nump)
 
-        paste(background, patch, scale=scale)
+        paste(background, patch, scale=(sch, scw))
 
     # Paste image
 
@@ -79,13 +96,11 @@ def make_image(b, images, res=100, noise=10, scale=2.0):
 
     foreground = Image.fromarray(nump)
 
-    paste(background, foreground, scale=scale)
+    paste(background, foreground, scale=(sch, scw))
 
     return background
 
 def go(arg):
-
-    assert arg.scale * 28 < arg.res, 'Maximum scaled image should be smaller than resolution.'
 
     # make directories
     for i in range(10):
@@ -153,7 +168,13 @@ if __name__ == "__main__":
 
     parser.add_argument("-s", "--scale",
                         dest="scale",
-                        help="Maximum scale multiplier.",
+                        help="Min/max scale multiplier.",
+                        nargs=2,
+                        default=[1.0, 2.0], type=float)
+
+    parser.add_argument("-a", "--aspect",
+                        dest="aspect",
+                        help="Min/max aspect multiplier.",
                         default=2.0, type=float)
 
     options = parser.parse_args()

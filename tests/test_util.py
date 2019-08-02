@@ -192,7 +192,7 @@ class TestLayers(unittest.TestCase):
         B, H, W = 16, RES, RES
         BATCHES = 16000
 
-        for baseline in (True, False):
+        for baseline in (False, True):
             print('baseline', baseline)
 
             C = nn.Conv2d if baseline else util.CConv2d
@@ -246,6 +246,8 @@ class TestLayers(unittest.TestCase):
 
                     loss.backward()
                     opt.step()
+                else:
+                    print('size zero batch')
 
                 if it % 2000 == 0 and input_test.size(0) > 0:
                     with torch.no_grad():

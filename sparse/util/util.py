@@ -1,5 +1,3 @@
-from time import time
-
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
@@ -85,13 +83,13 @@ def vae_sample(zmean, zlsig, eps=None):
     return zmean + eps * (zlsig * 0.5).exp()
 
 def tic():
-    tics.append(time())
+    tics.append(time.time())
 
 def toc():
     if len(tics)==0:
         return None
     else:
-        return time()-tics.pop()
+        return time.time()-tics.pop()
 
 
 def norm(x):

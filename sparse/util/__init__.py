@@ -6,6 +6,7 @@ from .util import \
     od, prod, logit, \
     wrapmod, interpolation_grid, unsqueezen, \
     sample_offsets, split, \
-    CConv2d
+    CConv2d, \
+    tic, toc
 
 from .plot import plot, basic

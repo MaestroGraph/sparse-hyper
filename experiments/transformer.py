@@ -146,11 +146,12 @@ class Transformer(nn.Module):
         :param x: A batch by sequence length integer tensor of token indices.
         :return: predicted log-probability vectors for each token based on the preceding tokens.
         """
+        dv = 'cuda' if x.is_cuda() else 'cpu'
 
         tokens = self.token_embedding(x)
         b, t, e = tokens.size()
 
-        positions = self.pos_embedding(torch.arange(t))[None, :, :].expand(b, t, e)
+        positions = self.pos_embedding(torch.arange(t, device=dv))[None, :, :].expand(b, t, e)
 
         x = self.unify_embeddings(torch.cat((tokens, positions), dim=2).view(-1, 2*e)).view(b, t, e)
 

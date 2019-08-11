@@ -46,52 +46,47 @@ class SelfAttention(nn.Module):
         self.heads = heads
         self.mask = mask
 
-        tokeys = [nn.Linear(emb, emb) for _ in range(heads)]
-        self.tokeys = nn.ModuleList(tokeys)
-
-        toqueries = [nn.Linear(emb, emb) for _ in range(heads)]
-        self.toqueries = nn.ModuleList(toqueries)
-
-        tovalues = [nn.Linear(emb, emb) for _ in range(heads)]
-        self.tovalues = nn.ModuleList(tovalues)
-
+        self.tokeys = nn.Linear(emb, emb * heads)
+        self.toqueries = nn.Linear(emb, emb * heads)
+        self.tovalues = nn.Linear(emb, emb * heads)
 
         self.unifyheads = nn.Linear(heads * emb, emb)
 
     def forward(self, x):
 
         b, t, e = x.size()
+        h = self.heads
         assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
 
-        outs = []
+        xv = x.view(b * t, e)  # fold time into the batch dim
+        keys = self.tokeys(xv).view(b, t, h, e)
+        queries = self.toqueries(xv).view(b, t, h, e)
+        values = self.tovalues(xv).view(b, t, h, e)
 
-        for h in range(self.heads):
+        # scaled dot-product self-attention
 
-            xv = x.view(b*t, e) # fold time into the batch dim
-            keys = self.tokeys[h](xv).view(b, t, e)
-            vals = self.tovalues[h](xv).view(b, t, e)
-            ques = self.toqueries[h](xv).view(b, t, e)
+        # - fold heads into the batch dimension
+        keys = keys.transpose(1, 2).contiguous().view(b * h, t, e)
+        queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
+        values = values.transpose(1, 2).contiguous().view(b * h, t, e)
 
-            # scaled dot-product self-attention
-            dot = torch.bmm(ques, keys.transpose(1, 2))
-            dot = dot / math.sqrt(e)
+        # get dot product of queries and keys, and scale
+        dot = torch.bmm(queries, keys.transpose(1, 2))
+        dot = dot / math.sqrt(e) # dot contains b * h  t-by-t matrices with raw self-attention logits
 
-            if self.mask == 'first': # mask out the lower diagonal of the dot matrix
-                mask(dot, maskval=float('-inf'), mask_diagonal=True)
-            if self.mask == 'mask': # mask out the lower diagonal of the dot matrix
-                mask(dot, maskval=float('-inf'), mask_diagonal=False)
+        if self.mask == 'first':  # mask out the lower diagonal of the dot matrix
+            mask(dot, maskval=float('-inf'), mask_diagonal=True)
+        if self.mask == 'mask': # mask out the lower diagonal of the dot matrix
+            mask(dot, maskval=float('-inf'), mask_diagonal=False)
 
-            dot = F.softmax(dot, dim=2)
+        dot = F.softmax(dot, dim=2) # dot now has row-wise self-attention probabilities
 
-            assert dot.size() == (b, t, t), f'Matrix has size {dot.size()}, expected {(b, t, t)}.'
+        assert dot.size() == (b*h, t, t), f'Matrix has size {dot.size()}, expected {(b*h, t, t)}.'
 
-            outs.append(torch.bmm(dot, vals))
+        # apply the self attention to the values
+        out = torch.bmm(dot, values).view(b, h, t, e)
 
-        out = torch.cat(outs, dim=2)
-
-        y = self.unifyheads(out.view(b*t, e * self.heads)).view(b, t, e)
-
-        return y
+        return self.unifyheads(out.transpose(1, 2).contiguous().view(b, t, h * e))
 
 class TransformerBlock(nn.Module):
     def __init__(self, emb, heads, mask, seq_length, ff_hidden_mult=4):
@@ -220,6 +215,9 @@ def go(arg):
 
         if i != 0 and (i % arg.test_every == 0 or i == arg.num_batches - 1):
 
+            upto = data_test.size(0) if i == arg.num_batches - 1 else arg.test_subset
+            data_test = data_test[:upto]
+
             del input
 
             with torch.no_grad():
@@ -241,7 +239,7 @@ def go(arg):
 
                     batch.append(context[None, :])
 
-                    if len(batch) == arg.batch_size or current == data_test.size(0) - 1:
+                    if len(batch) == arg.test_batchsize or current == data_test.size(0) - 1:
 
                         input = torch.cat(batch, dim=0)
                         input = Variable(input)
@@ -251,12 +249,13 @@ def go(arg):
                         lnprobs = output[0, arg.context - 1, input[:, -1]]
                         log2probs = lnprobs * LOG2E
 
-                        bits += log2probs.sum()
+                        bits += - log2probs.sum()
 
                         batch = []
 
                 bits_per_byte = bits / data_test.size(0)
                 print(f'epoch{i}: {bits_per_byte:04} bits per byte')
+                print(f'epoch{i}: {bits:04} total bits')
 
 if __name__ == "__main__":
 
@@ -350,11 +349,21 @@ if __name__ == "__main__":
                         help="RNG seed. Negative for random",
                         default=1, type=int)
 
-
     parser.add_argument("--test-every",
                         dest="test_every",
                         help="How many batches between tests.",
                         default=1000, type=int)
+
+    parser.add_argument("--test-subset",
+                        dest="test_subset",
+                        help="A subset for the validation tests.",
+                        default=100000, type=int)
+
+    parser.add_argument("--test-batchsize",
+                        dest="test_batchsize",
+                        help="Batch size for computing the validation loss.",
+                        default=1024, type=int)
+
 
     options = parser.parse_args()
 

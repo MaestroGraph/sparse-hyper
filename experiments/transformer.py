@@ -74,6 +74,8 @@ class SelfAttention(nn.Module):
         dot = torch.bmm(queries, keys.transpose(1, 2))
         dot = dot / math.sqrt(e) # dot contains b * h  t-by-t matrices with raw self-attention logits
 
+        assert dot.size() == (b*h, t, t), f'Matrix has size {dot.size()}, expected {(b*h, t, t)}.'
+
         if self.mask == 'first':  # mask out the lower diagonal of the dot matrix
             mask(dot, maskval=float('-inf'), mask_diagonal=True)
         if self.mask == 'mask': # mask out the lower diagonal of the dot matrix
@@ -81,7 +83,13 @@ class SelfAttention(nn.Module):
 
         dot = F.softmax(dot, dim=2) # dot now has row-wise self-attention probabilities
 
-        assert dot.size() == (b*h, t, t), f'Matrix has size {dot.size()}, expected {(b*h, t, t)}.'
+        assert not util.contains_nan(dot[:, 1:, :])
+
+        if self.mask == 'first':
+            dot = dot.clone()
+            dot[:, :1, :] = 0.0
+            # - The first row of the first attention matrix is entirely masked out, so the softmax operation results
+            #   in a division by zero. We set this row to zero by hand to get rid of the NaNs
 
         # apply the self attention to the values
         out = torch.bmm(dot, values).view(b, h, t, e)
@@ -254,8 +262,8 @@ def go(arg):
                         batch = []
 
                 bits_per_byte = bits / data_test.size(0)
-                print(f'epoch{i}: {bits_per_byte:04} bits per byte')
-                print(f'epoch{i}: {bits:04} total bits')
+                print(f'epoch{i}: {bits_per_byte:.4} bits per byte')
+                # print(f'epoch{i}: {bits:.4} total bits')
 
 if __name__ == "__main__":
 

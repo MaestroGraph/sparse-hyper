@@ -232,7 +232,7 @@ def go(arg):
 
                 bits = 0.0
                 batch = []
-                for current in tqdm.trange(data_test.size(0)):
+                for current in range(data_test.size(0)):
 
                     fr = max(0, current - arg.context + 1)
                     to = current + 1
@@ -262,7 +262,7 @@ def go(arg):
                         batch = []
 
                 bits_per_byte = bits / data_test.size(0)
-                print(f'epoch{i}: {bits_per_byte:.4} bits per byte')
+                print(f'\nepoch{i}: {bits_per_byte:.4} bits per byte\n')
                 # print(f'epoch{i}: {bits:.4} total bits')
 
 if __name__ == "__main__":

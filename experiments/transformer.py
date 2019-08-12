@@ -5,6 +5,7 @@ import torch
 from torch import nn
 from torch.autograd import Variable
 import torch.nn.functional as F
+import torch.distributions as dist
 
 import numpy as np
 
@@ -19,6 +20,15 @@ import random, tqdm, sys, math
 NUM_TOKENS = 256
 LOG2E = math.log2(math.e)
 
+def sample(lnprobs, temperature=1.0):
+
+    if temperature == 0.0:
+        return lnprobs.argmax()
+
+    p = F.softmax(lnprobs / temperature, dim=0)
+    cd = dist.Categorical(p)
+
+    return cd.sample()
 
 def mask(matrices, maskval=0.0, mask_diagonal=True):
     """
@@ -106,8 +116,8 @@ class TransformerBlock(nn.Module):
         self.attention = SelfAttention(emb, heads=heads, mask=mask)
         self.mask = mask
 
-        self.norm1 = nn.LayerNorm((seq_length, emb))
-        self.norm2 = nn.LayerNorm((seq_length, emb))
+        self.norm1 = nn.LayerNorm(emb)
+        self.norm2 = nn.LayerNorm(emb)
 
         self.ff = nn.Sequential(
             nn.Linear(emb, ff_hidden_mult * emb),
@@ -121,10 +131,10 @@ class TransformerBlock(nn.Module):
 
         attended = self.attention(x)
 
-        if self.mask != 'first': # disable the residual connections for the first layer
-            attended = attended + x
-
-        x = self.norm1(attended)
+        if self.mask == 'first': # disable the residual connections for the first layer
+            x = self.norm1(attended)
+        else:
+            x = self.norm1(attended + x)
 
         fedforward = self.ff(x.view(b*t, e)).view(b, t, e)
 
@@ -192,6 +202,8 @@ def go(arg):
     else:
         torch.manual_seed(arg.seed)
 
+    dv = 'cuda' if arg.cuda else 'cpu'
+
     tbw = SummaryWriter(log_dir=arg.tb_dir)
 
     # load the data
@@ -234,7 +246,7 @@ def go(arg):
 
         loss = loss.mean()
 
-        tbw.add_scalar('transformer/train-loss', float(loss.item()), i)
+        tbw.add_scalar('transformer/train-loss', float(loss.item()) * LOG2E, i * arg.batch_size)
 
         loss.backward()
 
@@ -255,6 +267,7 @@ def go(arg):
 
                 bits = 0.0
                 batch = []
+
                 for current in range(data_test.size(0)):
 
                     fr = max(0, current - arg.context + 1)
@@ -272,12 +285,14 @@ def go(arg):
 
                     if len(batch) == arg.test_batchsize or current == data_test.size(0) - 1:
 
+                        b = len(batch)
+
                         input = torch.cat(batch, dim=0)
                         input = Variable(input)
 
                         output = model(input)
 
-                        lnprobs = output[0, arg.context - 1, input[:, -1]]
+                        lnprobs = output[torch.arange(b, device=dv), -1, input[:, -1]]
                         log2probs = lnprobs * LOG2E
 
                         bits += - log2probs.sum()
@@ -288,8 +303,29 @@ def go(arg):
                 print(f'\nepoch{i}: {bits_per_byte:.4} bits per byte\n')
                 # print(f'epoch{i}: {bits:.4} total bits')
 
-                tbw.add_scalar('transformer/eval-loss', bits_per_byte, i)
+                tbw.add_scalar('transformer/eval-loss', bits_per_byte, i * arg.batch_size)
 
+                # Generate from seed
+                GENSIZE = 600
+                TEMP = 0.5
+                seedfr = random.randint(0, data_test.size(0) - arg.context)
+                seed = data_test[seedfr:seedfr + arg.context - 1].to(torch.long)
+
+                input = torch.cat([seed, torch.zeros(1, dtype=torch.long)], dim=0)
+                if arg.cuda:
+                    input.cuda()
+                input = Variable(input)
+
+                for c in seed:
+                    print(str(chr(c)), end='', flush=True)
+
+                for _ in range(GENSIZE):
+
+                    output = model(input[None, :])
+                    c = sample(output[0, -1, :], TEMP)
+                    print(str(chr(max(32, c))), end='', flush=True)
+
+                    input = torch.cat([input[2:], torch.tensor([c, 80], dtype=torch.long)], dim=0)
 
 if __name__ == "__main__":
 
@@ -299,7 +335,7 @@ if __name__ == "__main__":
     parser.add_argument("-N", "--num-batches",
                         dest="num_batches",
                         help="Number of batches to train on. Each batch contains randomly samples subsequences of the data.",
-                        default=10000, type=int)
+                        default=1_000_000, type=int)
 
     parser.add_argument("-m", "--model",
                         dest="modelname",

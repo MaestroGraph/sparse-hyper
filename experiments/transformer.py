@@ -202,6 +202,10 @@ def go(arg):
     # training loop
     for i in tqdm.trange(arg.num_batches):
 
+        if arg.lr_warmup > 0 and i < arg.lr_warmup:
+            lr = max(  (arg.lr / arg.lr_warmup) * i, 1e-10)
+            opt.lr = lr
+
         opt.zero_grad()
 
         # sample batches
@@ -218,7 +222,14 @@ def go(arg):
 
         loss = F.nll_loss(output.transpose(2, 1), input)
 
+        tbw.add_scalar('transformer/train-loss', float(loss.item()), i)
+
         loss.backward()
+
+        # clip gradients
+        if arg.gradient_clipping is not None:
+            nn.utils.clip_grad_norm_(model.parameters(), arg.gradient_clipping)
+
         opt.step()
 
         if i != 0 and (i % arg.test_every == 0 or i == arg.num_batches - 1):
@@ -264,6 +275,9 @@ def go(arg):
                 bits_per_byte = bits / data_test.size(0)
                 print(f'\nepoch{i}: {bits_per_byte:.4} bits per byte\n')
                 # print(f'epoch{i}: {bits:.4} total bits')
+
+                tbw.add_scalar('transformer/eval-loss', bits_per_byte, i)
+
 
 if __name__ == "__main__":
 
@@ -371,6 +385,16 @@ if __name__ == "__main__":
                         dest="test_batchsize",
                         help="Batch size for computing the validation loss.",
                         default=1024, type=int)
+
+    parser.add_argument("--gradient-clipping",
+                        dest="gradient_clipping",
+                        help="Gradient clipping.",
+                        default=1.0, type=float)
+
+    parser.add_argument("--lr-warmup",
+                        dest="lr_warmup",
+                        help="Learning rate warmup.",
+                        default=5000, type=int)
 
 
     options = parser.parse_args()

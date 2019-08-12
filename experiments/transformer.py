@@ -91,6 +91,9 @@ class SelfAttention(nn.Module):
             # - The first row of the first attention matrix is entirely masked out, so the softmax operation results
             #   in a division by zero. We set this row to zero by hand to get rid of the NaNs
 
+        # if random.random() < 0.0001:
+        #     print(dot[0], self.mask)
+
         # apply the self attention to the values
         out = torch.bmm(dot, values).view(b, h, t, e)
 
@@ -101,6 +104,7 @@ class TransformerBlock(nn.Module):
         super().__init__()
 
         self.attention = SelfAttention(emb, heads=heads, mask=mask)
+        self.mask = mask
 
         self.norm1 = nn.LayerNorm((seq_length, emb))
         self.norm2 = nn.LayerNorm((seq_length, emb))
@@ -117,11 +121,14 @@ class TransformerBlock(nn.Module):
 
         attended = self.attention(x)
 
-        x = self.norm1(x + attended)
+        if self.mask != 'first': # disable the residual connections for the first layer
+            attended = attended + x
+
+        x = self.norm1(attended)
 
         fedforward = self.ff(x.view(b*t, e)).view(b, t, e)
 
-        x = self.norm2(x + fedforward)
+        x = self.norm2(fedforward + x)
 
         return x
 
@@ -138,7 +145,7 @@ class Transformer(nn.Module):
 
         tblocks = []
         for i in range(depth):
-            tblocks.append(TransformerBlock(emb=emb, heads=heads, seq_length=seq_length, mask='first' if i == 0 else 'mask'))
+            tblocks.append(TransformerBlock(emb=emb, heads=heads, seq_length=seq_length, mask=('first' if i == 0 else 'mask')))
 
         self.tblocks = nn.Sequential(*tblocks)
 
@@ -160,10 +167,9 @@ class Transformer(nn.Module):
 
         x = self.tblocks(x)
 
-        x = self.toprobs(x.view(b*t, e))
-        x = F.log_softmax(x, dim=1)
+        x = self.toprobs(x.view(b*t, e)).view(b, t, self.num_tokens)
 
-        return x.view(b, t, self.num_tokens)
+        return F.log_softmax(x, dim=2)
 
 def enwik8(path, n_train=int(90e6), n_valid=int(5e6), n_test=int(5e6)):
     """
@@ -220,7 +226,13 @@ def go(arg):
 
         output = model(input)
 
-        loss = F.nll_loss(output.transpose(2, 1), input)
+        loss = F.nll_loss(output.transpose(2, 1), input, reduction='none')
+
+        # if i % 50 == 0:
+        #     print(loss[0, 0], output[0, 0, input[0, 0]])
+        #     sys.exit()
+
+        loss = loss.mean()
 
         tbw.add_scalar('transformer/train-loss', float(loss.item()), i)
 

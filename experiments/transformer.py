@@ -10,7 +10,7 @@ import torch.distributions as dist
 import numpy as np
 
 from argparse import ArgumentParser
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 import random, tqdm, sys, math
 
@@ -30,7 +30,7 @@ def sample(lnprobs, temperature=1.0):
 
     return cd.sample()
 
-def mask(matrices, maskval=0.0, mask_diagonal=True):
+def mask_(matrices, maskval=0.0, mask_diagonal=True):
     """
     Masks out all values in the given batch of matrices where i <= j holds,
     i < j if mask_diagonal is false
@@ -68,32 +68,31 @@ class SelfAttention(nn.Module):
         h = self.heads
         assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
 
-        xv = x.view(b * t, e)  # fold time into the batch dim
-        keys = self.tokeys(xv).view(b, t, h, e)
-        queries = self.toqueries(xv).view(b, t, h, e)
-        values = self.tovalues(xv).view(b, t, h, e)
+        keys    = self.tokeys(x)   .view(b, t, h, e)
+        queries = self.toqueries(x).view(b, t, h, e)
+        values  = self.tovalues(x) .view(b, t, h, e)
 
-        # scaled dot-product self-attention
+        # compute scaled dot-product self-attention
 
         # - fold heads into the batch dimension
         keys = keys.transpose(1, 2).contiguous().view(b * h, t, e)
         queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
         values = values.transpose(1, 2).contiguous().view(b * h, t, e)
 
-        # get dot product of queries and keys, and scale
+        # - get dot product of queries and keys, and scale
         dot = torch.bmm(queries, keys.transpose(1, 2))
-        dot = dot / math.sqrt(e) # dot contains b * h  t-by-t matrices with raw self-attention logits
+        dot = dot / math.sqrt(e) # dot contains b*h  t-by-t matrices with raw self-attention logits
 
         assert dot.size() == (b*h, t, t), f'Matrix has size {dot.size()}, expected {(b*h, t, t)}.'
 
         if self.mask == 'first':  # mask out the lower diagonal of the dot matrix
-            mask(dot, maskval=float('-inf'), mask_diagonal=True)
+            mask_(dot, maskval=float('-inf'), mask_diagonal=True)
         if self.mask == 'mask': # mask out the lower diagonal of the dot matrix
-            mask(dot, maskval=float('-inf'), mask_diagonal=False)
+            mask_(dot, maskval=float('-inf'), mask_diagonal=False)
 
         dot = F.softmax(dot, dim=2) # dot now has row-wise self-attention probabilities
 
-        assert not util.contains_nan(dot[:, 1:, :])
+        assert not util.contains_nan(dot[:, 1:, :]) # only the forst row may contain nan
 
         if self.mask == 'first':
             dot = dot.clone()
@@ -101,13 +100,13 @@ class SelfAttention(nn.Module):
             # - The first row of the first attention matrix is entirely masked out, so the softmax operation results
             #   in a division by zero. We set this row to zero by hand to get rid of the NaNs
 
-        # if random.random() < 0.0001:
-        #     print(dot[0], self.mask)
-
         # apply the self attention to the values
         out = torch.bmm(dot, values).view(b, h, t, e)
 
-        return self.unifyheads(out.transpose(1, 2).contiguous().view(b, t, h * e))
+        # swap h, t back, unify heads
+        out = out.transpose(1, 2).contiguous().view(b, t, h * e)
+
+        return self.unifyheads(out)
 
 class TransformerBlock(nn.Module):
     def __init__(self, emb, heads, mask, seq_length, ff_hidden_mult=4):
@@ -130,17 +129,17 @@ class TransformerBlock(nn.Module):
         b, t, e = x.size()
 
         attended = self.attention(x)
+        #
+        # if self.mask == 'first': # disable the residual connections for the first layer
+        #     x = attended
+        # else:
+        #     x = attended
+        #
+        # fedforward = self.ff(x.view(b*t, e)).view(b, t, e)
+        #
+        # x = fedforward
 
-        if self.mask == 'first': # disable the residual connections for the first layer
-            x = self.norm1(attended)
-        else:
-            x = self.norm1(attended + x)
-
-        fedforward = self.ff(x.view(b*t, e)).view(b, t, e)
-
-        x = self.norm2(fedforward + x)
-
-        return x
+        return attended
 
 class Transformer(nn.Module):
 
@@ -155,7 +154,7 @@ class Transformer(nn.Module):
 
         tblocks = []
         for i in range(depth):
-            tblocks.append(TransformerBlock(emb=emb, heads=heads, seq_length=seq_length, mask=('first' if i == 0 else 'mask')))
+            tblocks.append(TransformerBlock(emb=emb, heads=heads, seq_length=seq_length, mask='mask'))
 
         self.tblocks = nn.Sequential(*tblocks)
 
@@ -172,7 +171,6 @@ class Transformer(nn.Module):
         b, t, e = tokens.size()
 
         positions = self.pos_embedding(torch.arange(t, device=dv))[None, :, :].expand(b, t, e)
-
         x = self.unify_embeddings(torch.cat((tokens, positions), dim=2).view(-1, 2*e)).view(b, t, e)
 
         x = self.tblocks(x)
@@ -227,18 +225,21 @@ def go(arg):
         opt.zero_grad()
 
         # sample batches
-        starts = torch.randint(size=(arg.batch_size, ), low=0, high=data_train.size(0) - arg.context)
-        seqs = [data_train[start:start+arg.context] for start in starts]
-        input = torch.cat([s[None, :] for s in seqs], dim=0).to(torch.long)
+        starts = torch.randint(size=(arg.batch_size, ), low=0, high=data_train.size(0) - arg.context - 1)
+        seqs_source = [data_train[start  :start+arg.context  ] for start in starts]
+        seqs_target = [data_train[start+1:start+arg.context+1] for start in starts]
+        source = torch.cat([s[None, :] for s in seqs_source ], dim=0).to(torch.long)
+        target = torch.cat([s[None, :] for s in seqs_target ], dim=0).to(torch.long)
+
 
         if arg.cuda:
-            input = input.cuda()
+            source, target = source.cuda(), target.cuda()
 
-        input = Variable(input)
+        source, target = Variable(source), Variable(target)
 
-        output = model(input)
+        output = model(source)
 
-        loss = F.nll_loss(output.transpose(2, 1), input, reduction='none')
+        loss = F.nll_loss(output.transpose(2, 1), target, reduction='none')
 
         # if i % 50 == 0:
         #     print(loss[0, 0], output[0, 0, input[0, 0]])
@@ -259,73 +260,75 @@ def go(arg):
         if i != 0 and (i % arg.test_every == 0 or i == arg.num_batches - 1):
 
             upto = data_test.size(0) if i == arg.num_batches - 1 else arg.test_subset
-            data_test = data_test[:upto]
-
-            del input
+            data_sub = data_test[:upto]
 
             with torch.no_grad():
-
-                bits = 0.0
+                bits, tot = 0.0, 0
                 batch = []
 
-                for current in range(data_test.size(0)):
+                for current in range(data_sub.size(0)):
 
-                    fr = max(0, current - arg.context + 1)
+                    fr = max(0, current - arg.context)
                     to = current + 1
 
-                    context = data_test[fr:to].to(torch.long)
-                    if context.size(0) < arg.context:
-                        pad = torch.zeros(size=(arg.context - context.size(0),), dtype=torch.long)
+                    context = data_sub[fr:to].to(torch.long)
+                    if context.size(0) < arg.context + 1:
+                        pad = torch.zeros(size=(arg.context + 1 - context.size(0),), dtype=torch.long)
                         context = torch.cat([pad, context], dim=0)
+
+                        assert context.size(0) == arg.context + 1
 
                     if arg.cuda:
                         context = context.cuda()
 
                     batch.append(context[None, :])
 
-                    if len(batch) == arg.test_batchsize or current == data_test.size(0) - 1:
+                    if len(batch) == arg.test_batchsize or current == data_sub.size(0) - 1:
 
                         b = len(batch)
 
-                        input = torch.cat(batch, dim=0)
-                        input = Variable(input)
+                        tot += b
 
-                        output = model(input)
+                        all = torch.cat(batch, dim=0)
+                        source = all[:, :-1]
+                        target = all[:, -1]
 
-                        lnprobs = output[torch.arange(b, device=dv), -1, input[:, -1]]
+                        output = model(source)
+
+                        lnprobs = output[torch.arange(b, device=dv), -1, target]
                         log2probs = lnprobs * LOG2E
 
                         bits += - log2probs.sum()
 
                         batch = []
 
-                bits_per_byte = bits / data_test.size(0)
-                print(f'\nepoch{i}: {bits_per_byte:.4} bits per byte\n')
+                assert tot == data_sub.size(0)
+
+                bits_per_byte = bits / data_sub.size(0)
+
+                print(f'epoch{i}: {bits_per_byte:.4} bits per byte')
                 # print(f'epoch{i}: {bits:.4} total bits')
 
-                tbw.add_scalar('transformer/eval-loss', bits_per_byte, i * arg.batch_size)
+                tbw.add_scalar(f'transformer/eval-loss', bits_per_byte, i * arg.batch_size)
 
                 # Generate from seed
                 GENSIZE = 600
                 TEMP = 0.5
                 seedfr = random.randint(0, data_test.size(0) - arg.context)
-                seed = data_test[seedfr:seedfr + arg.context - 1].to(torch.long)
-
-                input = torch.cat([seed, torch.zeros(1, dtype=torch.long)], dim=0)
+                input = data_test[seedfr:seedfr + arg.context].to(torch.long)
                 if arg.cuda:
                     input.cuda()
                 input = Variable(input)
 
-                for c in seed:
+                for c in input:
                     print(str(chr(c)), end='', flush=True)
 
                 for _ in range(GENSIZE):
-
                     output = model(input[None, :])
                     c = sample(output[0, -1, :], TEMP)
                     print(str(chr(max(32, c))), end='', flush=True)
 
-                    input = torch.cat([input[2:], torch.tensor([c, 80], dtype=torch.long)], dim=0)
+                    input = torch.cat([input[1:], torch.tensor([c], dtype=torch.long)], dim=0)
 
 if __name__ == "__main__":
 

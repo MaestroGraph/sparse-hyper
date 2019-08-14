@@ -47,8 +47,13 @@ def mask_(matrices, maskval=0.0, mask_diagonal=True):
     matrices[:, indices[0], indices[1]] = maskval
 
 class SelfAttention(nn.Module):
-
     def __init__(self, emb, heads=8, mask='first'):
+        """
+
+        :param emb:
+        :param heads:
+        :param mask:
+        """
 
         super().__init__()
 
@@ -56,9 +61,9 @@ class SelfAttention(nn.Module):
         self.heads = heads
         self.mask = mask
 
-        self.tokeys = nn.Linear(emb, emb * heads)
-        self.toqueries = nn.Linear(emb, emb * heads)
-        self.tovalues = nn.Linear(emb, emb * heads)
+        self.tokeys = nn.Linear(emb, emb * heads, bias=False)
+        self.toqueries = nn.Linear(emb, emb * heads, bias=False)
+        self.tovalues = nn.Linear(emb, emb * heads, bias=False)
 
         self.unifyheads = nn.Linear(heads * emb, emb)
 
@@ -134,7 +139,7 @@ class TransformerBlock(nn.Module):
 
         x = self.norm2(fedforward + x)
 
-        return attended
+        return x
 
 class Transformer(nn.Module):
 
@@ -338,7 +343,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-N", "--num-batches",
                         dest="num_batches",
-                        help="Number of batches to train on. Each batch contains randomly samples subsequences of the data.",
+                        help="Number of batches to train on. Each batch contains randomly sampled subsequences of the data.",
                         default=1_000_000, type=int)
 
     parser.add_argument("-m", "--model",

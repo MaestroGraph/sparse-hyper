@@ -318,7 +318,7 @@ def go(arg):
                 input = data_test[seedfr:seedfr + arg.context].to(torch.long)
 
                 if arg.cuda:
-                    inout = input.cuda()
+                    input = input.cuda()
 
                 input = Variable(input)
 

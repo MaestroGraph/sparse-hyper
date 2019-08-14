@@ -332,7 +332,7 @@ def go(arg):
                     c = sample(output[0, -1, :], TEMP)
                     print(str(chr(max(32, c))), end='', flush=True)
 
-                    input = torch.cat([input[1:], torch.tensor([c], dtype=torch.long)], dim=0)
+                    input = torch.cat([input[1:], c[None]], dim=0)
 
                 print()
 

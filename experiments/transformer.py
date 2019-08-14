@@ -316,8 +316,10 @@ def go(arg):
                 TEMP = 0.5
                 seedfr = random.randint(0, data_test.size(0) - arg.context)
                 input = data_test[seedfr:seedfr + arg.context].to(torch.long)
+
                 if arg.cuda:
-                    input.cuda()
+                    inout = input.cuda()
+
                 input = Variable(input)
 
                 for c in input:

@@ -322,8 +322,10 @@ def go(arg):
 
                 input = Variable(input)
 
+                print('[', end='', flush=True)
                 for c in input:
                     print(str(chr(c)), end='', flush=True)
+                print(']', end='', flush=True)
 
                 for _ in range(GENSIZE):
                     output = model(input[None, :])
@@ -331,6 +333,8 @@ def go(arg):
                     print(str(chr(max(32, c))), end='', flush=True)
 
                     input = torch.cat([input[1:], torch.tensor([c], dtype=torch.long)], dim=0)
+
+                print()
 
 if __name__ == "__main__":
 

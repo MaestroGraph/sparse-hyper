@@ -126,18 +126,13 @@ class TransformerBlock(nn.Module):
 
     def forward(self, x):
 
-        b, t, e = x.size()
-
         attended = self.attention(x)
-        #
-        # if self.mask == 'first': # disable the residual connections for the first layer
-        #     x = attended
-        # else:
-        #     x = attended
-        #
-        # fedforward = self.ff(x.view(b*t, e)).view(b, t, e)
-        #
-        # x = fedforward
+
+        x = self.norm1(attended + x)
+
+        fedforward = self.ff(x)
+
+        x = self.norm2(fedforward + x)
 
         return attended
 

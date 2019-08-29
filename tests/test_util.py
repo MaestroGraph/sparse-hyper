@@ -259,5 +259,20 @@ class TestLayers(unittest.TestCase):
 
                         # print(list(model.modules())[1].master.weight.grad)
 
+    def test_flip(self):
+        x = torch.rand(6, 3, 9, 3, 2)
+
+        x = util.flip(x)
+        f = x.view(-1, 2)
+        self.assertEqual( (f[:, 0] < f[:, 1]).sum(), 0)
+        self.assertEqual(len(x.size()), 5)
+
+        x = torch.randint(10, size=(3, 128, 2))
+        x = util.flip(x)
+        f = x.view(-1, 2)
+        self.assertEqual( (f[:, 0] < f[:, 1]).sum(), 0)
+        self.assertEqual(len(x.size()), 3)
+
+
 if __name__ == '__main__':
     unittest.main()

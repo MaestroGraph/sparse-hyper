@@ -593,7 +593,7 @@ def duplicates(tuples):
 
     mask = sorted[:, 1:] == sorted[:, :-1]
 
-    mask = torch.cat([torch.zeros(b, 1, dtype=torch.uint8, device=dv), mask], dim=1)
+    mask = torch.cat([torch.zeros(b, 1, dtype=torch.bool, device=dv), mask], dim=1) # changed type unit to bool
 
     return torch.gather(mask, 1, unsort_idx)
 
@@ -963,4 +963,48 @@ class CConv2d(nn.Module):
 
         return torch.cat([hmat, wmat], dim=0).to(torch.float)
 
+def d(tensor=None):
+    """
+    Returns a device string either for the best available device,
+    or for the device corresponding to the argument
+    :param tensor:
+    :return:
+    """
+    if tensor is None:
+        return 'cuda' if torch.cuda.is_available() else 'cpu'
+    return 'cuda' if tensor.is_cuda else 'cpu'
 
+def here(subpath=None):
+    """
+    :return: the path in which the package resides (the directory containing the 'sparse' dir)
+    """
+    if subpath is None:
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), '../..', subpath))
+
+def flip(x):
+    """
+
+    Takes a batch of matrix indices (continuous or discrete, can be negative) and returns a version
+    where anything above the diagonal is flipped to be below the diagonal.
+
+    The last dimension should be two, any preceding dimensions are taken to be bacth dimensions
+
+    :param x: The batch of matrices to flip
+    :return: The flipped matrices
+    """
+
+    assert x.size(-1) == 2
+
+    bdims = x.size()[:-1]
+    x = x.view(-1, 2)
+    toflip = x[:, 0] < x[:, 1]
+    t = x[:, 0].clone() # store 0 indices temporarily
+
+    y = x.clone()
+
+    y[toflip, 0] = x[toflip, 1].clone()
+    y[toflip, 1] = t[toflip]
+
+    return x.view(*(bdims + (2,)))

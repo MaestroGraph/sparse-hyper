@@ -1,9 +1,12 @@
 import torch
 from torch import FloatTensor, LongTensor
 from torch.autograd import Variable
+import torch.nn.functional as F
 
 from sparse.util import prod
 import util, sys
+
+from util import d
 
 """
 Utility functions for manipulation tensors
@@ -58,8 +61,8 @@ def contract(indices, values, size, x, cuda=None):
     once by a unique element from the tensor (that is, like a fully connected neural network layer). See the paper for
     details.
 
-    :param indices:
-    :param values:
+    :param indices: (b, k, r)-tensor describing indices of b sparse tensors of rank r
+    :param values: (b, k)-tes=nsor with the corresponding values
     :param size:
     :param x:
     :return:
@@ -170,7 +173,7 @@ class SparseMMGPU(torch.autograd.Function):
 
 def batchmm(indices, values, size, xmatrix, cuda=None):
     """
-    Multiply a batch of sparse matrices with a batch of dense matrices
+    Multiply a batch of sparse matrices (indices, values, size) with a batch of dense matrices (xmatrix)
 
     :param indices:
     :param values:
@@ -224,3 +227,133 @@ def intlist(tensor):
         l[i] = int(tensor[i])
 
     return l
+
+def accuracy(output, labels):
+    preds = output.max(1)[1].type_as(labels)
+    correct = preds.eq(labels).double()
+    correct = correct.sum()
+    return correct / len(labels)
+
+# -- stable softmax
+
+def logsoftmax(indices, values, size, its=10, p=2, method='iteration', row=True, cuda=torch.cuda.is_available()):
+    """
+    Row or column log-softmaxes a sparse matrix (using logsumexp trick)
+    :param indices:
+    :param values:
+    :param size:
+    :param row:
+    :return:
+    """
+    epsilon = 1e-7
+
+    if method == 'naive':
+        values = values.exp()
+        sums = sum(indices, values, size, row=row)
+
+        return (values/(sums + epsilon)).log()
+
+    if method == 'pnorm':
+        maxes = rowpnorm(indices, values, size, p=p)
+    elif method == 'iteration':
+        maxes = itmax(indices, values, size,its=its, p=p)
+    else:
+        raise Exception('Max method {} not recognized'.format(method))
+
+    mvalues = torch.exp(values - maxes)
+
+    sums = sum(indices, mvalues, size, row=row)  # row/column sums]
+
+    return mvalues.log() - sums.log()
+
+def rowpnorm(indices, values, size, p, row=True):
+    """
+    Row or column p-norms a sparse matrix
+    :param indices:
+    :param values:
+    :param size:
+    :param row:
+    :return:
+    """
+    pvalues = torch.pow(values, p)
+    sums = sum(indices, pvalues, size, row=row)
+
+    return torch.pow(sums, 1.0/p)
+
+def itmax(indices, values, size, its=10, p=2, row=True):
+    """
+    Iterative computation of row max
+
+    :param indices:
+    :param values:
+    :param size:
+    :param p:
+    :param row:
+    :param cuda:
+    :return:
+    """
+
+    epsilon = 0.00000001
+
+    # create an initial vector with all values made positive
+    # weights = values - values.min()
+    weights = F.softplus(values)
+    weights = weights / (sum(indices, weights, size) + epsilon)
+
+    # iterate, weights converges to a one-hot vector
+    for i in range(its):
+        weights = weights.pow(p)
+
+        sums = sum(indices, weights, size, row=row)  # row/column sums
+        weights = weights/sums
+
+    return sum(indices, values * weights, size, row=row)
+
+def sum(indices, values, size, row=True):
+    """
+    Sum the rows or columns of a sparse matrix, and redistribute the
+    results back to the non-sparse row/column entries
+
+    Arguments are interpreted as defining sparse matrix. Any extra dimensions
+    as treated as batch.
+
+    :return:
+    """
+
+    assert len(indices.size()) == len(values.size()) + 1
+
+    if len(indices.size()) == 2:
+        # add batch dim
+        indices = indices[None, :, :]
+        values = values[None, :]
+        bdims = None
+    else:
+        # fold up batch dim
+        bdims = indices.size()[:-2]
+        k, r = indices.size()[-2:]
+        assert bdims == values.size()[:-1]
+        assert values.size()[-1] == k
+
+        indices = indices.view(-1, k, r)
+        values = values.view(-1, k)
+
+    b, k, r = indices.size()
+
+    if row:
+        ones = torch.ones((size[1], 1), device=d(indices))
+    else:
+        ones = torch.ones((size[0], 1), device=d(indices))
+        # transpose the matrix
+        indices = torch.cat([indices[:, :, 1:2], indices[:, :, 0:1]], dim=1)
+
+    s, _ = ones.size()
+    ones = ones[None, :, :].expand(b, s, 1).contiguous()
+
+    sums = batchmm(indices, values, size, ones) # row/column sums
+    bindex = torch.arange(b, device=d(indices))[:, None].expand(b, indices.size(1))
+    sums = sums[bindex, indices[:, :, 0], 0]
+
+    if bdims is None:
+        return sums.view(k)
+
+    return sums.view(*bdims + (k,))

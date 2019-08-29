@@ -7,6 +7,6 @@ from .util import \
     wrapmod, interpolation_grid, unsqueezen, \
     sample_offsets, split, \
     CConv2d, \
-    tic, toc
+    tic, toc, d, here, flip
 
 from .plot import plot, basic

@@ -97,7 +97,7 @@ def transform_means(means, size, clamp=False):
     if clamp:
         means = means.clamp(0.0, 1.0)
     else:
-        means = F.sigmoid(means)
+        means = torch.sigmoid(means)
 
     # Compute upper bounds
     s = torch.tensor(list(size), dtype=torch.float, device='cuda' if means.is_cuda else 'cpu') - 1
@@ -207,88 +207,6 @@ class SparseLayer(nn.Module):
             assert temp_indices.size(1) == in_rank + len(out_size)
 
             self.register_buffer('temp_indices', temp_indices)
-
-    # def generate_integer_tuples(self, means, rng=None, relative_range=None, seed=None):
-    #     """
-    #     Takes continuous-valued index tuples, and generates integer-valued index tuples.
-    #
-    #     The returned matrix of ints is not a Variable (just a plain LongTensor). Autograd of the real valued indices passes
-    #     through the values alone, not the integer indices used to instantiate the sparse matrix.
-    #
-    #     :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
-    #     :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
-    #     :return: a triple (ints, props, vals). ints is an N*2^K by K matrix representing the N*2^K integer index-tuples that can
-    #         be made by flooring or ceiling the indices in 'ind'. 'props' is a vector of length N*2^K, which indicates how
-    #         much of the original value each integer index-tuple receives (based on the distance to the real-valued
-    #         index-tuple). vals is vector of length N*2^K, containing the value of the corresponding real-valued index-tuple
-    #         (ie. vals just repeats each value in the input 'val' 2^K times).
-    #     """
-    #
-    #     b, k, c, rank = means.size()
-    #     dv = 'cuda' if self.is_cuda() else 'cpu'
-    #     FT = torch.cuda.FloatTensor if self.is_cuda() else torch.FloatTensor
-    #
-    #     if seed is not None:
-    #         torch.manual_seed(seed)
-    #
-    #     """
-    #     Generate neighbor tuples
-    #     """
-    #     fm = self.floor_mask[None, None, None, :].expand(b, k, c, 2 ** rank, rank)
-    #
-    #     neighbor_ints = means.data[:, :, :, None, :].expand(b, k, c, 2 ** rank, rank).contiguous()
-    #
-    #     neighbor_ints[fm] = neighbor_ints[fm].floor()
-    #     neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
-    #
-    #     neighbor_ints = neighbor_ints.long()
-    #
-    #     """
-    #     Sample uniformly from all integer tuples
-    #     """
-    #
-    #     global_ints = FT(b, k, c, self.gadditional, rank)
-    #
-    #     global_ints.uniform_()
-    #     global_ints *= (1.0 - EPSILON)
-    #
-    #     rng = FT(rng)
-    #     rngxp = rng.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand_as(global_ints)
-    #
-    #     global_ints = torch.floor(global_ints * rngxp).long()
-    #
-    #     """
-    #     Sample uniformly from a small range around the given index tuple
-    #     """
-    #     local_ints = FT(b, k, c, self.radditional, rank)
-    #
-    #     local_ints.uniform_()
-    #     local_ints *= (1.0 - EPSILON)
-    #
-    #     rngxp = rng[None, None, None, :].expand_as(local_ints) # bounds of the tensor
-    #
-    #     rrng = FT(relative_range) # bounds of the range from which to sample
-    #     rrng = rrng[None, None, None, :].expand_as(local_ints)
-    #
-    #     # print(means.size())
-    #     mns_expand = means.round().unsqueeze(3).expand_as(local_ints)
-    #
-    #     # upper and lower bounds
-    #     lower = mns_expand - rrng * 0.5
-    #     upper = mns_expand + rrng * 0.5
-    #
-    #     # check for any ranges that are out of bounds
-    #     idxs = lower < 0.0
-    #     lower[idxs] = 0.0
-    #
-    #     idxs = upper > rngxp
-    #     lower[idxs] = rngxp[idxs] - rrng[idxs]
-    #
-    #     local_ints = (local_ints * rrng + lower).long()
-    #
-    #     all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=3)
-    #
-    #     return all.view(b, k, -1, rank) # combine all indices sampled within a chunk
 
     def is_cuda(self):
         return next(self.parameters()).is_cuda
@@ -690,7 +608,7 @@ FLOOR_MASKS = {}
 def floor_mask(num_cols, cuda=False):
     if num_cols not in FLOOR_MASKS:
         lsts = [[int(b) for b in bools] for bools in itertools.product([True, False], repeat=num_cols)]
-        FLOOR_MASKS[num_cols] = torch.ByteTensor(lsts, device='cpu')
+        FLOOR_MASKS[num_cols] = torch.BoolTensor(lsts, device='cpu')
 
     if cuda:
         return FLOOR_MASKS[num_cols].cuda()
@@ -783,7 +701,7 @@ def generate_integer_tuples(means, gadditional, ladditional, rng=None, relative_
 def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, seed=None, cuda=False, fm=None):
     """
     Takes continuous-valued index tuples, and generates integer-valued index tuples. Works for inputs with an arbitrary
-    number of vectors.
+    number of dimensions.
 
     The returned matrix of ints is not a Variable (just a plain LongTensor). Autograd of the real valued indices passes
     through the values alone, not the integer indices used to instantiate the sparse matrix.

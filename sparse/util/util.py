@@ -1007,4 +1007,4 @@ def flip(x):
     y[toflip, 0] = x[toflip, 1].clone()
     y[toflip, 1] = t[toflip]
 
-    return x.view(*(bdims + (2,)))
+    return y.view(*(bdims + (2,)))

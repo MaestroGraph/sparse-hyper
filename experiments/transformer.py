@@ -14,6 +14,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 import random, tqdm, sys, math
 
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+
 from util import d
 
 # import warnings
@@ -25,6 +29,7 @@ from util import d
 # NB, the enwik8 data contains tokens from 9 to 240
 NUM_TOKENS = 256
 LOG2E = math.log2(math.e)
+MARGIN = 0.1
 
 def sample(lnprobs, temperature=1.0):
 
@@ -56,7 +61,7 @@ class MSparseSelfAttention(nn.Module):
     """
     Masked sparse self attention (two degrees of freedom)
     """
-    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=1.0):
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1):
         """
 
         :param emb:
@@ -87,21 +92,33 @@ class MSparseSelfAttention(nn.Module):
         self.sigmas = nn.Parameter(torch.randn((k, )))
         self.register_buffer('mvalues', torch.ones((k, )))
 
+    def hyper(self, x):
+
+        b, t, e = x.size()
+        h, k, reg = self.heads, self.k, self.region
+
+        # generate the continuous parameters
+        means = self.means[None, None, :, :].expand(b, 1, k, 2)
+        sigmas = self.sigmas[None, None, :].expand(b, 1, k)
+        values = self.mvalues[None, None, :].expand(b, 1, k)
+
+        means = util.flip(means.contiguous())  # flip everything to below the diagonal of the matrix
+
+        s = (t, t)
+        means, sigmas = sparse.transform_means(means, s), \
+                        sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
+
+        return means, sigmas, values
+
     def forward(self, x):
 
         b, t, e = x.size()
         h, k, reg = self.heads, self.k, self.region
+        s = (t, t)
+
         assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
 
-        # generate the continuous parameters
-        means  = self.means [None, None, :, :].expand(b, 1, k, 2)
-        sigmas = self.sigmas[None, None, :].expand(b, 1, k)
-        mvalues = self.mvalues[None, None, :].expand(b, 1, k)
-
-        means = util.flip(means.contiguous()) # flip everything to below the diagonal of the matrix
-
-        s = (t, t)
-        means, sigmas = sparse.transform_means(means, s), sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
+        means, sigmas, mvalues = self.hyper(x)
 
         # sample integer indices and values
         indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t, t), relative_range=(self.region, self.region), cuda=x.is_cuda)
@@ -442,6 +459,29 @@ class GTransformer(nn.Module):
 
         return F.log_softmax(x, dim=2)
 
+    def forward_for_plot(self, x):
+        """
+        :param x: A batch by sequence length integer tensor of token indices.
+        :return: predicted log-probability vectors for each token based on the preceding tokens.
+        """
+        means, sigmas, values = [], [], []
+
+        tokens = self.token_embedding(x)
+        b, t, e = tokens.size()
+
+        positions = self.pos_embedding(torch.arange(t, device=d(x)))[None, :, :].expand(b, t, e)
+        x = tokens + positions
+
+        for tblock in self.tblocks:
+            m, s, v = tblock.attention.hyper(x)
+            means.append(m)
+            sigmas.append(s)
+            values.append(v)
+
+            x = tblock(x)
+
+        return means, sigmas, values
+
 def enwik8(path, n_train=int(90e6), n_valid=int(5e6), n_test=int(5e6)):
     """
     From https://github.com/openai/blocksparse/blob/master/examples/transformer/enwik8.py
@@ -456,6 +496,9 @@ def enwik8(path, n_train=int(90e6), n_valid=int(5e6), n_test=int(5e6)):
     return torch.from_numpy(trX), torch.from_numpy(vaX), torch.from_numpy(teX)
 
 def go(arg):
+
+    if arg.sparse:
+        util.makedirs('./transformer-plots/')
 
     if arg.seed < 0:
         seed = random.randint(0, 1000000)
@@ -523,6 +566,21 @@ def go(arg):
             nn.utils.clip_grad_norm_(model.parameters(), arg.gradient_clipping)
 
         opt.step()
+
+        if arg.sparse and arg.plot_every > 0 and i % arg.plot_every == 0:
+            shape = (arg.context, arg.context)
+
+            means, sigmas, values = model.forward_for_plot(source)
+            for t, (m, s, v) in enumerate(zip(means, sigmas, values)):
+
+                plt.figure(figsize=(7, 7))
+                plt.cla()
+
+                util.plot(m.squeeze(), s.squeeze(), v.squeeze(), shape=shape)
+                plt.xlim((-MARGIN * (shape[0] - 1), (shape[0] - 1) * (1.0 + MARGIN)))
+                plt.ylim((-MARGIN * (shape[0] - 1), (shape[0] - 1) * (1.0 + MARGIN)))
+
+                plt.savefig(f'./transformer-plots/means{i:06}.{t}.pdf')
 
         if i != 0 and (i % arg.test_every == 0 or i == arg.num_batches - 1):
 
@@ -704,6 +762,11 @@ if __name__ == "__main__":
                         help="How many batches between tests.",
                         default=1000, type=int)
 
+    parser.add_argument("--plot-every",
+                        dest="plot_every",
+                        help="How many batches between plotting the sparse indices.",
+                        default=100, type=int)
+
     parser.add_argument("--test-subset",
                         dest="test_subset",
                         help="A subset for the validation tests.",
@@ -723,7 +786,6 @@ if __name__ == "__main__":
                         dest="lr_warmup",
                         help="Learning rate warmup.",
                         default=5000, type=int)
-
 
     options = parser.parse_args()
 

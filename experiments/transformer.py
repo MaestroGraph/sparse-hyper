@@ -247,7 +247,7 @@ class ASHSelfAttention(nn.Module):
         sigmas = params[:, :, k*2:].view(b, t, k)
         values = self.mvalues[None, None, :].expand(b, t, k)
 
-        means = diags - means * 0.001
+        means = diags + means
         means = util.flip(means)
 
         # means = util.flip(means.contiguous())  # flip everything to below the diagonal of the matrix

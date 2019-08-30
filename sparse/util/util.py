@@ -404,13 +404,25 @@ def count_params(model):
     return sum
 
 def logit(x):
+    """
+    Inverse of the sigmoid function.
+
+    :param x:
+    :return:
+    """
     if type(x) == float:
         return math.log(x / (1 - x))
     return torch.log(x/ (1 - x))
 
+def inv(i, mx=28):
+    """
+    Inverse of the sigmoid-based scaling function.
 
-def inv(i):
-    sc = (i/27) * 0.9999 + 0.00005
+    :param i:
+    :param mx:
+    :return:
+    """
+    sc = (i/(mx-1)) * 0.9999 + 0.00005
     return logit(sc)
 
 def sigmoid(x):

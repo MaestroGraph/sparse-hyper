@@ -65,7 +65,7 @@ class MSparseSelfAttention(nn.Module):
         """
 
         :param emb:
-        :param k: Number of connections to the input for each output
+        :param k: Number of connections to the input in total
         :param gadditional:
         :param radditional:
         :param region:
@@ -183,7 +183,155 @@ class MSparseSelfAttention(nn.Module):
         # swap h, t back, unify heads
         out = out.transpose(1, 2).contiguous().view(b, t, h * e)
         return self.unifyheads(out)
-#
+
+
+class ASHSelfAttention(nn.Module):
+    """
+    Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
+    embedding vector, position embedding and coordinate.
+    """
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1):
+        """
+        :param emb:
+        :param k: Number of connections to the input for each output
+        :param gadditional:
+        :param radditional:
+        :param region:
+        :param heads:
+        :param mask:
+        """
+
+        super().__init__()
+
+        self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
+
+        self.tokeys = nn.Linear(emb, emb * heads, bias=False)
+        self.toqueries = nn.Linear(emb, emb * heads, bias=False)
+        self.tovalues = nn.Linear(emb, emb * heads, bias=False)
+
+        self.unifyheads = nn.Linear(heads * emb, emb)
+
+        self.gadditional = gadditional
+        self.radditional = radditional
+        self.region = region
+        self.k = k
+
+        self.register_buffer('mvalues', torch.ones((k, )))
+
+        # network that generates the coordinates and sigmas
+        hidden = k * 4
+        self.toparams = nn.Sequential(
+            nn.Linear(emb + 1, hidden), nn.ReLU(),
+            nn.Linear(hidden, k * 3) # two means, one sigma
+        )
+
+    def hyper(self, x):
+
+        b, t, e = x.size()
+        h, k, reg = self.heads, self.k, self.region
+
+        # Generate coords
+        coords = torch.arange(t, dtype=torch.float, device=d(x)) / t
+        coords = coords[None, :, None,].expand(b, t, 1)
+
+        input = torch.cat([x, coords], dim=2)
+        params = self.toparams(input) # (b, t, k*3)
+
+        # Generate the logits that correspond to the diagonals of the matrix
+        diags = torch.arange(t, dtype=torch.float, device=d(x))
+        diags = util.inv(diags, mx=t)
+
+        diags = diags[None, :, None, None].expand(b, t, k, 2)
+
+        means =  params[:, :, :k*2].view(b, t, k, 2)
+        sigmas = params[:, :, k*2:].view(b, t, k)
+        values = self.mvalues[None, None, :].expand(b, t, k)
+
+        means = diags - means * 0.001
+        means = util.flip(means)
+
+        # means = util.flip(means.contiguous())  # flip everything to below the diagonal of the matrix
+
+        s = (t, t)
+        means, sigmas = sparse.transform_means(means, s), \
+                        sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
+
+        return means, sigmas, values
+
+    def forward(self, x):
+
+        b, t, e = x.size()
+        h, k, reg = self.heads, self.k, self.region
+        s = (t, t)
+
+        assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
+
+        means, sigmas, mvalues = self.hyper(x)
+
+        # sample integer indices and values
+        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t, t), relative_range=(self.region, self.region), cuda=x.is_cuda)
+        indices = util.flip(indices)
+
+        indfl = indices.float()
+
+        vs = k * (4 + self.radditional + self.gadditional)
+        assert indices.size() == (b, t, vs, 2), f'{indices.size()}, {(b, t, vs, 2)}'
+
+        # Mask for duplicate indices
+        dups = util.nduplicates(indices).to(torch.bool)
+
+        # compute (unnormalized) densities under the given MVNs (proportions)
+        props = sparse.densities(indfl, means, sigmas).clone()
+        props[dups, :] = 0
+        props = props / props.sum(dim=2, keepdim=True)  # normalize over all points of a given index tuple
+
+        # weight the values by the proportions
+        weights = mvalues[:, :, None, :].expand_as(props)
+        # - add a dim for the MVNs
+
+        weights = props * weights
+        weights = weights.sum(dim=3) # - sum out the MVNs
+
+        assert indices.size() == (b, t, vs, 2), f'{indices.size()}, {(b, t, vs, 2)}'
+        assert weights.size() == (b, t, vs), f'{weights.size()},  {(b, t, vs)}'
+
+        # expand for heads, fold heads into batch
+        indices = indices[:, None, :, :, :].expand(b, h, t, vs, 2).contiguous().view(b*h, t*vs, 2)
+        weights = weights[:, None, :, :].expand(b, h, t, vs).contiguous().view(b*h, t*vs)
+
+        # compute keys, queries, values
+        keys    = self.tokeys(x)   .view(b, t, h, e)
+        queries = self.toqueries(x).view(b, t, h, e)
+        values  = self.tovalues(x) .view(b, t, h, e)
+        # - fold heads into the batch dimension
+        keys = keys.transpose(1, 2).contiguous().view(b * h, t, e)
+        queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
+        values = values.transpose(1, 2).contiguous().view(b * h, t, e)
+
+        queries = queries / (e ** (1/4)) # b*h, t, e
+        keys    = keys    / (e ** (1/4))
+
+        # get dot product of queries and keys
+        # - this will be a sparse matrix with the indices we've just computed, and values
+        #   defined by the dot product
+
+        # select the queries
+        indflat = indices.view(b*h*t*vs, 2)
+        ar = torch.arange(b*h, dtype=torch.long, device=d(x))[:, None].expand(b*h, t*vs).contiguous().view(b*h*t*vs)
+        squeries = queries[ar, indflat[:, 0], :]
+        skeys    = keys   [ar, indflat[:, 1], :]
+
+        dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,t*vs)
+        dot = sparse.logsoftmax(indices, weights * dot, s)
+        # - dot now has row-wise self-attention probabilities
+
+        # apply the self attention to the values
+        out = sparse.batchmm(indices, dot, size=(t, t), xmatrix=values)
+
+        # swap h, t back, unify heads
+        out = out.transpose(1, 2).contiguous().view(b, t, h * e)
+        return self.unifyheads(out)
+
 # class SparseSelfAttention(nn.Module):
 #     def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=1.0):
 #         """
@@ -305,6 +453,10 @@ class MSparseSelfAttention(nn.Module):
 #         return self.unifyheads(out)
 
 class SelfAttention(nn.Module):
+    """
+    Plain, dense self attention
+    """
+
     def __init__(self, emb, heads=8, mask=False):
         """
         :param emb:
@@ -379,7 +531,7 @@ class TransformerBlock(nn.Module):
 
         if sparse:
             if mask:
-                self.attention = MSparseSelfAttention(emb, heads=heads, **kwargs)
+                self.attention = ASHSelfAttention(emb, heads=heads, **kwargs)
             else:
                 raise Exception('Not implemented yet')
         else:
@@ -573,10 +725,15 @@ def go(arg):
             means, sigmas, values = model.forward_for_plot(source)
             for t, (m, s, v) in enumerate(zip(means, sigmas, values)):
 
+                b, c, k, r = m.size()
+                m = m.view(b, c*k, r)
+                s = s.view(b, c*k, r)
+                v = v.reshape(b, c*k)
+
                 plt.figure(figsize=(7, 7))
                 plt.cla()
 
-                util.plot(m.squeeze(), s.squeeze(), v.squeeze(), shape=shape)
+                util.plot(m, s, v, shape=shape)
                 plt.xlim((-MARGIN * (shape[0] - 1), (shape[0] - 1) * (1.0 + MARGIN)))
                 plt.ylim((-MARGIN * (shape[0] - 1), (shape[0] - 1) * (1.0 + MARGIN)))
 

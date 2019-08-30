@@ -700,19 +700,9 @@ def generate_integer_tuples(means, gadditional, ladditional, rng=None, relative_
 
 def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, seed=None, cuda=False, fm=None):
     """
-    Takes continuous-valued index tuples, and generates integer-valued index tuples. Works for inputs with an arbitrary
-    number of dimensions.
 
-    The returned matrix of ints is not a Variable (just a plain LongTensor). Autograd of the real valued indices passes
-    through the values alone, not the integer indices used to instantiate the sparse matrix.
+    Generates random integer index tuples based on continuous parameters.
 
-    :param ind: A Variable containing a matrix of N by K, where K is the number of indices.
-    :param val: A Variable containing a vector of length N containing the values corresponding to the given indices
-    :return: a triple (ints, props, vals). ints is an N*2^K by K matrix representing the N*2^K integer index-tuples that can
-        be made by flooring or ceiling the indices in 'ind'. 'props' is a vector of length N*2^K, which indicates how
-        much of the original value each integer index-tuple receives (based on the distance to the real-valued
-        index-tuple). vals is vector of length N*2^K, containing the value of the corresponding real-valued index-tuple
-        (ie. vals just repeats each value in the input 'val' 2^K times).
     """
 
     b = means.size(0)
@@ -774,7 +764,6 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
 
     # print(means.size())
     mns_expand = means.round().unsqueeze(-2).expand_as(local_ints)
-
 
     # upper and lower bounds
     lower = mns_expand - rrng * 0.5

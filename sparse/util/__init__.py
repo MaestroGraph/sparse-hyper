@@ -3,7 +3,7 @@ from .util import \
     sparsemult, \
     xent, unique, \
     Bias, ChunkSampler, Flatten, Reshape, Debug, Lambda, \
-    od, prod, logit, \
+    od, prod, inv, logit, \
     wrapmod, interpolation_grid, unsqueezen, \
     sample_offsets, split, \
     CConv2d, \

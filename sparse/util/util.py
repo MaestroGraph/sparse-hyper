@@ -12,6 +12,8 @@ from torch import FloatTensor, LongTensor
 from torch.autograd import Variable
 from torch.utils.data import sampler, dataloader
 
+from collections.abc import Iterable
+
 import torchvision
 
 from collections import OrderedDict
@@ -308,8 +310,14 @@ def bsoftmax(input):
 
     return input.view(b, r, c)
 
-def contains_nan(tensor):
-    return bool((tensor != tensor).sum() > 0)
+def contains_nan(input):
+    if (not isinstance(input, torch.Tensor)) and isinstance(input, Iterable):
+        for i in input:
+            if contains_nan(i):
+                return True
+        return False
+    else:
+        return bool((input != input).sum() > 0)
 #
 # if __name__ == '__main__':
 #

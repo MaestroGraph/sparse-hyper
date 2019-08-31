@@ -190,7 +190,7 @@ class ASHSelfAttention(nn.Module):
     Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
     embedding vector, position embedding and coordinate.
     """
-    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 0.001):
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 1.0):
         """
         :param emb:
         :param k: Number of connections to the input for each output
@@ -715,7 +715,11 @@ def go(arg):
 
         tbw.add_scalar('transformer/train-loss', float(loss.item()) * LOG2E, i * arg.batch_size)
 
+        assert loss.item() == loss.item(), f'Loss is nan {loss}'
+
         loss.backward()
+
+        assert not util.contains_nan(model.parameters()), f'Parameters have become NaN {model.parameters()}'
 
         # clip gradients
         if arg.gradient_clipping is not None:

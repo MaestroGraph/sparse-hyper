@@ -334,7 +334,11 @@ class ASHSelfAttention(nn.Module):
 
         # swap h, t back, unify heads
         out = out.transpose(1, 2).contiguous().view(b, t, h * e)
-        return self.unifyheads(out)
+        out = self.unifyheads(out)
+
+        assert not util.contains_nan(out), f'output contains nan {out}'
+
+        return out
 
 # class SparseSelfAttention(nn.Module):
 #     def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=1.0):

@@ -190,8 +190,6 @@ def batchmm(indices, values, size, xmatrix, cuda=None):
 
     height, width = size
 
-    print(size)
-
     size = torch.tensor(size, device=dv, dtype=torch.long)
     bmult = size[None, None, :].expand(b, n, 2)
     m = torch.arange(b, device=dv, dtype=torch.long)[:, None, None].expand(b, n, 2)
@@ -205,6 +203,8 @@ def batchmm(indices, values, size, xmatrix, cuda=None):
     bxmatrix = xmatrix.view(-1, z)
 
     sm = sparsemm(cuda)
+
+    print(bindices.min(), bindices.max())
     result = sm(bindices.t(), bvalues, bfsize, bxmatrix)
 
     return result.view(b, height, -1)

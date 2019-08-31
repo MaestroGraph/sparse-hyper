@@ -315,6 +315,8 @@ class ASHSelfAttention(nn.Module):
         # - this will be a sparse matrix with the indices we've just computed, and values
         #   defined by the dot product
 
+        assert indices.min() >= 0, f'min {indices.min}, max {indices.max}'
+
         # select the queries
         indflat = indices.view(b*h*t*vs, 2)
         ar = torch.arange(b*h, dtype=torch.long, device=d(x))[:, None].expand(b*h, t*vs).contiguous().view(b*h*t*vs)

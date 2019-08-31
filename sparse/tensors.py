@@ -213,7 +213,7 @@ def batchmm(indices, values, size, xmatrix, cuda=None):
 
     sm = sparsemm(cuda)
 
-    print(bindices.min(), bindices.max())    result = sm(bindices.t(), bvalues, bfsize, bxmatrix)
+    result = sm(bindices.t(), bvalues, bfsize, bxmatrix)
 
     return result.view(b, height, -1)
 

@@ -190,9 +190,16 @@ def batchmm(indices, values, size, xmatrix, cuda=None):
 
     height, width = size
 
-    print(size, type(size))
+    try:
+        size = torch.tensor(size, device=dv, dtype=torch.long)
+    except RuntimeError:
+        print(size, type(size))
+        print(dv)
 
-    size = torch.tensor(size, device=dv, dtype=torch.long)
+        print(indices)
+        sys.exit()
+
+
     bmult = size[None, None, :].expand(b, n, 2)
     m = torch.arange(b, device=dv, dtype=torch.long)[:, None, None].expand(b, n, 2)
 
@@ -206,8 +213,7 @@ def batchmm(indices, values, size, xmatrix, cuda=None):
 
     sm = sparsemm(cuda)
 
-    print(bindices.min(), bindices.max())
-    result = sm(bindices.t(), bvalues, bfsize, bxmatrix)
+    print(bindices.min(), bindices.max())    result = sm(bindices.t(), bvalues, bfsize, bxmatrix)
 
     return result.view(b, height, -1)
 

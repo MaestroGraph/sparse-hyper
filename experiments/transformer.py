@@ -270,6 +270,8 @@ class ASHSelfAttention(nn.Module):
 
         # sample integer indices and values
         indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t, t), relative_range=(self.region, self.region), cuda=x.is_cuda)
+        assert indices.min() >= 0, f'min {indices.min()}, max {indices.max()}\n means {means.min()}, {means.max()} '
+
         indices = util.flip(indices)
 
         indfl = indices.float()
@@ -314,8 +316,6 @@ class ASHSelfAttention(nn.Module):
         # get dot product of queries and keys
         # - this will be a sparse matrix with the indices we've just computed, and values
         #   defined by the dot product
-
-        assert indices.min() >= 0, f'min {indices.min}, max {indices.max}'
 
         # select the queries
         indflat = indices.view(b*h*t*vs, 2)

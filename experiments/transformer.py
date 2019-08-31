@@ -220,7 +220,7 @@ class ASHSelfAttention(nn.Module):
         self.register_buffer('mvalues', torch.ones((k, )))
 
         # network that generates the coordinates and sigmas
-        hidden = k * 4
+        hidden = emb * 4
         self.toparams = nn.Sequential(
             nn.Linear(emb + 1, hidden), nn.ReLU(),
             nn.Linear(hidden, k * 3) # two means, one sigma
@@ -238,7 +238,7 @@ class ASHSelfAttention(nn.Module):
         input = torch.cat([x, coords], dim=2)
         params = self.toparams(input) # (b, t, k*3)
 
-        assert not util.contains_nan(params),  'params contain NaN'
+        assert not util.contains_nan(params),  f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
 
         # Generate the logits that correspond to the diagonals of the matrix
         diags = torch.arange(t, dtype=torch.float, device=d(x))
@@ -250,9 +250,6 @@ class ASHSelfAttention(nn.Module):
         sigmas = params[:, :, k*2:].view(b, t, k)
         values = self.mvalues[None, None, :].expand(b, t, k)
 
-        assert not util.contains_nan(means),  'Means contain NaN'
-        assert not util.contains_nan(sigmas), 'Sigmas contain NaN'
-
         means = diags + self.mmult * means
         means = util.flip(means)
 
@@ -261,9 +258,6 @@ class ASHSelfAttention(nn.Module):
         s = (t, t)
         means, sigmas = sparse.transform_means(means, s), \
                         sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
-
-        assert not util.contains_nan(means),  'Means contain NaN'
-        assert not util.contains_nan(sigmas), 'Sigmas contain NaN'
 
         return means, sigmas, values
 
@@ -276,9 +270,6 @@ class ASHSelfAttention(nn.Module):
         assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
 
         means, sigmas, mvalues = self.hyper(x)
-
-        assert not util.contains_nan(means),  'Means contain NaN'
-        assert not util.contains_nan(sigmas), 'Sigmas contain NaN'
 
         # sample integer indices and values
         indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t, t), relative_range=(self.region, self.region), cuda=x.is_cuda)

@@ -238,6 +238,8 @@ class ASHSelfAttention(nn.Module):
         input = torch.cat([x, coords], dim=2)
         params = self.toparams(input) # (b, t, k*3)
 
+        assert not util.contains_nan(params),  'params contain NaN'
+
         # Generate the logits that correspond to the diagonals of the matrix
         diags = torch.arange(t, dtype=torch.float, device=d(x))
         diags = util.inv(diags, mx=t)
@@ -248,6 +250,9 @@ class ASHSelfAttention(nn.Module):
         sigmas = params[:, :, k*2:].view(b, t, k)
         values = self.mvalues[None, None, :].expand(b, t, k)
 
+        assert not util.contains_nan(means),  'Means contain NaN'
+        assert not util.contains_nan(sigmas), 'Sigmas contain NaN'
+
         means = diags + self.mmult * means
         means = util.flip(means)
 
@@ -256,6 +261,9 @@ class ASHSelfAttention(nn.Module):
         s = (t, t)
         means, sigmas = sparse.transform_means(means, s), \
                         sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
+
+        assert not util.contains_nan(means),  'Means contain NaN'
+        assert not util.contains_nan(sigmas), 'Sigmas contain NaN'
 
         return means, sigmas, values
 

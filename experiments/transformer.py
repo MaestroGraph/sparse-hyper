@@ -190,7 +190,7 @@ class ASHSelfAttention(nn.Module):
     Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
     embedding vector, position embedding and coordinate.
     """
-    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1):
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 0.001):
         """
         :param emb:
         :param k: Number of connections to the input for each output
@@ -204,6 +204,7 @@ class ASHSelfAttention(nn.Module):
         super().__init__()
 
         self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
+        self.mmult = mmult
 
         self.tokeys = nn.Linear(emb, emb * heads, bias=False)
         self.toqueries = nn.Linear(emb, emb * heads, bias=False)
@@ -247,7 +248,7 @@ class ASHSelfAttention(nn.Module):
         sigmas = params[:, :, k*2:].view(b, t, k)
         values = self.mvalues[None, None, :].expand(b, t, k)
 
-        means = diags + means
+        means = diags + self.mmult * means
         means = util.flip(means)
 
         # means = util.flip(means.contiguous())  # flip everything to below the diagonal of the matrix

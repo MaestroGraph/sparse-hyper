@@ -268,9 +268,11 @@ class ASHSelfAttention(nn.Module):
 
         means, sigmas, mvalues = self.hyper(x)
 
+        assert not util.contains_nan(means),  'Means contain NaN'
+        assert not util.contains_nan(sigmas), 'Sigmas contain NaN'
+
         # sample integer indices and values
         indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t, t), relative_range=(self.region, self.region), cuda=x.is_cuda)
-        assert indices.min() >= 0, f'min {indices.min()}, max {indices.max()}\n means {means.min()}, {means.max()} '
 
         indices = util.flip(indices)
 

@@ -565,7 +565,7 @@ def go(arg):
     if arg.sparse:
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
                              num_tokens=NUM_TOKENS, sparse=True, gadditional=arg.gadditional, radditional=arg.radditional,
-                             region=arg.region, k=arg.k)
+                             region=arg.region, k=arg.k, min_sigma=arg.min_sigma)
     else:
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, num_tokens=NUM_TOKENS)
     if arg.cuda:

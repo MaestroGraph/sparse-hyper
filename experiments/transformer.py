@@ -328,9 +328,11 @@ class ASHSelfAttention(nn.Module):
         dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,t*vs)
 
         assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+        print(f'before {dot.min()}, {dot.mean()}, {dot.max()}')
 
         dot = sparse.logsoftmax(indices, weights * dot, s)
         # - dot now has row-wise self-attention probabilities
+        print(f'after  {dot.min()}, {dot.mean()}, {dot.max()}\n')
 
         assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
 
@@ -344,126 +346,6 @@ class ASHSelfAttention(nn.Module):
         assert not util.contains_nan(out), f'output contains nan {out}'
 
         return out
-
-# class SparseSelfAttention(nn.Module):
-#     def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=1.0):
-#         """
-#
-#         :param emb:
-#         :param k: Number of connections to the input for each output
-#         :param gadditional:
-#         :param radditional:
-#         :param region:
-#         :param heads:
-#         :param mask:
-#         """
-#
-#         super().__init__()
-#
-#         self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
-#
-#         self.tokeys = nn.Linear(emb, emb * heads, bias=False)
-#         self.toqueries = nn.Linear(emb, emb * heads, bias=False)
-#         self.tovalues = nn.Linear(emb, emb * heads, bias=False)
-#
-#         self.unifyheads = nn.Linear(heads * emb, emb)
-#
-#         self.gadditional = gadditional
-#         self.radditional = radditional
-#         self.region = region
-#         self.k = k
-#
-#         self.means  = nn.Parameter(torch.randn((k, 1)))
-#         self.sigmas = nn.Parameter(torch.randn((k, )))
-#         self.register_buffer('values', torch.ones((k, )))
-#
-#     def forward(self, x):
-#
-#         b, t, e = x.size()
-#         h, k, reg = self.heads, self.k, self.region
-#         assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
-#
-#         # generate the continuous parameters
-#         means  = self.means[None, None, :, :].expand(b, t, k, 1)
-#         sigmas = self.sigmas[None, None, :].expand(b, t, k)
-#         values = self.values[None, None, :].expand(b, t, k)
-#
-#         s = (t, )
-#         means, sigmas = sparse.transform_means(means, s), sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
-#
-#         # sample integer indices and values
-#         indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(k,), relative_range=(self.region,), cuda=x.is_cuda)
-#         indfl = indices.float()
-#
-#         vs = k * (2 + self.radditional + self.gadditional)
-#         assert indices.size() == (b, t, vs, 1), f'{indices.size()}, {(b, t, vs, 1)}'
-#
-#         # fixed output indices
-#         left_indices = torch.arange(t, dtype=torch.long, device=d(x))[None, :, None, None].expand(b, t, vs, 1)
-#
-#         # If the matrix is masked, the upper half should be zeroed
-#         # we achieve this by
-#         if self.mask:
-#
-#         # Mask for duplicate indices
-#         dups = util.nduplicates(indices)
-#
-#         # compute (unnormalized) densities under the given MVNs (proportions)
-#         props = sparse.densities(indfl, means, sigmas).clone()
-#         props[dups, :] = 0
-#         props = props / props.sum(dim=2, keepdim=True)  # normalize over all points of a given index tuple
-#
-#         # weight the values by the proportions
-#         values = values[:, :, None, :].expand_as(props)
-#         # - add a dim for the MVNs
-#
-#         values = props * values
-#         values = values.sum(dim=3) # - sum out the MVNs
-#
-#         assert indices.size() == (b, t, vs, 1), f'{indices.size()}, {(b, t, vs, 1)}'
-#         assert values.size() == (b, t, vs), f'{values.size()},  {(b, t, vs)}'
-#
-#         # expand for heads, fold heads into batch
-#         indices = indices[:, None, :, :, :].expand(b, h, t, vs, 1).contiguous().view(b*h, t, vs, 1)
-#         left_indices = left_indices[:, None, :, :, :].expand(b, h, t, vs, 1).contiguous().view(b*h, t, vs, 1)
-#         values = values[:, None, :, :].expand(b, h, t, vs).contiguous().view(b*h, t, vs)
-#
-#         # compute keys, queries, values
-#         keys    = self.tokeys(x)   .view(b, t, h, e)
-#         queries = self.toqueries(x).view(b, t, h, e)
-#         values  = self.tovalues(x) .view(b, t, h, e)
-#         # - fold heads into the batch dimension
-#         keys = keys.transpose(1, 2).contiguous().view(b * h, t, e)
-#         queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
-#         values = values.transpose(1, 2).contiguous().view(b * h, t, e)
-#
-#         queries = queries / (e ** (1/4)) # b*h, t, e
-#         keys    = keys    / (e ** (1/4))
-#
-#         # get dot product of queries and keys
-#         # - this will be a sparse matrix with the indices we've just computed, and values
-#         #   defined by the dot product
-#
-#         # - select the queries on the left
-#
-#         # - select the values on the right
-#
-#         indices = torch.cat([left_indices, indices], dim=3)
-#         indices = indices.view(b, t*k, 2)
-#
-#         dot = F.softmax(dot, dim=2) # dot now has row-wise self-attention probabilities
-#
-#         assert not util.contains_nan(dot[:, 1:, :]) # only the forst row may contain nan
-#
-#         # apply the self attention to the values
-#
-#         indices = indices.view(b, t * k, 2)
-#         values  = values.view (b, t * k)
-#
-#         # swap h, t back, unify heads
-#         out = out.transpose(1, 2).contiguous().view(b, t, h * e)
-#
-#         return self.unifyheads(out)
 
 class SelfAttention(nn.Module):
     """

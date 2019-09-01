@@ -328,11 +328,11 @@ class ASHSelfAttention(nn.Module):
         dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,t*vs)
 
         assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
-        print(f'before {dot.min()}, {dot.mean()}, {dot.max()}')
+        # print(f'before {dot.min()}, {dot.mean()}, {dot.max()}')
 
-        dot = sparse.logsoftmax(indices, weights * dot, s)
+        dot = sparse.logsoftmax(indices, weights * dot, s).exp()
         # - dot now has row-wise self-attention probabilities
-        print(f'after  {dot.min()}, {dot.mean()}, {dot.max()}\n')
+        # print(f'after  {dot.min()}, {dot.mean()}, {dot.max()}\n')
 
         assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
 

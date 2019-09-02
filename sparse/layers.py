@@ -88,9 +88,9 @@ def transform_means(means, size, clamp=False):
     In the case of a templated sparse layer, these parameters and the corresponing size tuple deascribe only the learned
     subtensor.
 
-    :param means: (batch, k, rank) tensor of raw parameter values
+    :param means: (..., rank) tensor of raw parameter values
     :param size: Tuple describing the tensor dimensions.
-    :return:
+    :return: (..., rank)
     """
 
     # Scale to [0, 1]
@@ -115,10 +115,10 @@ def transform_sigmas(sigmas, size, min_sigma=EPSILON):
     In the case of a templated sparse layer, these parameters and the corresponing size tuple deascribe only the learned
     subtensor.
 
-    :param sigmas: (batch, k) matrix of raw sigma values
+    :param sigmas: (..., ) matrix of raw sigma values
     :param size: Tuple describing the tensor dimensions.
     :param min_sigma: Minimal sigma value.
-    :return:
+    :return:(..., rank) sigma values
     """
     ssize = sigmas.size()
     r = len(size)

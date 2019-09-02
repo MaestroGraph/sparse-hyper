@@ -427,7 +427,7 @@ def inv(i, mx=28):
     Inverse of the sigmoid-based scaling function.
 
     :param i:
-    :param mx:
+    :param mx: Max value. Should broadcast
     :return:
     """
     sc = (i/(mx-1)) * 0.9999 + 0.00005
@@ -948,7 +948,7 @@ class CConv2d(nn.Module):
         if res is None:
             self.coords = None
         else:
-            self.register_buffer(self.coordinates(res), 'coords')
+            self.register_buffer(coordinates(res), 'coords')
 
     def forward(self, x):
 
@@ -957,7 +957,7 @@ class CConv2d(nn.Module):
 
         # get the coordinate channels
         if self.coords is None:
-            coords = self.coordinates(x.size()[-2:])
+            coords = coordinates(x.size()[-2:], cuda)
         else:
             coords = self.coords
 
@@ -967,21 +967,22 @@ class CConv2d(nn.Module):
 
         return self.master(x)
 
-    def coordinates(self, res, cuda=False):
-        """
-        Compute the coordinate channels for a given resolution.
-        :param res:
-        :return:
-        """
-        dv = 'cuda' if cuda else 'cpu'
 
-        h, w = res
+def coordinates(res, cuda=False):
+    """
+    Compute the coordinate channels for a given resolution.
+    :param res:
+    :return:
+    """
+    dv = 'cuda' if cuda else 'cpu'
 
-        hvec, wvec = torch.arange(h, device=dv, dtype=torch.float), torch.arange(w, device=dv, dtype=torch.float)
-        hvec, wvec = hvec / (h - 1), wvec / (w - 1)
-        hmat, wmat = hvec[None, :, None].expand(1, h, w), wvec[None, None, :].expand(1, h, w)
+    h, w = res
 
-        return torch.cat([hmat, wmat], dim=0).to(torch.float)
+    hvec, wvec = torch.arange(h, device=dv, dtype=torch.float), torch.arange(w, device=dv, dtype=torch.float)
+    hvec, wvec = hvec / (h - 1), wvec / (w - 1)
+    hmat, wmat = hvec[None, :, None].expand(1, h, w), wvec[None, None, :].expand(1, h, w)
+
+    return torch.cat([hmat, wmat], dim=0).to(torch.float)
 
 def d(tensor=None):
     """

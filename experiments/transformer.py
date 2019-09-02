@@ -61,7 +61,7 @@ class MSparseSelfAttention(nn.Module):
     """
     Masked sparse self attention (two degrees of freedom)
     """
-    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1):
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=1.0):
         """
 
         :param emb:
@@ -565,7 +565,7 @@ def go(arg):
     if arg.sparse:
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
                              num_tokens=NUM_TOKENS, sparse=True, gadditional=arg.gadditional, radditional=arg.radditional,
-                             region=arg.region, k=arg.k, min_sigma=arg.min_sigma)
+                             region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult)
     else:
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, num_tokens=NUM_TOKENS)
     if arg.cuda:
@@ -774,10 +774,10 @@ if __name__ == "__main__":
                         help="Learning rate",
                         default=0.0001, type=float)
 
-    parser.add_argument("-S", "--subsample",
-                        dest="subsample",
-                        help="Sample a subset of the indices to estimate gradients for",
-                        default=None, type=float)
+    parser.add_argument("-S", "--sigma-mult",
+                        dest="sigma_mult",
+                        help="Sigma multiplier.",
+                        default=0.1, type=float)
 
     parser.add_argument("-M", "--min-sigma",
                         dest="min_sigma",

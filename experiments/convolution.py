@@ -12,14 +12,19 @@ import numpy as np
 from argparse import ArgumentParser
 from torch.utils.tensorboard import SummaryWriter
 
-import random, tqdm, sys, math
+import torchvision
+import torchvision.transforms as transforms
+from torchvision.transforms import ToTensor
+from torch.utils.data import TensorDataset, DataLoader
+from torchvision.datasets import MNIST, CIFAR10, CIFAR100
+
+import random, tqdm, sys, math, os
 
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 from util import d
-
 
 class Convolution(nn.Module):
     """
@@ -42,6 +47,8 @@ class Convolution(nn.Module):
 
         super().__init__()
 
+        self.gadditional, self.radditional, self.region = gadditional, radditional, region
+
         self.in_size, self.out_size = in_size, out_size
         self.min_sigma, self.sigma_scale = min_sigma, sigma_scale
         self.mmult = mmult
@@ -61,21 +68,22 @@ class Convolution(nn.Module):
         )
 
         self.register_buffer('mvalues', torch.ones((k,)))
-        self.register_buffer(util.coordinates((hin, win)), 'coords')
+        self.register_buffer('coords', util.coordinates((hin, win)))
 
         assert self.coords.size() == (2, hin, win)
 
     def hyper(self, x):
 
-        assert x.size() == self.in_size
+        assert x.size()[1:] == self.in_size
         b, c, h, w = x.size()
         k = self.k
 
         # the coordinates of the current pixels in parameters space
         # - the index tuples are described relative to these
         mids = self.coords[None, :, :, :].expand(b, 2, h, w)
-        mids = util.inv(mids.transpose(1, 2, 0), mx=torch.tensor((h, w), device=d(x), dtype=torch.long))
-        mids = mids.transpose(2, 0, 1)
+        mids = util.inv(mids.permute(0, 2, 3, 1), mx=torch.tensor((h, w), device=d(x), dtype=torch.float))
+        mids = mids[:, :, :, None, :].expand(b, h, w, k, 2)
+
 
         # add coords to channels
         coords = self.coords[None, :, :, :].expand(b, 2, h, w)
@@ -100,25 +108,205 @@ class Convolution(nn.Module):
 
     def forward(self, x):
 
-        assert x.size() == self.in_size
+        assert x.size()[1:] == self.in_size
+
         b, c, h, w = x.size()
+        k = self.k
         s = (h, w)
 
         means, sigmas, mvalues = self.hyper(x)
+
+        # This is a bit confusing, but k is the chunk dimension here. This is because the sparse operation
+        # only selects in the k separate input pixels, it doens not sum/merge them.
+        # In other words, we add a separate tuple dimension.
+        means   = means  [:, :, :, :, None, :]
+        sigmas  = sigmas [:, :, :, :, None, :]
+        mvalues = mvalues[:, :, :, :, None]
 
         # sample integer indices and values
         indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=s, relative_range=(self.region, self.region), cuda=x.is_cuda)
 
         vs = (4 + self.radditional + self.gadditional)
-        assert indices.size() == (b, h, w, k*vs, 2), f'{indices.size()}, {(b, h, w, k*vs, 2)}'
+        assert indices.size() == (b, h, w, k, vs, 2), f'{indices.size()}, {(b, h, w, k, vs, 2)}'
 
         indices = indices.view(b, h, w, k, vs, 2)
-
         indfl = indices.float()
 
+        # Mask for duplicate indices
+        dups = util.nduplicates(indices).to(torch.bool)
+
+        # compute (unnormalized) densities under the given MVNs (proportions)
+        props = sparse.densities(indfl, means, sigmas).clone() # (b, h, w, k, vs, 1)
+        assert props.size() == (b, h, w, k, vs, 1)
+
+        props[dups, :] = 0
+        props = props / props.sum(dim=4, keepdim=True)  # normalize over all points of a given index tuple
+
+        # weight the values by the proportions
+        weights = mvalues[:, :, :, :, None, :].expand_as(props)
+        # - add a dim for the MVNs
+
+        weights = props * weights
+        weights = weights.sum(dim=5)  # - sum out the MVNs
+
+        assert indices.size() == (b, h, w, k, vs, 2)
+        assert weights.size() == (b, h, w, k, vs)
+
+        # Select the weighted input pixels (vs pixels for each output, with k outputs per output pixel)
+        l = h * w * k * vs
+        indices = indices.view(b*l, 2)
+
+        br = torch.arange(b, device=d(x), dtype=torch.long)[:, None].expand(b, l).contiguous().view(-1)
+
+        features = x[br, :, indices[:, 0], indices[:, 1]]
+        assert features.size() == (b*l, c)
+
+        features = features.view(b, h, w, k, vs, c)
+
+        features = features * weights[:, :, :, :, :, None]
+        features = features.sum(dim=4)
+
+        # features now contains the selected input pixels (or weighted sum thereover): k inputs per output pixel
+        assert features.size() == (b, h, w, k, c)
+
+        features = features.view(b, h, w, k * c)
+
+        return self.unify(features).permute(0, 3, 1, 2) # (b, c_out, h, w)
+
+class Classifier(nn.Module):
+
+    def __init__(self, in_size, num_classes, **kwargs):
+        super().__init__()
+
+        H = 16
+        c, h, w = in_size
+
+        self.layer = Convolution(in_size, (H, h, w), **kwargs)
+
+        self.toclasses = nn.Linear(H, num_classes)
+
+    def forward(self, x):
+
+        x = F.relu(self.layer(x))
+        x = x.mean(dim=3).mean(dim=2)
+
+        return torch.softmax(self.toclasses(x), dim=1)
 
 def go(arg):
-    pass
+
+    if arg.seed < 0:
+        seed = random.randint(0, 1000000)
+        print('random seed: ', seed)
+    else:
+        torch.manual_seed(arg.seed)
+
+    tbw = SummaryWriter(log_dir=arg.tb_dir)
+
+    normalize = transforms.Compose([transforms.ToTensor()])
+
+    if (arg.task == 'mnist'):
+        data = arg.data + os.sep + arg.task
+
+        if arg.final:
+            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
+            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=2)
+
+            test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
+            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=2)
+
+        else:
+            NUM_TRAIN = 45000
+            NUM_VAL = 5000
+            total = NUM_TRAIN + NUM_VAL
+
+            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
+
+            trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+
+        shape = (1, 28, 28)
+        num_classes = 10
+
+    elif (arg.task == 'cifar10'):
+
+        data = arg.data + os.sep + arg.task
+
+        if arg.final:
+            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=ToTensor())
+            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=2)
+            test = torchvision.datasets.CIFAR10(root=data, train=False, download=True, transform=ToTensor())
+            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=2)
+
+        else:
+            NUM_TRAIN = 45000
+            NUM_VAL = 5000
+            total = NUM_TRAIN + NUM_VAL
+
+            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=ToTensor())
+
+            trainloader = DataLoader(train, batch_size=arg.batch_size, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=arg.batch_size,
+                                    sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+
+            shape = (3, 32, 32)
+            num_classes = 10
+    else:
+        raise Exception('Task {} not recognized'.format(arg.task))
+
+    # Create model
+
+    model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region)
+
+    if arg.cuda:
+        model.cuda()
+
+    opt = torch.optim.Adam(params=model.parameters(), lr=arg.lr)
+
+    # Training loop
+
+    for e in range(arg.epochs):
+
+        model.train(True)
+
+        for i, (inputs, labels) in tqdm.tqdm(enumerate(trainloader, 0)):
+
+            if arg.cuda:
+                inputs, labels = inputs.cuda(), labels.cuda()
+            inputs, labels = Variable(inputs), Variable(labels)
+
+            opt.zero_grad()
+
+            outputs = model(inputs)
+
+            loss = F.cross_entropy(outputs, labels)
+
+            loss.backward()
+            opt.step()
+
+        # Compute accuracy on test set
+        with torch.no_grad():
+            model.train(False)
+
+            total, correct = 0.0, 0.0
+            for input, labels in testloader:
+                opt.zero_grad()
+
+                if arg.cuda:
+                    input, labels = input.cuda(), labels.cuda()
+                input, labels = Variable(input), Variable(labels)
+
+                output = model(input)
+
+                outcls = output.argmax(dim=1)
+
+                total += outcls.size(0)
+                correct += (outcls == labels).sum().item()
+
+            acc = correct / float(total)
+
+            print('\nepoch {}: {}\n'.format(e, acc))
+            tbw.add_scalar('sparsity/test acc', acc, e)
+
 
 if __name__ == "__main__":
 
@@ -126,9 +314,9 @@ if __name__ == "__main__":
     parser = ArgumentParser()
 
     parser.add_argument("-e", "--epochs",
-                        dest="num_epochs",
+                        dest="epochs",
                         help="Number of epochs.",
-                        default=1_000_000, type=int)
+                        default=80, type=int)
 
     parser.add_argument("-b", "--batch-size",
                         dest="batch_size",
@@ -137,8 +325,8 @@ if __name__ == "__main__":
 
     parser.add_argument("-k", "--num-points",
                         dest="k",
-                        help="Number of index tuples per output pixel.",
-                        default=32, type=int)
+                        help="Number of input  per output pixel.",
+                        default=9, type=int)
 
     parser.add_argument("-a", "--gadditional",
                         dest="gadditional",
@@ -159,7 +347,7 @@ if __name__ == "__main__":
                         help="Whether to use cuda.",
                         action="store_true")
 
-    parser.add_argument("-D", "--data", dest="data",
+    parser.add_argument("-t", "--task", dest="task",
                         help="Dataset (cifar10)",
                         default='cifar10')
 
@@ -182,6 +370,10 @@ if __name__ == "__main__":
                         help="Data directory",
                         default=None)
 
+    parser.add_argument("-D", "--data-dir", dest="data",
+                        help="Data directory",
+                        default='./data')
+
     parser.add_argument("-f", "--final", dest="final",
                         help="Whether to run on the real test set (if not included, the validation set is used).",
                         action="store_true")
@@ -193,23 +385,14 @@ if __name__ == "__main__":
 
     parser.add_argument("--test-every",
                         dest="test_every",
-                        help="How many batches between tests.",
-                        default=1000, type=int)
+                        help="How many epochs between tests.",
+                        default=5, type=int)
 
     parser.add_argument("--plot-every",
                         dest="plot_every",
                         help="How many batches between plotting the sparse indices.",
                         default=100, type=int)
 
-    parser.add_argument("--test-subset",
-                        dest="test_subset",
-                        help="A subset for the validation tests.",
-                        default=100000, type=int)
-
-    parser.add_argument("--test-batchsize",
-                        dest="test_batchsize",
-                        help="Batch size for computing the validation loss.",
-                        default=1024, type=int)
 
     options = parser.parse_args()
 

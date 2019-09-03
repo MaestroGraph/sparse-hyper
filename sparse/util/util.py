@@ -430,6 +430,7 @@ def inv(i, mx=28):
     :param mx: Max value. Should broadcast
     :return:
     """
+
     sc = (i/(mx-1)) * 0.9999 + 0.00005
     return logit(sc)
 

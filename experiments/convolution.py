@@ -37,7 +37,7 @@ class Convolution(nn.Module):
     The pattern of input pixels, relative to the current output pixels is determined
     adaptively.
     """
-    def __init__(self, in_size, out_size, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=1.0, mmult=1.0):
+    def __init__(self, in_size, out_size, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05, mmult=0.1, adaptive=False):
         """
         :param k: Number of connections to the input in total
         :param gadditional:
@@ -47,23 +47,26 @@ class Convolution(nn.Module):
 
         super().__init__()
 
-        self.gadditional, self.radditional, self.region = gadditional, radditional, region
-
-        self.in_size, self.out_size = in_size, out_size
-        self.min_sigma, self.sigma_scale = min_sigma, sigma_scale
-        self.mmult = mmult
-
-        self.k = k
-
         cin, hin, win = in_size
         cout, hout, wout = out_size
 
+        assert hin > 2 and win > 2, 'Input resolution must be larger than 2x2 for the sparse convoution to work.'
+
+        self.gadditional, self.radditional = gadditional, radditional
+
+        self.region = (max(int(region*hin), 2), max(int(region*win), 2))
+
+        self.in_size, self.out_size = in_size, out_size
+        self.min_sigma, self.sigma_scale = min_sigma, sigma_scale
+        self.mmult, self.adaptive = mmult, adaptive
+
+        self.k = k
         self.unify = nn.Linear(k*cin, cout)
 
         # network that generates the coordinates and sigmas
         hidden = cin * 4
         self.toparams = nn.Sequential(
-            nn.Linear(cin + 2, hidden), nn.ReLU(),
+            nn.Linear(2+cin if adaptive else 2, hidden), nn.ReLU(),
             nn.Linear(hidden, k * 3) # two means, one sigma
         )
 
@@ -80,14 +83,15 @@ class Convolution(nn.Module):
 
         # the coordinates of the current pixels in parameters space
         # - the index tuples are described relative to these
-        mids = self.coords[None, :, :, :].expand(b, 2, h, w)
-        mids = util.inv(mids.permute(0, 2, 3, 1), mx=torch.tensor((h, w), device=d(x), dtype=torch.float))
-        mids = mids[:, :, :, None, :].expand(b, h, w, k, 2)
+        hw = torch.tensor((h, w), device=d(x), dtype=torch.float)
+        mids = self.coords[None, :, :, :].expand(b, 2, h, w) * (hw - 1)[None, :, None, None]
 
+        mids = util.inv(mids.permute(0, 2, 3, 1), mx=hw[None, None, None, :])
+        mids = mids[:, :, :, None, :].expand(b, h, w, k, 2)
 
         # add coords to channels
         coords = self.coords[None, :, :, :].expand(b, 2, h, w)
-        x = torch.cat([x, coords], dim=1)
+        x = torch.cat([x, coords], dim=1) if self.adaptive else coords
 
         x = x.permute(0, 2, 3, 1)
 
@@ -124,7 +128,7 @@ class Convolution(nn.Module):
         mvalues = mvalues[:, :, :, :, None]
 
         # sample integer indices and values
-        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=s, relative_range=(self.region, self.region), cuda=x.is_cuda)
+        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=s, relative_range=self.region, cuda=x.is_cuda)
 
         vs = (4 + self.radditional + self.gadditional)
         assert indices.size() == (b, h, w, k, vs, 2), f'{indices.size()}, {(b, h, w, k, vs, 2)}'
@@ -173,21 +177,69 @@ class Convolution(nn.Module):
 
         return self.unify(features).permute(0, 3, 1, 2) # (b, c_out, h, w)
 
+    def plot(self, images, numpixels=5):
+
+        b, c, h, w = images.size()
+        k = self.k
+
+        # choose 5 random pixels, for which we'll plot the input pixels.
+        choices = torch.randint(low=0, high=h*w, size=(numpixels,))
+
+        perrow = 5
+
+        rows = int(math.ceil(b/perrow))
+
+        means, sigmas, _ = self.hyper(images)
+
+        images = images.data
+
+        plt.figure(figsize=(perrow * 3, rows*3))
+
+        for current in range(b):
+
+            # select subset of means, sigmas
+            smeans = means[current, :, :, :, :].view(h*w, k, 2)
+            ssigmas = sigmas[current, :, :, :].view(h*w, k, 2)
+            color = (torch.arange(numpixels, dtype=torch.float)[:, None].expand(numpixels, k)/numpixels) * 2.0 - 1.0
+
+            smeans = smeans[choices, :, :]
+            ssigmas = ssigmas[choices, :]
+
+            ax = plt.subplot(rows, perrow, current+1)
+
+            im = np.transpose(images[current, :, :, :].cpu().numpy(), (1, 2, 0))
+            im = np.squeeze(im)
+
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
+
+            util.plot(smeans.reshape(1, -1, 2), ssigmas.reshape(1, -1, 2), color.reshape(1, -1), axes=ax, flip_y=h, tanh=False)
+
+        plt.gcf()
+
 class Classifier(nn.Module):
 
     def __init__(self, in_size, num_classes, **kwargs):
         super().__init__()
 
-        H = 16
+        H = 8, 8, 64, 64
         c, h, w = in_size
 
-        self.layer = Convolution(in_size, (H, h, w), **kwargs)
+        self.layer0 = Convolution(in_size,      (H[0], h, w), **kwargs)
+        self.layer1 = Convolution((H[0], h, w), (H[1], h, w), **kwargs)
+        self.layer2 = Convolution((H[1], h//2, w//2), (H[2], h//2, w//2), **kwargs)
+        self.layer3 = Convolution((H[2], h//2, w//2), (H[3], h//2, w//2), **kwargs)
 
-        self.toclasses = nn.Linear(H, num_classes)
+        self.toclasses = nn.Linear(H[3], num_classes)
 
     def forward(self, x):
 
-        x = F.relu(self.layer(x))
+        x = F.relu(self.layer0(x))
+        x = F.relu(self.layer1(x))
+        x = F.max_pool2d(x, kernel_size=2)
+
+        x = F.relu(self.layer2(x))
+        x = F.relu(self.layer3(x))
+
         x = x.mean(dim=3).mean(dim=2)
 
         return torch.softmax(self.toclasses(x), dim=1)
@@ -255,7 +307,7 @@ def go(arg):
 
     # Create model
 
-    model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region)
+    model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region, adaptive=arg.adaptive)
 
     if arg.cuda:
         model.cuda()
@@ -263,7 +315,7 @@ def go(arg):
     opt = torch.optim.Adam(params=model.parameters(), lr=arg.lr)
 
     # Training loop
-
+    util.makedirs(f'./{arg.task}/')
     for e in range(arg.epochs):
 
         model.train(True)
@@ -282,6 +334,11 @@ def go(arg):
 
             loss.backward()
             opt.step()
+
+            if i == 0 and e % arg.plot_every == 0:
+
+                model.layer0.plot(inputs[:10, ...])
+                plt.savefig(f'{arg.task}/convolution.{e:03}.pdf')
 
         # Compute accuracy on test set
         with torch.no_grad():
@@ -341,7 +398,7 @@ if __name__ == "__main__":
     parser.add_argument("-R", "--region",
                         dest="region",
                         help="Size of the (square) region to use for local sampling.",
-                        default=8, type=int)
+                        default=0.25, type=float)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
@@ -390,9 +447,12 @@ if __name__ == "__main__":
 
     parser.add_argument("--plot-every",
                         dest="plot_every",
-                        help="How many batches between plotting the sparse indices.",
-                        default=100, type=int)
+                        help="How many epochs between plotting the sparse indices.",
+                        default=1, type=int)
 
+    parser.add_argument("--adaptive", dest="adaptive",
+                        help="Whether to base the index tuple structure on the pixel representation in the previous layer.",
+                        action="store_true")
 
     options = parser.parse_args()
 

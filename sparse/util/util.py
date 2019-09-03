@@ -431,6 +431,8 @@ def inv(i, mx=28):
     :return:
     """
 
+    print()
+
     sc = (i/(mx-1)) * 0.9999 + 0.00005
     return logit(sc)
 

@@ -320,7 +320,7 @@ def go(arg):
 
         model.train(True)
 
-        for i, (inputs, labels) in tqdm.tqdm(enumerate(trainloader, 0)):
+        for i, (inputs, labels) in enumerate(tqdm.tqdm(trainloader, 0)):
 
             if arg.cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()

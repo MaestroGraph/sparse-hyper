@@ -307,7 +307,8 @@ def go(arg):
 
     # Create model
 
-    model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region, adaptive=arg.adaptive)
+    model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
+                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale)
 
     if arg.cuda:
         model.cuda()
@@ -413,15 +414,15 @@ if __name__ == "__main__":
                         help="Learning rate",
                         default=0.0001, type=float)
 
-    parser.add_argument("-S", "--subsample",
-                        dest="subsample",
-                        help="Sample a subset of the indices to estimate gradients for",
-                        default=None, type=float)
-
     parser.add_argument("-M", "--min-sigma",
                         dest="min_sigma",
                         help="Minimum value of sigma.",
                         default=0.01, type=float)
+
+    parser.add_argument("-S", "--sigma-scale",
+                        dest="sigma_scale",
+                        help="Scalar applied to sigmas.",
+                        default=0.5, type=float)
 
     parser.add_argument("-T", "--tb_dir", dest="tb_dir",
                         help="Data directory",

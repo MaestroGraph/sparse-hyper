@@ -185,7 +185,7 @@ class MSparseSelfAttention(nn.Module):
         return self.unifyheads(out)
 
 
-class ASHSelfAttention(nn.Module):
+class ASH2DSelfAttention(nn.Module):
     """
     Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
     embedding vector, position embedding and coordinate.
@@ -347,6 +347,171 @@ class ASHSelfAttention(nn.Module):
 
         return out
 
+
+class ASH1DSelfAttention(nn.Module):
+    """
+    Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
+    embedding vector, position embedding and coordinate.
+    """
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 1.0):
+        """
+        :param emb:
+        :param k: Number of connections to the input for each output
+        :param gadditional:
+        :param radditional:
+        :param region:
+        :param heads:
+        :param mask:
+        """
+
+        super().__init__()
+
+        self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
+        self.mmult = mmult
+
+        self.tokeys = nn.Linear(emb, emb * heads, bias=False)
+        self.toqueries = nn.Linear(emb, emb * heads, bias=False)
+        self.tovalues = nn.Linear(emb, emb * heads, bias=False)
+
+        self.unifyheads = nn.Linear(heads * emb, emb)
+
+        self.gadditional = gadditional
+        self.radditional = radditional
+        self.region = region
+        self.k = k
+
+        self.register_buffer('mvalues', torch.ones((k, )))
+
+        # network that generates the coordinates and sigmas
+        hidden = emb * 4
+        self.toparams = nn.Sequential(
+            nn.Linear(emb + 1, hidden), nn.ReLU(),
+            nn.Linear(hidden, k * 2) # one mean, one sigma
+        )
+
+    def hyper(self, x):
+
+        b, t, e = x.size()
+        h, k, reg = self.heads, self.k, self.region
+
+        # Generate coords
+        coords = torch.arange(t, dtype=torch.float, device=d(x)) / t
+        coords = coords[None, :, None,].expand(b, t, 1)
+
+        input = torch.cat([x, coords], dim=2)
+        params = self.toparams(input) # (b, t, k*2)
+
+        assert not util.contains_nan(params),  f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
+
+        # Generate the logits that correspond to the horizontal coordinate of the current word
+        diags = torch.arange(t, dtype=torch.float, device=d(x))
+        diags = util.inv(diags, mx=t)
+
+        diags = diags[None, :, None, None].expand(b, t, k, 1)
+
+        means =  params[:, :, :k].view(b, t, k, 1)
+        sigmas = params[:, :, k:].view(b, t, k)
+        values = self.mvalues[None, None, :].expand(b, t, k)
+
+        means = diags - self.mmult * F.softplus(means)
+
+        s = (t,)
+        means, sigmas = sparse.transform_means(means, s), \
+                        sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
+
+        return means, sigmas, values
+
+    def forward(self, x):
+
+        b, t, e = x.size()
+        h, k, reg = self.heads, self.k, self.region
+        s = (t, t)
+
+        assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
+
+        means, sigmas, mvalues = self.hyper(x)
+
+        # sample integer indices and values
+        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t,), relative_range=(self.region, ), cuda=x.is_cuda)
+        indfl = indices.float()
+
+        vs = k * (2 + self.radditional + self.gadditional)
+        assert indices.size() == (b, t, vs, 1), f'{indices.size()}, {(b, t, vs, 1)}'
+
+        m = torch.arange(t)[None, :, None, None].expand(b, t, vs, k)
+
+        props = sparse.densities(indfl, means, sigmas).clone() # (b, t, vs, k)
+
+        # Mask for duplicate indices
+        dups = util.nduplicates(indices).to(torch.bool)
+
+        # compute (unnormalized) densities under the given MVNs (proportions)
+        props[dups, :] = 0
+        props[indices > m] = 0
+
+        props = props / props.sum(dim=2, keepdim=True)  # normalize over all points of a given index tuple
+
+        # weight the values by the proportions
+        weights = mvalues[:, :, None, :].expand_as(props)
+        # - add a dim for the MVNs
+
+        weights = props * weights
+        weights = weights.sum(dim=3) # - sum out the MVNs
+
+        out = torch.arange(t)[None, :, None, None].expand(b, t, vs, 1)
+        indices = torch.cat([out, indices], dim=3)
+
+        assert indices.size() == (b, t, vs, 2), f'{indices.size()}, {(b, t, vs, 2)}'
+        assert weights.size() == (b, t, vs), f'{weights.size()},  {(b, t, vs)}'
+
+        # expand for heads, fold heads into batch
+        indices = indices[:, None, :, :, :].expand(b, h, t, vs, 2).contiguous().view(b*h, t*vs, 2)
+        weights = weights[:, None, :, :].expand(b, h, t, vs).contiguous().view(b*h, t*vs)
+
+        # compute keys, queries, values
+        keys    = self.tokeys(x)   .view(b, t, h, e)
+        queries = self.toqueries(x).view(b, t, h, e)
+        values  = self.tovalues(x) .view(b, t, h, e)
+        # - fold heads into the batch dimension
+        keys = keys.transpose(1, 2).contiguous().view(b * h, t, e)
+        queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
+        values = values.transpose(1, 2).contiguous().view(b * h, t, e)
+
+        queries = queries / (e ** (1/4)) # b*h, t, e
+        keys    = keys    / (e ** (1/4))
+
+        # get dot product of queries and keys
+        # - this will be a sparse matrix with the indices we've just computed, and values
+        #   defined by the dot product
+
+        # select the queries
+        indflat = indices.view(b*h*t*vs, 2)
+        ar = torch.arange(b*h, dtype=torch.long, device=d(x))[:, None].expand(b*h, t*vs).contiguous().view(b*h*t*vs)
+        squeries = queries[ar, indflat[:, 0], :]
+        skeys    = keys   [ar, indflat[:, 1], :]
+
+        dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,t*vs)
+
+        # print(f'dot before {dot.min()}, {dot.mean()}, {dot.max()}')
+        assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+
+        # print(f'dot after  {dot.min()}, {dot.mean()}, {dot.max()}\n')
+        dot = sparse.logsoftmax(indices, weights * dot, s).exp()
+        # - dot now has row-wise self-attention probabilities
+
+        assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+
+        # apply the self attention to the values
+        out = sparse.batchmm(indices, dot, size=(t, t), xmatrix=values)
+
+        # swap h, t back, unify heads
+        out = out.transpose(1, 2).contiguous().view(b, t, h * e)
+        out = self.unifyheads(out)
+
+        assert not util.contains_nan(out), f'output contains nan {out}'
+
+        return out
+
 class SelfAttention(nn.Module):
     """
     Plain, dense self attention
@@ -421,12 +586,15 @@ class SelfAttention(nn.Module):
 
 class TransformerBlock(nn.Module):
 
-    def __init__(self, emb, heads, mask, seq_length, ff_hidden_mult=4, dropout=0.0, sparse=False, **kwargs):
+    def __init__(self, emb, heads, mask, seq_length, ff_hidden_mult=4, dropout=0.0, sparse=False, oned=True, **kwargs):
         super().__init__()
 
         if sparse:
             if mask:
-                self.attention = ASHSelfAttention(emb, heads=heads, **kwargs)
+                if oned:
+                    self.attention = ASH1DSelfAttention(emb, heads=heads, **kwargs)
+                else:
+                    self.attention = ASH2DSelfAttention(emb, heads=heads, **kwargs)
             else:
                 raise Exception('Not implemented yet')
         else:
@@ -544,7 +712,7 @@ def enwik8(path, n_train=int(90e6), n_valid=int(5e6), n_test=int(5e6)):
 
 def go(arg):
 
-    if arg.sparse:
+    if arg.model.startswith('sparse'):
         util.makedirs('./transformer-plots/')
 
     if arg.seed < 0:
@@ -562,10 +730,11 @@ def go(arg):
     data_test = data_test if arg.final else data_val
 
     # create the model
-    if arg.sparse:
+    if arg.model.startswith('sparse'):
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
                              num_tokens=NUM_TOKENS, sparse=True, gadditional=arg.gadditional, radditional=arg.radditional,
-                             region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult)
+                             region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult,
+                             oned=(arg.model == 'sparse1d'))
     else:
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, num_tokens=NUM_TOKENS)
     if arg.cuda:
@@ -618,7 +787,7 @@ def go(arg):
 
         opt.step()
 
-        if arg.sparse and arg.plot_every > 0 and i % arg.plot_every == 0:
+        if arg.model.startswith('sparse') and arg.plot_every > 0 and i % arg.plot_every == 0:
             shape = (arg.context, arg.context)
 
             means, sigmas, values = model.forward_for_plot(source)
@@ -632,7 +801,13 @@ def go(arg):
                 plt.figure(figsize=(7, 7))
                 plt.cla()
 
-                util.plot(m, s, v, shape=shape)
+                if arg.model == 'sparse1d':
+                    ind = torch.arange(c, dtype=torch.float, device=d(m))[None, :, None].expand(b, c, k).reshape(b, c*k, 1)
+                    m = torch.cat([ind, m], dim=2)
+                    util.plot1d(m[0].data, s[0].data, v[0].data, shape=shape)
+                else:
+                    util.plot(m, s, v, shape=shape)
+
                 plt.xlim((-MARGIN * (shape[0] - 1), (shape[0] - 1) * (1.0 + MARGIN)))
                 plt.ylim((-MARGIN * (shape[0] - 1), (shape[0] - 1) * (1.0 + MARGIN)))
 
@@ -728,8 +903,8 @@ if __name__ == "__main__":
                         default=1_000_000, type=int)
 
     parser.add_argument("-m", "--model",
-                        dest="modelname",
-                        help="Which model to train (dense, sparse).",
+                        dest="model",
+                        help="Which model to train (dense, sparse1d, sparse2d).",
                         default='dense')
 
     parser.add_argument("-b", "--batch-size",
@@ -759,10 +934,6 @@ if __name__ == "__main__":
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",
-                        action="store_true")
-
-    parser.add_argument("--sparse", dest="sparse",
-                        help="Whether to use a sparse transformer.",
                         action="store_true")
 
     parser.add_argument("-D", "--data", dest="data",

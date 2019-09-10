@@ -9,4 +9,4 @@ from .util import \
     CConv2d, \
     tic, toc, d, here, flip, coordinates
 
-from .plot import plot, basic
+from .plot import plot, plot1d, basic

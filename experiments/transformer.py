@@ -327,10 +327,10 @@ class ASH2DSelfAttention(nn.Module):
 
         dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,t*vs)
 
-        print(f'dot before {dot.min()}, {dot.mean()}, {dot.max()}')
+        #print(f'dot before {dot.min()}, {dot.mean()}, {dot.max()}')
         assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
 
-        print(f'dot after  {dot.min()}, {dot.mean()}, {dot.max()}\n')
+        #print(f'dot after  {dot.min()}, {dot.mean()}, {dot.max()}\n')
         dot = sparse.logsoftmax(indices, weights * dot, s).exp()
         # - dot now has row-wise self-attention probabilities
 
@@ -458,7 +458,7 @@ class ASH1DSelfAttention(nn.Module):
         weights = props * weights
         weights = weights.sum(dim=3) # - sum out the MVNs
 
-        out = torch.arange(t)[None, :, None, None].expand(b, t, vs, 1)
+        out = torch.arange(t, device=d(indices))[None, :, None, None].expand(b, t, vs, 1)
         indices = torch.cat([out, indices], dim=3)
 
         assert indices.size() == (b, t, vs, 2), f'{indices.size()}, {(b, t, vs, 2)}'

@@ -403,6 +403,7 @@ class ASH1DSelfAttention(nn.Module):
 
         assert not util.contains_nan(params),  f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
 
+
         # Generate the logits that correspond to the horizontal coordinate of the current word
         diags = torch.arange(t, dtype=torch.float, device=d(x))
         diags = util.inv(diags, mx=t)

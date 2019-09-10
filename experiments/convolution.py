@@ -221,26 +221,38 @@ class Classifier(nn.Module):
     def __init__(self, in_size, num_classes, **kwargs):
         super().__init__()
 
-        H = 8, 8, 64, 64
+        H = 8, 16, 32, 64
         c, h, w = in_size
 
         self.layer0 = Convolution(in_size,      (H[0], h, w), **kwargs)
-        self.layer1 = Convolution((H[0], h, w), (H[1], h, w), **kwargs)
-        self.layer2 = Convolution((H[1], h//2, w//2), (H[2], h//2, w//2), **kwargs)
-        self.layer3 = Convolution((H[2], h//2, w//2), (H[3], h//2, w//2), **kwargs)
+        # self.layer1 = Convolution((H[0], h, w), (H[1], h, w), **kwargs)
+        # self.layer2 = Convolution((H[1], h//2, w//2), (H[2], h//2, w//2), **kwargs)
+        # self.layer3 = Convolution((H[2], h//2, w//2), (H[3], h//2, w//2), **kwargs)
 
-        self.toclasses = nn.Linear(H[3], num_classes)
+        self.layer1 = nn.Conv2d(H[0], H[1], kernel_size=3, padding=1)
+        self.layer2 = nn.Conv2d(H[1], H[2], kernel_size=3, padding=1)
+        self.layer3 = nn.Conv2d(H[2], H[3], kernel_size=3, padding=1)
+
+        self.toclasses = nn.Linear(4 * H[3], num_classes)
 
     def forward(self, x):
 
+        b, c, h, w = x.size()
+
         x = F.relu(self.layer0(x))
+        x = F.max_pool2d(x, kernel_size=2)
+
         x = F.relu(self.layer1(x))
         x = F.max_pool2d(x, kernel_size=2)
 
         x = F.relu(self.layer2(x))
-        x = F.relu(self.layer3(x))
+        x = F.max_pool2d(x, kernel_size=2)
 
-        x = x.mean(dim=3).mean(dim=2)
+        x = F.relu(self.layer3(x))
+        x = F.max_pool2d(x, kernel_size=2)
+
+        # x = x.mean(dim=3).mean(dim=2)
+        x = x.view(b, -1)
 
         return torch.softmax(self.toclasses(x), dim=1)
 

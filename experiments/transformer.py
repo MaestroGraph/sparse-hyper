@@ -438,7 +438,7 @@ class ASH1DSelfAttention(nn.Module):
         vs = k * (2 + self.radditional + self.gadditional)
         assert indices.size() == (b, t, vs, 1), f'{indices.size()}, {(b, t, vs, 1)}'
 
-        m = torch.arange(t)[None, :, None, None].expand(b, t, vs, k)
+        m = torch.arange(t, dtype=torch.long, device=d(indices))[None, :, None, None].expand(b, t, vs, k)
 
         props = sparse.densities(indfl, means, sigmas).clone() # (b, t, vs, k)
 

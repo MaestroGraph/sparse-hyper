@@ -466,6 +466,11 @@ if __name__ == "__main__":
     parser.add_argument("--adaptive", dest="adaptive",
                         help="Whether to base the index tuple structure on the pixel representation in the previous layer.",
                         action="store_true")
+    # 
+    # parser.add_argument("--partial-loss", dest="ploss",
+    #                     help="Use only the last element of the sequence for the loss.",
+    #                     action="store_true")
+    # 
 
     options = parser.parse_args()
 

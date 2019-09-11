@@ -73,7 +73,12 @@ class Convolution(nn.Module):
         self.register_buffer('mvalues', torch.ones((k,)))
         self.register_buffer('coords', util.coordinates((hin, win)))
 
+        self.smp = True
+
         assert self.coords.size() == (2, hin, win)
+
+    def sample(self, smp):
+        self.smp = smp
 
     def hyper(self, x):
 
@@ -127,51 +132,56 @@ class Convolution(nn.Module):
         sigmas  = sigmas [:, :, :, :, None, :]
         mvalues = mvalues[:, :, :, :, None]
 
-        # sample integer indices and values
-        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=s, relative_range=self.region, cuda=x.is_cuda)
+        if self.smp:
+            # sample integer indices and values
+            indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=s, relative_range=self.region, cuda=x.is_cuda)
 
-        vs = (4 + self.radditional + self.gadditional)
-        assert indices.size() == (b, h, w, k, vs, 2), f'{indices.size()}, {(b, h, w, k, vs, 2)}'
+            vs = (4 + self.radditional + self.gadditional)
+            assert indices.size() == (b, h, w, k, vs, 2), f'{indices.size()}, {(b, h, w, k, vs, 2)}'
 
-        indices = indices.view(b, h, w, k, vs, 2)
-        indfl = indices.float()
+            indices = indices.view(b, h, w, k, vs, 2)
+            indfl = indices.float()
 
-        # Mask for duplicate indices
-        dups = util.nduplicates(indices).to(torch.bool)
+            # Mask for duplicate indices
+            dups = util.nduplicates(indices).to(torch.bool)
 
-        # compute (unnormalized) densities under the given MVNs (proportions)
-        props = sparse.densities(indfl, means, sigmas).clone() # (b, h, w, k, vs, 1)
-        assert props.size() == (b, h, w, k, vs, 1)
+            # compute (unnormalized) densities under the given MVNs (proportions)
+            props = sparse.densities(indfl, means, sigmas).clone() # (b, h, w, k, vs, 1)
+            assert props.size() == (b, h, w, k, vs, 1)
 
-        props[dups, :] = 0
-        props = props / props.sum(dim=4, keepdim=True)  # normalize over all points of a given index tuple
+            props[dups, :] = 0
+            props = props / props.sum(dim=4, keepdim=True)  # normalize over all points of a given index tuple
 
-        # weight the values by the proportions
-        weights = mvalues[:, :, :, :, None, :].expand_as(props)
-        # - add a dim for the MVNs
+            # weight the values by the proportions
+            weights = mvalues[:, :, :, :, None, :].expand_as(props)
+            # - add a dim for the MVNs
 
-        weights = props * weights
-        weights = weights.sum(dim=5)  # - sum out the MVNs
+            weights = props * weights
+            weights = weights.sum(dim=5)  # - sum out the MVNs
 
-        assert indices.size() == (b, h, w, k, vs, 2)
-        assert weights.size() == (b, h, w, k, vs)
+            assert indices.size() == (b, h, w, k, vs, 2)
+            assert weights.size() == (b, h, w, k, vs)
 
-        # Select the weighted input pixels (vs pixels for each output, with k outputs per output pixel)
+        else:
+            vs = 1
+            indices = means.floor().to(torch.long).detach()
+
         l = h * w * k * vs
         indices = indices.view(b*l, 2)
 
         br = torch.arange(b, device=d(x), dtype=torch.long)[:, None].expand(b, l).contiguous().view(-1)
-
         features = x[br, :, indices[:, 0], indices[:, 1]]
         assert features.size() == (b*l, c)
 
-        features = features.view(b, h, w, k, vs, c)
-
-        features = features * weights[:, :, :, :, :, None]
-        features = features.sum(dim=4)
+        if self.smp:
+            features = features.view(b, h, w, k, vs, c)
+            features = features * weights[:, :, :, :, :, None]
+            features = features.sum(dim=4)
+        else:
+            features = features.view(b, h, w, k, c)
 
         # features now contains the selected input pixels (or weighted sum thereover): k inputs per output pixel
-        assert features.size() == (b, h, w, k, c)
+        assert features.size() == (b, h, w, k, c), f'Was {features.size()}, expected {(b, h, w, k, c)}.'
 
         features = features.view(b, h, w, k * c)
 
@@ -221,17 +231,16 @@ class Classifier(nn.Module):
     def __init__(self, in_size, num_classes, **kwargs):
         super().__init__()
 
-        H = 8, 16, 32, 64
+        H = 8, 16, 32, 64, 128
         c, h, w = in_size
 
-        self.layer0 = Convolution(in_size,      (H[0], h, w), **kwargs)
-        # self.layer1 = Convolution((H[0], h, w), (H[1], h, w), **kwargs)
-        # self.layer2 = Convolution((H[1], h//2, w//2), (H[2], h//2, w//2), **kwargs)
-        # self.layer3 = Convolution((H[2], h//2, w//2), (H[3], h//2, w//2), **kwargs)
+        #self.layer0 = nn.Conv2d(c, c, kernel_size=3, padding=1)
 
-        self.layer1 = nn.Conv2d(H[0], H[1], kernel_size=3, padding=1)
-        self.layer2 = nn.Conv2d(H[1], H[2], kernel_size=3, padding=1)
-        self.layer3 = nn.Conv2d(H[2], H[3], kernel_size=3, padding=1)
+        self.sparse = Convolution((c, h, w), (H[0], h, w), **kwargs)
+
+        self.layer2 = nn.Conv2d(H[0], H[1], kernel_size=3, padding=1)
+        self.layer3 = nn.Conv2d(H[1], H[2], kernel_size=3, padding=1)
+        self.layer4 = nn.Conv2d(H[2], H[3], kernel_size=3, padding=1)
 
         self.toclasses = nn.Linear(4 * H[3], num_classes)
 
@@ -239,16 +248,18 @@ class Classifier(nn.Module):
 
         b, c, h, w = x.size()
 
-        x = F.relu(self.layer0(x))
-        x = F.max_pool2d(x, kernel_size=2)
+        # x = F.relu(self.layer0(x))
 
-        x = F.relu(self.layer1(x))
+        x = F.relu(self.sparse(x))
         x = F.max_pool2d(x, kernel_size=2)
 
         x = F.relu(self.layer2(x))
         x = F.max_pool2d(x, kernel_size=2)
 
         x = F.relu(self.layer3(x))
+        x = F.max_pool2d(x, kernel_size=2)
+
+        x = F.relu(self.layer4(x))
         x = F.max_pool2d(x, kernel_size=2)
 
         # x = x.mean(dim=3).mean(dim=2)
@@ -335,6 +346,8 @@ def go(arg):
 
         for i, (inputs, labels) in enumerate(tqdm.tqdm(trainloader, 0)):
 
+            model.sparse.sample(random.random() < arg.sample_prob) # sample every tenth batch
+
             if arg.cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
             inputs, labels = Variable(inputs), Variable(labels)
@@ -350,7 +363,7 @@ def go(arg):
 
             if i == 0 and e % arg.plot_every == 0:
 
-                model.layer0.plot(inputs[:10, ...])
+                model.sparse.plot(inputs[:10, ...])
                 plt.savefig(f'{arg.task}/convolution.{e:03}.pdf')
 
         # Compute accuracy on test set
@@ -466,11 +479,16 @@ if __name__ == "__main__":
     parser.add_argument("--adaptive", dest="adaptive",
                         help="Whether to base the index tuple structure on the pixel representation in the previous layer.",
                         action="store_true")
-    # 
+    #
     # parser.add_argument("--partial-loss", dest="ploss",
     #                     help="Use only the last element of the sequence for the loss.",
     #                     action="store_true")
     # 
+
+    parser.add_argument("--sample-prob",
+                        dest="sample_prob",
+                        help="Sample probability (with this probability we sample index tuples).",
+                        default=0.5, type=float)
 
     options = parser.parse_args()
 

@@ -261,31 +261,31 @@ class Classifier(nn.Module):
         #self.layer0 = nn.Conv2d(c, c, kernel_size=3, padding=1)
 
         self.sparse = Convolution((c, h, w), (32, h, w), **kwargs)
-        self.nsp = nn.Conv2d(c, 32, kernel_size=3, padding=1)
+        # self.nsp = nn.Conv2d(c, 32, kernel_size=3, padding=1)
 
         self.blocks = nn.Sequential(
-            nn.MaxPool2d(kernel_size=2),
+            nn.MaxPool2d(kernel_size=2), # 16x16
             ResBlock(32),               nn.Conv2d(32, 16, kernel_size=1),
             ResBlock(16), ResBlock(16), nn.Conv2d(16, 24, kernel_size=1),
-            nn.MaxPool2d(kernel_size=2),
+            nn.MaxPool2d(kernel_size=2), # 8x8
             ResBlock(24, kernel=5), ResBlock(24, kernel=5), nn.Conv2d(24, 40, kernel_size=1),
-            nn.MaxPool2d(kernel_size=2),
+            nn.MaxPool2d(kernel_size=2), # 4x4
             ResBlock(40), ResBlock(40), ResBlock(40), nn.Conv2d(40, 80, kernel_size=1),
-            nn.MaxPool2d(kernel_size=2),
+            # nn.MaxPool2d(kernel_size=2),
             ResBlock(80, kernel=5), ResBlock(80, kernel=5), ResBlock(80, kernel=5), nn.Conv2d(80, 112, kernel_size=1),
-            nn.MaxPool2d(kernel_size=2),
+            #nn.MaxPool2d(kernel_size=2),
             ResBlock(112, kernel=5), ResBlock(112, kernel=5), ResBlock(112, kernel=5), ResBlock(112, kernel=5), nn.Conv2d(112, 192, kernel_size=1),
-            # nn.MaxPool2d(kernel_size=2), # already one by one
+            # nn.MaxPool2d(kernel_size=2),
             ResBlock(192), nn.Conv2d(192, 320, kernel_size=1),
             util.Flatten(),
-            nn.Linear(320, num_classes),
+            nn.Linear(320 * 4 * 4, num_classes),
             nn.Softmax(dim=-1)
         )
 
 
     def forward(self, x):
 
-        x = self.nsp(x)
+        x = self.sparse(x)
         x = self.blocks(x)
 
         return x
@@ -382,9 +382,7 @@ def go(arg):
 
             loss = F.cross_entropy(outputs, labels)
 
-            print('_')
             loss.backward()
-            print('_')
             opt.step()
 
             if i == 0 and e % arg.plot_every == 0:

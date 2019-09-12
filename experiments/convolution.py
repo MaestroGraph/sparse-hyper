@@ -265,7 +265,7 @@ class Classifier(nn.Module):
 
         self.blocks = nn.Sequential(
             nn.MaxPool2d(kernel_size=2),
-            ResBlock(32, deb=False),               nn.Conv2d(32, 16, kernel_size=1),
+            ResBlock(32),               nn.Conv2d(32, 16, kernel_size=1),
             ResBlock(16), ResBlock(16), nn.Conv2d(16, 24, kernel_size=1),
             nn.MaxPool2d(kernel_size=2),
             ResBlock(24, kernel=5), ResBlock(24, kernel=5), nn.Conv2d(24, 40, kernel_size=1),

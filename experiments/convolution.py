@@ -26,6 +26,31 @@ import matplotlib.pyplot as plt
 
 from util import d
 
+class ResBlock(nn.Module):
+    """
+    Inverted residual block (as in mobilenetv2)
+    """
+    def __init__(self,  c, wide=None, kernel=3):
+        super().__init__()
+
+        wide = 6 * c if wide is None else wide
+        padding = int(math.floor(kernel/2))
+
+        self.convs = nn.Sequential(
+            nn.Conv2d(c, wide, kernel_size=1),
+            nn.BatchNorm2d(wide), nn.ReLU6(),
+            nn.Conv2d(wide, wide, kernel_size=kernel, padding=padding, groups=wide),
+            nn.BatchNorm2d(wide), nn.ReLU6(),
+            nn.Conv2d(wide, c, kernel_size=1),
+            nn.BatchNorm2d(c), nn.ReLU6()
+        )
+
+    def forward(self, x):
+
+        return self.convs(x) + x
+
+
+
 class Convolution(nn.Module):
     """
     A "convolution" with a learned sparsity structure (as opposed to a fixed k x k grid)
@@ -50,7 +75,7 @@ class Convolution(nn.Module):
         cin, hin, win = in_size
         cout, hout, wout = out_size
 
-        assert hin > 2 and win > 2, 'Input resolution must be larger than 2x2 for the sparse convoution to work.'
+        assert hin > 2 and win > 2, 'Input resolution must be larger than 2x2 for the sparse convolution to work.'
 
         self.gadditional, self.radditional = gadditional, radditional
 
@@ -231,41 +256,40 @@ class Classifier(nn.Module):
     def __init__(self, in_size, num_classes, **kwargs):
         super().__init__()
 
-        H = 8, 16, 32, 64, 128
         c, h, w = in_size
 
         #self.layer0 = nn.Conv2d(c, c, kernel_size=3, padding=1)
 
-        self.sparse = Convolution((c, h, w), (H[0], h, w), **kwargs)
+        self.sparse = Convolution((c, h, w), (32, h, w), **kwargs)
+        self.nsp = nn.Conv2d(c, 32, kernel_size=3, padding=1)
 
-        self.layer2 = nn.Conv2d(H[0], H[1], kernel_size=3, padding=1)
-        self.layer3 = nn.Conv2d(H[1], H[2], kernel_size=3, padding=1)
-        self.layer4 = nn.Conv2d(H[2], H[3], kernel_size=3, padding=1)
+        self.blocks = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2),
+            ResBlock(32, deb=False),               nn.Conv2d(32, 16, kernel_size=1),
+            ResBlock(16), ResBlock(16), nn.Conv2d(16, 24, kernel_size=1),
+            nn.MaxPool2d(kernel_size=2),
+            ResBlock(24, kernel=5), ResBlock(24, kernel=5), nn.Conv2d(24, 40, kernel_size=1),
+            nn.MaxPool2d(kernel_size=2),
+            ResBlock(40), ResBlock(40), ResBlock(40), nn.Conv2d(40, 80, kernel_size=1),
+            nn.MaxPool2d(kernel_size=2),
+            ResBlock(80, kernel=5), ResBlock(80, kernel=5), ResBlock(80, kernel=5), nn.Conv2d(80, 112, kernel_size=1),
+            nn.MaxPool2d(kernel_size=2),
+            ResBlock(112, kernel=5), ResBlock(112, kernel=5), ResBlock(112, kernel=5), ResBlock(112, kernel=5), nn.Conv2d(112, 192, kernel_size=1),
+            # nn.MaxPool2d(kernel_size=2), # already one by one
+            ResBlock(192), nn.Conv2d(192, 320, kernel_size=1),
+            util.Flatten(),
+            nn.Linear(320, num_classes),
+            nn.Softmax(dim=-1)
+        )
 
-        self.toclasses = nn.Linear(4 * H[3], num_classes)
 
     def forward(self, x):
 
-        b, c, h, w = x.size()
+        x = self.nsp(x)
+        x = self.blocks(x)
 
-        # x = F.relu(self.layer0(x))
+        return x
 
-        x = F.relu(self.sparse(x))
-        x = F.max_pool2d(x, kernel_size=2)
-
-        x = F.relu(self.layer2(x))
-        x = F.max_pool2d(x, kernel_size=2)
-
-        x = F.relu(self.layer3(x))
-        x = F.max_pool2d(x, kernel_size=2)
-
-        x = F.relu(self.layer4(x))
-        x = F.max_pool2d(x, kernel_size=2)
-
-        # x = x.mean(dim=3).mean(dim=2)
-        x = x.view(b, -1)
-
-        return torch.softmax(self.toclasses(x), dim=1)
 
 def go(arg):
 
@@ -358,11 +382,12 @@ def go(arg):
 
             loss = F.cross_entropy(outputs, labels)
 
+            print('_')
             loss.backward()
+            print('_')
             opt.step()
 
             if i == 0 and e % arg.plot_every == 0:
-
                 model.sparse.plot(inputs[:10, ...])
                 plt.savefig(f'{arg.task}/convolution.{e:03}.pdf')
 

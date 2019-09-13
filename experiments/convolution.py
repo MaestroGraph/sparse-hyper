@@ -290,6 +290,41 @@ class Classifier(nn.Module):
 
         return x
 
+class MiniClassifier(nn.Module):
+
+    def __init__(self, in_size, num_classes, **kwargs):
+        super().__init__()
+
+        c, h, w = in_size
+
+        #self.layer0 = nn.Conv2d(c, c, kernel_size=3, padding=1)
+
+        self.sparse = Convolution((c, h, w), (32, h, w), **kwargs)
+        # self.nsp = nn.Conv2d(c, 32, kernel_size=3, padding=1)
+
+        self.blocks = nn.Sequential(
+            nn.MaxPool2d(kernel_size=2), # 16x16
+            ResBlock(32), nn.Conv2d(32, 64, kernel_size=1),
+            nn.MaxPool2d(kernel_size=2),  # 8x8
+            # ResBlock(64), nn.Conv2d(64, 112, kernel_size=1),
+            # nn.MaxPool2d(kernel_size=2),  # 4x4
+            # ResBlock(112, kernel=5), nn.Conv2d(112, 192, kernel_size=1),
+            # nn.MaxPool2d(kernel_size=2), # 2x2
+            # ResBlock(192), nn.Conv2d(192, 320, kernel_size=1),
+            # nn.MaxPool2d(kernel_size=2), # 1x1
+            util.Flatten(),
+            nn.Linear(64 * 8 * 8, num_classes),
+            nn.Softmax(dim=-1)
+        )
+
+
+    def forward(self, x):
+
+        x = self.sparse(x)
+        x = self.blocks(x)
+
+        return x
+
 
 def go(arg):
 
@@ -353,14 +388,21 @@ def go(arg):
         raise Exception('Task {} not recognized'.format(arg.task))
 
     # Create model
-
-    model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
+    if arg.model == 'efficient':
+        model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
                        adaptive=arg.adaptive, sigma_scale=arg.sigma_scale)
+    elif arg.model == 'mini':
+        model = MiniClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
+                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale)
+    else:
+        raise Exception(f'Model {arg.model} not recognized')
+
 
     if arg.cuda:
         model.cuda()
 
     opt = torch.optim.Adam(params=model.parameters(), lr=arg.lr)
+    sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(  i/arg.lr_warmup, 1.0) )
 
     # Training loop
     util.makedirs(f'./{arg.task}/')
@@ -370,11 +412,6 @@ def go(arg):
         model.train(True)
 
         for i, (inputs, labels) in enumerate(tqdm.tqdm(trainloader, 0)):
-
-            # learning rate linear warmup
-            if arg.lr_warmup > 0 and seen < arg.lr_warmup:
-                lr = max((arg.lr / arg.lr_warmup) * seen, 1e-10)
-                opt.lr = lr
 
             b, c, h, w = inputs.size()
             seen += b
@@ -400,6 +437,8 @@ def go(arg):
             opt.step()
 
             tbw.add_scalar('sparsity/loss', loss.item()/b, seen)
+
+            sch.step()
 
             if i == 0 and e % arg.plot_every == 0:
                 model.sparse.plot(inputs[:10, ...])
@@ -454,6 +493,11 @@ if __name__ == "__main__":
                         dest="gadditional",
                         help="Number of additional points sampled globally",
                         default=8, type=int)
+
+    parser.add_argument("-m", "--model",
+                        dest="model",
+                        help="Which model (efficient, mini)",
+                        default='efficient', type=str)
 
     parser.add_argument("-A", "--radditional",
                         dest="radditional",

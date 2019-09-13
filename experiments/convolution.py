@@ -372,8 +372,8 @@ def go(arg):
         for i, (inputs, labels) in enumerate(tqdm.tqdm(trainloader, 0)):
 
             # learning rate linear warmup
-            if arg.lr_warmup > 0 and i < arg.lr_warmup:
-                lr = max((arg.lr / arg.lr_warmup) * i, 1e-10)
+            if arg.lr_warmup > 0 and seen < arg.lr_warmup:
+                lr = max((arg.lr / arg.lr_warmup) * seen, 1e-10)
                 opt.lr = lr
 
             b, c, h, w = inputs.size()

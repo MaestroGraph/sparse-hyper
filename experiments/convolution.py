@@ -297,15 +297,15 @@ class MiniClassifier(nn.Module):
 
         c, h, w = in_size
 
-        #self.layer0 = nn.Conv2d(c, c, kernel_size=3, padding=1)
-
-        self.sparse = Convolution((c, h, w), (64, h, w), **kwargs)
-        # self.nsp = nn.Conv2d(c, 32, kernel_size=3, padding=1)
-
         self.blocks = nn.Sequential(
-            nn.MaxPool2d(kernel_size=4), # 8x8
-            ResBlock(64), nn.Conv2d(64, 128, kernel_size=1),
-            nn.MaxPool2d(kernel_size=4),  # 2x2
+            nn.Conv2d(c, 32, kernel_size=1), ResBlock(32),
+            nn.MaxPool2d(kernel_size=2),  # 16x16
+            nn.Conv2d(32, 64, kernel_size=1), ResBlock(64),
+            nn.MaxPool2d(kernel_size=2),  # 8x8
+            nn.Conv2d(64, 128, kernel_size=1), ResBlock(128),
+            nn.MaxPool2d(kernel_size=2), # 4x4
+            ResBlock(128), nn.Conv2d(128, 320, kernel_size=1),
+            nn.MaxPool2d(kernel_size=2),  # 2x2
             # ResBlock(64), nn.Conv2d(64, 112, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2),  # 4x4
             # ResBlock(112, kernel=5), nn.Conv2d(112, 192, kernel_size=1),
@@ -313,18 +313,43 @@ class MiniClassifier(nn.Module):
             # ResBlock(192), nn.Conv2d(192, 320, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2), # 1x1
             util.Flatten(),
-            nn.Linear(128 * 2 * 2, num_classes),
+            nn.Linear(320 * 2 * 2, num_classes),
+            nn.Softmax(dim=-1)
+        )
+
+    def forward(self, x):
+
+        return self.blocks(x)
+
+class ThreeCClassifier(nn.Module):
+
+    def __init__(self, in_size, num_classes, **kwargs):
+        super().__init__()
+
+        c, h, w = in_size
+
+        self.sparse = Convolution((c, h, w), (32, h, w), **kwargs)
+        self.spars1 = Convolution((32, h//2, w//2), (64, h, w), **kwargs)
+        self.spars2 = Convolution((64, h//4, w//4), (128, h, w), **kwargs)
+
+        self.blocks = nn.Sequential(
+            self.sparse, nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),  # 16x16
+            self.spars1, nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),  # 8x8
+            self.spars2, nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2), # 4x4
+            ResBlock(128), nn.Conv2d(128, 320, kernel_size=1),
+            nn.MaxPool2d(kernel_size=2), # 2x2
+            util.Flatten(),
+            nn.Linear(320 * 2 * 2, num_classes),
             nn.Softmax(dim=-1)
         )
 
 
     def forward(self, x):
 
-        x = self.sparse(x)
-        x = self.blocks(x)
-
-        return x
-
+        return self.blocks(x)
 
 def go(arg):
 
@@ -391,9 +416,15 @@ def go(arg):
     if arg.model == 'efficient':
         model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
                        adaptive=arg.adaptive, sigma_scale=arg.sigma_scale)
+        sparse = True
     elif arg.model == 'mini':
         model = MiniClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
                        adaptive=arg.adaptive, sigma_scale=arg.sigma_scale)
+        sparse = False
+    elif arg.model == '3c':
+        model = ThreeCClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
+                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale)
+        sparse = True
     else:
         raise Exception(f'Model {arg.model} not recognized')
 
@@ -416,7 +447,8 @@ def go(arg):
             b, c, h, w = inputs.size()
             seen += b
 
-            model.sparse.sample(random.random() < arg.sample_prob) # sample every tenth batch
+            if sparse:
+                model.sparse.sample(random.random() < arg.sample_prob) # sample every tenth batch
 
             if arg.cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
@@ -440,7 +472,7 @@ def go(arg):
 
             sch.step()
 
-            if i == 0 and e % arg.plot_every == 0:
+            if sparse and i == 0 and e % arg.plot_every == 0:
                 model.sparse.plot(inputs[:10, ...])
                 plt.savefig(f'{arg.task}/convolution.{e:03}.pdf')
 
@@ -566,13 +598,11 @@ if __name__ == "__main__":
     # parser.add_argument("--partial-loss", dest="ploss",
     #                     help="Use only the last element of the sequence for the loss.",
     #                     action="store_true")
-    # 
 
     parser.add_argument("--sample-prob",
                         dest="sample_prob",
                         help="Sample probability (with this probability we sample index tuples).",
                         default=0.5, type=float)
-
 
     parser.add_argument("--gradient-clipping",
                         dest="gradient_clipping",

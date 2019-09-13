@@ -371,6 +371,11 @@ def go(arg):
 
         for i, (inputs, labels) in enumerate(tqdm.tqdm(trainloader, 0)):
 
+            # learning rate linear warmup
+            if arg.lr_warmup > 0 and i < arg.lr_warmup:
+                lr = max((arg.lr / arg.lr_warmup) * i, 1e-10)
+                opt.lr = lr
+
             b, c, h, w = inputs.size()
             seen += b
 
@@ -387,6 +392,11 @@ def go(arg):
             loss = F.cross_entropy(outputs, labels)
 
             loss.backward()
+
+            # clip gradients
+            if arg.gradient_clipping is not None:
+                nn.utils.clip_grad_norm_(model.parameters(), arg.gradient_clipping)
+
             opt.step()
 
             tbw.add_scalar('sparsity/loss', loss.item()/b, seen)
@@ -518,6 +528,18 @@ if __name__ == "__main__":
                         dest="sample_prob",
                         help="Sample probability (with this probability we sample index tuples).",
                         default=0.5, type=float)
+
+
+    parser.add_argument("--gradient-clipping",
+                        dest="gradient_clipping",
+                        help="Gradient clipping.",
+                        default=1.0, type=float)
+
+    parser.add_argument("--lr-warmup",
+                        dest="lr_warmup",
+                        help="Learning rate warmup.",
+                        default=5000, type=int)
+
 
     options = parser.parse_args()
 

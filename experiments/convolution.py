@@ -38,9 +38,11 @@ class ResBlock(nn.Module):
 
         self.convs = nn.Sequential(
             nn.Conv2d(c, wide, kernel_size=1),
-            nn.BatchNorm2d(wide), nn.ReLU6(),
+            #nn.BatchNorm2d(wide),
+            nn.ReLU6(),
             nn.Conv2d(wide, wide, kernel_size=kernel, padding=padding, groups=wide),
-            nn.BatchNorm2d(wide), nn.ReLU6(),
+            #nn.BatchNorm2d(wide),
+            nn.ReLU6(),
             nn.Conv2d(wide, c, kernel_size=1),
             nn.BatchNorm2d(c), nn.ReLU6()
         )
@@ -48,8 +50,6 @@ class ResBlock(nn.Module):
     def forward(self, x):
 
         return self.convs(x) + x
-
-
 
 class Convolution(nn.Module):
     """
@@ -299,13 +299,13 @@ class MiniClassifier(nn.Module):
 
         #self.layer0 = nn.Conv2d(c, c, kernel_size=3, padding=1)
 
-        self.sparse = Convolution((c, h, w), (32, h, w), **kwargs)
+        self.sparse = Convolution((c, h, w), (64, h, w), **kwargs)
         # self.nsp = nn.Conv2d(c, 32, kernel_size=3, padding=1)
 
         self.blocks = nn.Sequential(
-            nn.MaxPool2d(kernel_size=2), # 16x16
-            ResBlock(32), nn.Conv2d(32, 64, kernel_size=1),
-            nn.MaxPool2d(kernel_size=2),  # 8x8
+            nn.MaxPool2d(kernel_size=4), # 8x8
+            ResBlock(64), nn.Conv2d(64, 128, kernel_size=1),
+            nn.MaxPool2d(kernel_size=4),  # 2x2
             # ResBlock(64), nn.Conv2d(64, 112, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2),  # 4x4
             # ResBlock(112, kernel=5), nn.Conv2d(112, 192, kernel_size=1),
@@ -313,7 +313,7 @@ class MiniClassifier(nn.Module):
             # ResBlock(192), nn.Conv2d(192, 320, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2), # 1x1
             util.Flatten(),
-            nn.Linear(64 * 8 * 8, num_classes),
+            nn.Linear(128 * 2 * 2, num_classes),
             nn.Softmax(dim=-1)
         )
 
@@ -582,7 +582,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr-warmup",
                         dest="lr_warmup",
                         help="Learning rate warmup.",
-                        default=5000, type=int)
+                        default=100000, type=int)
 
 
     options = parser.parse_args()

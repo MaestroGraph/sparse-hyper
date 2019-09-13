@@ -364,11 +364,15 @@ def go(arg):
 
     # Training loop
     util.makedirs(f'./{arg.task}/')
+    seen = 0
     for e in range(arg.epochs):
 
         model.train(True)
 
         for i, (inputs, labels) in enumerate(tqdm.tqdm(trainloader, 0)):
+
+            b, c, h, w = inputs.size()
+            seen += b
 
             model.sparse.sample(random.random() < arg.sample_prob) # sample every tenth batch
 
@@ -384,6 +388,8 @@ def go(arg):
 
             loss.backward()
             opt.step()
+
+            tbw.add_scalar('sparsity/loss', loss.item()/b, seen)
 
             if i == 0 and e % arg.plot_every == 0:
                 model.sparse.plot(inputs[:10, ...])

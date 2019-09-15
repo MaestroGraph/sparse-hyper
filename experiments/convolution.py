@@ -95,8 +95,6 @@ class Convolution(nn.Module):
         else:
             self.mmult = mmult
 
-        self.mmult *= 10
-
         self.k = k
         self.unify = nn.Linear(k*cin, cout)
 

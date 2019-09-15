@@ -217,9 +217,13 @@ class Convolution(nn.Module):
 
         return self.unify(features).permute(0, 3, 1, 2) # (b, c_out, h, w)
 
-    def plot(self, images, numpixels=5):
+    def plot(self, inputs, numpixels=5, ims=None):
 
-        b, c, h, w = images.size()
+        ims = inputs if ims is None else ims
+
+        b, c, h, w = inputs.size()
+        b, cims, hims, wims = ims.size()
+
         k = self.k
 
         # choose 5 random pixels, for which we'll plot the input pixels.
@@ -229,17 +233,25 @@ class Convolution(nn.Module):
 
         rows = int(math.ceil(b/perrow))
 
-        means, sigmas, _ = self.hyper(images)
+        means, sigmas, _ = self.hyper(inputs)
 
-        images = images.data
+        inputs = inputs.data
 
         plt.figure(figsize=(perrow * 3, rows*3))
+
+        # scale up to image coordinates
+        print(means.min().item(), means.max().item(), hims/h, wims/w)
+        scale = torch.tensor((hims/h, wims/w), device=d(inputs))
+        means = means * scale
+        print(means.min().item(), means.max().item())
+        print()
 
         for current in range(b):
 
             # select subset of means, sigmas
             smeans = means[current, :, :, :, :].view(h*w, k, 2)
             ssigmas = sigmas[current, :, :, :].view(h*w, k, 2)
+
             color = (torch.arange(numpixels, dtype=torch.float)[:, None].expand(numpixels, k)/numpixels) * 2.0 - 1.0
 
             smeans = smeans[choices, :, :]
@@ -247,12 +259,12 @@ class Convolution(nn.Module):
 
             ax = plt.subplot(rows, perrow, current+1)
 
-            im = np.transpose(images[current, :, :, :].cpu().numpy(), (1, 2, 0))
+            im = np.transpose(ims[current, :, :, :].cpu().numpy(), (1, 2, 0))
             im = np.squeeze(im)
 
-            ax.imshow(im, interpolation='nearest', extent=(-0.5, w-0.5, -0.5, h-0.5), cmap='gray_r')
+            ax.imshow(im, interpolation='nearest', extent=(-0.5, wims-0.5, -0.5, hims-0.5), cmap='gray_r')
 
-            util.plot(smeans.reshape(1, -1, 2), ssigmas.reshape(1, -1, 2), color.reshape(1, -1), axes=ax, flip_y=h, tanh=False)
+            util.plot(smeans.reshape(1, -1, 2), ssigmas.reshape(1, -1, 2), color.reshape(1, -1), axes=ax, flip_y=hims, tanh=False)
 
         plt.gcf()
 
@@ -417,6 +429,22 @@ class ThreeCClassifier(nn.Module):
 
         return self.blocks(x)
 
+    def plot(self, x, pref, epoch):
+
+        self.sparse.plot(x)
+        plt.savefig(pref + f'/convolution.{epoch:03}.0.pdf')
+        plt.gcf().clear()
+
+        inp = F.max_pool2d(F.relu(self.sparse(x)), kernel_size=2)
+
+        self.spars1.plot(inp, ims=x)
+        plt.savefig(pref + f'/convolution.{epoch:03}.1.pdf')
+        plt.gcf().clear()
+
+        inp = F.max_pool2d(F.relu(self.spars1(inp)), kernel_size=2)
+        self.spars2.plot(inp, ims=x)
+        plt.savefig(pref + f'/convolution.{epoch:03}.2.pdf')
+
 def go(arg):
 
     if arg.seed < 0:
@@ -543,8 +571,11 @@ def go(arg):
             sch.step()
 
             if sparse and i == 0 and e % arg.plot_every == 0:
-                model.sparse.plot(inputs[:10, ...])
-                plt.savefig(f'{arg.task}/convolution.{e:03}.pdf')
+                if arg.model == '3c':
+                    model.plot(inputs[:10, ...], pref=f'{arg.task}/', epoch=e)
+                else:
+                    model.sparse.plot(inputs[:10, ...])
+                    plt.savefig(f'{arg.task}/convolution.{e:03}.pdf')
 
         # Compute accuracy on test set
         with torch.no_grad():

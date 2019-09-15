@@ -63,7 +63,7 @@ class Convolution(nn.Module):
     adaptively.
     """
     def __init__(self, in_size, out_size, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
-                 mmult=None, adaptive=False, modulo=True):
+                 mmult=None, admode='full', modulo=True):
         """
         :param k: Number of connections to the input in total
         :param gadditional:
@@ -84,20 +84,40 @@ class Convolution(nn.Module):
 
         self.in_size, self.out_size = in_size, out_size
         self.min_sigma, self.sigma_scale = min_sigma, sigma_scale
-        self.adaptive = adaptive
+        self.admode = admode
         self.modulo = modulo
 
-        self.mmult = (1.0 if modulo else 0.1) if mmult is None else mmult
+        if mmult is None:
+            if admode == 'none':
+                self.mmult = 0.1
+            else:
+                self.mmult = 1.0 if modulo else 0.1
+        else:
+            self.mmult = mmult
+
+        self.mmult *= 10
 
         self.k = k
         self.unify = nn.Linear(k*cin, cout)
 
-        # network that generates the coordinates and sigmas
-        hidden = cin * 4
-        self.toparams = nn.Sequential(
-            nn.Linear(2+cin if adaptive else 2, hidden), nn.ReLU(),
-            nn.Linear(hidden, k * 3) # two means, one sigma
-        )
+        if admode == 'none':
+            self.params = nn.Parameter(torch.randn(size=(k*3, )))
+        else:
+            if admode == 'full':
+                adin = 2 + cin
+            elif admode == 'coords':
+                adin = 2
+            elif admode == 'inputs':
+                adin = cin
+            else:
+                raise Exception(f'adaptivity mode {admode} not recognized')
+
+            # network that generates the coordinates and sigmas
+            hidden = cin * 4
+            self.toparams = nn.Sequential(
+                nn.Linear(adin, hidden), nn.ReLU(),
+                nn.Linear(hidden, k * 3) # two means, one sigma
+            )
 
         self.register_buffer('mvalues', torch.ones((k,)))
         self.register_buffer('coords', util.coordinates((hin, win)))
@@ -125,12 +145,22 @@ class Convolution(nn.Module):
         mids = mids[:, :, :, None, :].expand(b, h, w, k, 2)
 
         # add coords to channels
-        coords = self.coords[None, :, :, :].expand(b, 2, h, w)
-        x = torch.cat([x, coords], dim=1) if self.adaptive else coords
+        if self.admode == 'none':
+            params = self.params[None, None, None, :].expand(b, h, w, k*3)
+        else:
+            if self.admode == 'full':
+                coords = self.coords[None, :, :, :].expand(b, 2, h, w)
+                x = torch.cat([x, coords], dim=1)
+            elif self.admode == 'coords':
+                x = self.coords[None, :, :, :].expand(b, 2, h, w)
+            elif self.admode == 'inputs':
+                pass
+            else:
+                raise Exception(f'adaptivity mode {self.admode} not recognized')
 
-        x = x.permute(0, 2, 3, 1)
+            x = x.permute(0, 2, 3, 1)
+            params = self.toparams(x)
 
-        params = self.toparams(x)
         assert params.size() == (b, h, w, k * 3) # k index tuples per output pixel
 
         means  = params[:, :, :, :k*2].view(b, h, w, k, 2)
@@ -240,11 +270,8 @@ class Convolution(nn.Module):
         plt.figure(figsize=(perrow * 3, rows*3))
 
         # scale up to image coordinates
-        print(means.min().item(), means.max().item(), hims/h, wims/w)
         scale = torch.tensor((hims/h, wims/w), device=d(inputs))
-        means = means * scale
-        print(means.min().item(), means.max().item())
-        print()
+        means = means * scale + (scale/2)
 
         for current in range(b):
 
@@ -509,15 +536,15 @@ def go(arg):
     # Create model
     if arg.model == 'efficient':
         model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
         sparse = True
     elif arg.model == 'mini':
         model = MiniClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
         sparse = False
     elif arg.model == '3c':
         model = ThreeCClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
         sparse = True
 
     elif arg.model == 'david':
@@ -692,9 +719,9 @@ if __name__ == "__main__":
                         help="How many epochs between plotting the sparse indices.",
                         default=1, type=int)
 
-    parser.add_argument("--adaptive", dest="adaptive",
-                        help="Whether to base the index tuple structure on the pixel representation in the previous layer.",
-                        action="store_true")
+    parser.add_argument("--admode", dest="admode",
+                        help="What input to condition the sparse convolution on (none, full, coords, inputs)",
+                        default='full', type=str)
 
     parser.add_argument("--modulo", dest="modulo",
                         help="Use modulo operator to fit continuous index tuples to the required range.",

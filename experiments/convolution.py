@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 
 from util import d
 
-class ResBlock(nn.Module):
+class MobBlock(nn.Module):
     """
     Inverted residual block (as in mobilenetv2)
     """
@@ -256,6 +256,70 @@ class Convolution(nn.Module):
 
         plt.gcf()
 
+class DavidLayer(nn.Module):
+
+    def __init__(self, cin, cout, **kwargs):
+        super().__init__()
+
+        self.block0 = nn.Sequential(
+            nn.Conv2d(cin, cout, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(cout), nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+
+        self.block1 = nn.Sequential(
+            nn.Conv2d(cout, cout, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(cout), nn.ReLU()
+        )
+
+        self.block2 = nn.Sequential(
+            nn.Conv2d(cout, cout, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(cout), nn.ReLU()
+        )
+
+    def forward(self, x):
+
+        x = self.block0(x)
+
+        return x + self.block2(self.block1(x))
+
+class DavidNet(nn.Module):
+
+    def __init__(self, num_classes):
+        super().__init__()
+
+        self.prep = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64), nn.ReLU()
+        )
+
+        self.layer0 = DavidLayer(64, 128)
+
+        self.mid = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(256), nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+
+        self.layer1 = DavidLayer(256, 512)
+
+        self.head = nn.Sequential(
+            nn.AdaptiveMaxPool2d(output_size=1),
+            util.Flatten(),
+            nn.Linear(512, num_classes)
+        )
+
+
+    def forward(self, x):
+
+        x = self.prep(x)
+        x = self.layer0(x)
+        x = self.mid(x)
+        x = self.layer1(x)
+        x = self.head(x)
+
+        return x
+
 class Classifier(nn.Module):
 
     def __init__(self, in_size, num_classes, **kwargs):
@@ -270,21 +334,20 @@ class Classifier(nn.Module):
 
         self.blocks = nn.Sequential(
             nn.MaxPool2d(kernel_size=2), # 16x16
-            ResBlock(32),               nn.Conv2d(32, 16, kernel_size=1),
-            ResBlock(16), ResBlock(16), nn.Conv2d(16, 24, kernel_size=1),
+            MobBlock(32),               nn.Conv2d(32, 16, kernel_size=1),
+            MobBlock(16), MobBlock(16), nn.Conv2d(16, 24, kernel_size=1),
             nn.MaxPool2d(kernel_size=2), # 8x8
-            ResBlock(24, kernel=5), ResBlock(24, kernel=5), nn.Conv2d(24, 40, kernel_size=1),
+            MobBlock(24, kernel=5), MobBlock(24, kernel=5), nn.Conv2d(24, 40, kernel_size=1),
             nn.MaxPool2d(kernel_size=2), # 4x4
-            ResBlock(40), ResBlock(40), ResBlock(40), nn.Conv2d(40, 80, kernel_size=1),
+            MobBlock(40), MobBlock(40), MobBlock(40), nn.Conv2d(40, 80, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2),
-            ResBlock(80, kernel=5), ResBlock(80, kernel=5), ResBlock(80, kernel=5), nn.Conv2d(80, 112, kernel_size=1),
+            MobBlock(80, kernel=5), MobBlock(80, kernel=5), MobBlock(80, kernel=5), nn.Conv2d(80, 112, kernel_size=1),
             #nn.MaxPool2d(kernel_size=2),
-            ResBlock(112, kernel=5), ResBlock(112, kernel=5), ResBlock(112, kernel=5), ResBlock(112, kernel=5), nn.Conv2d(112, 192, kernel_size=1),
+            MobBlock(112, kernel=5), MobBlock(112, kernel=5), MobBlock(112, kernel=5), MobBlock(112, kernel=5), nn.Conv2d(112, 192, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2),
-            ResBlock(192), nn.Conv2d(192, 320, kernel_size=1),
+            MobBlock(192), nn.Conv2d(192, 320, kernel_size=1),
             util.Flatten(),
-            nn.Linear(320 * 4 * 4, num_classes),
-            nn.Softmax(dim=-1)
+            nn.Linear(320 * 4 * 4, num_classes)
         )
 
 
@@ -303,13 +366,13 @@ class MiniClassifier(nn.Module):
         c, h, w = in_size
 
         self.blocks = nn.Sequential(
-            nn.Conv2d(c, 32, kernel_size=1), ResBlock(32),
+            nn.Conv2d(c, 32, kernel_size=1), MobBlock(32),
             nn.MaxPool2d(kernel_size=2),  # 16x16
-            nn.Conv2d(32, 64, kernel_size=1), ResBlock(64),
+            nn.Conv2d(32, 64, kernel_size=1), MobBlock(64),
             nn.MaxPool2d(kernel_size=2),  # 8x8
-            nn.Conv2d(64, 128, kernel_size=1), ResBlock(128),
+            nn.Conv2d(64, 128, kernel_size=1), MobBlock(128),
             nn.MaxPool2d(kernel_size=2), # 4x4
-            ResBlock(128), nn.Conv2d(128, 320, kernel_size=1),
+            MobBlock(128), nn.Conv2d(128, 320, kernel_size=1),
             nn.MaxPool2d(kernel_size=2),  # 2x2
             # ResBlock(64), nn.Conv2d(64, 112, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2),  # 4x4
@@ -318,8 +381,7 @@ class MiniClassifier(nn.Module):
             # ResBlock(192), nn.Conv2d(192, 320, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2), # 1x1
             util.Flatten(),
-            nn.Linear(320 * 2 * 2, num_classes),
-            nn.Softmax(dim=-1)
+            nn.Linear(320 * 2 * 2, num_classes)
         )
 
     def forward(self, x):
@@ -344,11 +406,10 @@ class ThreeCClassifier(nn.Module):
             nn.MaxPool2d(kernel_size=2),  # 8x8
             self.spars2, nn.ReLU(),
             nn.MaxPool2d(kernel_size=2), # 4x4
-            ResBlock(128), nn.Conv2d(128, 320, kernel_size=1),
+            MobBlock(128), nn.Conv2d(128, 320, kernel_size=1),
             nn.MaxPool2d(kernel_size=2), # 2x2
             util.Flatten(),
-            nn.Linear(320 * 2 * 2, num_classes),
-            nn.Softmax(dim=-1)
+            nn.Linear(320 * 2 * 2, num_classes)
         )
 
 
@@ -430,6 +491,10 @@ def go(arg):
         model = ThreeCClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
                        adaptive=arg.adaptive, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
         sparse = True
+
+    elif arg.model == 'david':
+        model = DavidNet(num_classes)
+        sparse = False
     else:
         raise Exception(f'Model {arg.model} not recognized')
 
@@ -533,7 +598,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-m", "--model",
                         dest="model",
-                        help="Which model (efficient, mini)",
+                        help="Which model (efficient, mini, 3c, david)",
                         default='efficient', type=str)
 
     parser.add_argument("-A", "--radditional",

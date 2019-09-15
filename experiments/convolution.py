@@ -62,7 +62,8 @@ class Convolution(nn.Module):
     The pattern of input pixels, relative to the current output pixels is determined
     adaptively.
     """
-    def __init__(self, in_size, out_size, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05, mmult=0.1, adaptive=False):
+    def __init__(self, in_size, out_size, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
+                 mmult=None, adaptive=False, modulo=True):
         """
         :param k: Number of connections to the input in total
         :param gadditional:
@@ -83,7 +84,10 @@ class Convolution(nn.Module):
 
         self.in_size, self.out_size = in_size, out_size
         self.min_sigma, self.sigma_scale = min_sigma, sigma_scale
-        self.mmult, self.adaptive = mmult, adaptive
+        self.adaptive = adaptive
+        self.modulo = modulo
+
+        self.mmult = (1.0 if modulo else 0.1) if mmult is None else mmult
 
         self.k = k
         self.unify = nn.Linear(k*cin, cout)
@@ -115,8 +119,9 @@ class Convolution(nn.Module):
         # - the index tuples are described relative to these
         hw = torch.tensor((h, w), device=d(x), dtype=torch.float)
         mids = self.coords[None, :, :, :].expand(b, 2, h, w) * (hw - 1)[None, :, None, None]
-
-        mids = util.inv(mids.permute(0, 2, 3, 1), mx=hw[None, None, None, :])
+        mids = mids.permute(0, 2, 3, 1)
+        if not self.modulo:
+            mids = util.inv(mids, mx=hw[None, None, None, :])
         mids = mids[:, :, :, None, :].expand(b, h, w, k, 2)
 
         # add coords to channels
@@ -135,8 +140,8 @@ class Convolution(nn.Module):
         means = mids + self.mmult * means
 
         s = (h, w)
-        means, sigmas = sparse.transform_means(means, s), \
-                        sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
+        means  = sparse.transform_means(means, s, method='modulo' if self.modulo else 'sigmoid')
+        sigmas = sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
 
         return means, sigmas, values
 
@@ -415,15 +420,15 @@ def go(arg):
     # Create model
     if arg.model == 'efficient':
         model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale)
+                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
         sparse = True
     elif arg.model == 'mini':
         model = MiniClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale)
+                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
         sparse = False
     elif arg.model == '3c':
         model = ThreeCClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale)
+                       adaptive=arg.adaptive, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
         sparse = True
     else:
         raise Exception(f'Model {arg.model} not recognized')
@@ -593,6 +598,10 @@ if __name__ == "__main__":
 
     parser.add_argument("--adaptive", dest="adaptive",
                         help="Whether to base the index tuple structure on the pixel representation in the previous layer.",
+                        action="store_true")
+
+    parser.add_argument("--modulo", dest="modulo",
+                        help="Use modulo operator to fit continuous index tuples to the required range.",
                         action="store_true")
     #
     # parser.add_argument("--partial-loss", dest="ploss",

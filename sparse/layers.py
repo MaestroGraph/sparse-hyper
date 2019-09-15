@@ -80,12 +80,12 @@ def densities(points, means, sigmas):
 
     return num
 
-def transform_means(means, size, clamp=False):
+def transform_means(means, size, method='sigmoid'):
     """
     Transforms raw parameters for the index tuples (with values in (-inf, inf)) into parameters within the bound of the
     dimensions of the tensor.
 
-    In the case of a templated sparse layer, these parameters and the corresponing size tuple deascribe only the learned
+    In the case of a templated sparse layer, these parameters and the corresponding size tuple deascribe only the learned
     subtensor.
 
     :param means: (..., rank) tensor of raw parameter values
@@ -93,16 +93,21 @@ def transform_means(means, size, clamp=False):
     :return: (..., rank)
     """
 
-    # Scale to [0, 1]
-    if clamp:
-        means = means.clamp(0.0, 1.0)
-    else:
-        means = torch.sigmoid(means)
-
     # Compute upper bounds
     s = torch.tensor(list(size), dtype=torch.float, device='cuda' if means.is_cuda else 'cpu') - 1
     s = util.unsqueezen(s, len(means.size()) - 1)
     s = s.expand_as(means)
+
+    # Scale to [0, 1]
+    if method == 'modulo':
+        means = means.remainder(s)
+
+        return means
+
+    if method == 'clamp':
+        means = means.clamp(0.0, 1.0)
+    else:
+        means = torch.sigmoid(means)
 
     return means * s
 

@@ -680,47 +680,48 @@ def go(arg):
 
         # Compute accuracy on test set
         with torch.no_grad():
-            model.train(False)
+            if e % arg.test_every == 0:
+                model.train(False)
 
-            total, correct = 0.0, 0.0
-            for input, labels in testloader:
-                opt.zero_grad()
+                total, correct = 0.0, 0.0
+                for input, labels in testloader:
+                    opt.zero_grad()
 
-                if arg.cuda:
-                    input, labels = input.cuda(), labels.cuda()
-                input, labels = Variable(input), Variable(labels)
+                    if arg.cuda:
+                        input, labels = input.cuda(), labels.cuda()
+                    input, labels = Variable(input), Variable(labels)
 
-                output = model(input)
+                    output = model(input)
 
-                outcls = output.argmax(dim=1)
+                    outcls = output.argmax(dim=1)
 
-                total += outcls.size(0)
-                correct += (outcls == labels).sum().item()
+                    total += outcls.size(0)
+                    correct += (outcls == labels).sum().item()
 
-            acc = correct / float(total)
+                acc = correct / float(total)
 
-            print('\nepoch {}: {}\n'.format(e, acc))
-            tbw.add_scalar('sparsity/test acc', acc, e)
+                print('\nepoch {}: {}\n'.format(e, acc))
+                tbw.add_scalar('sparsity/test acc', acc, e)
 
-            total, correct = 0.0, 0.0
-            for input, labels in trainloader:
-                opt.zero_grad()
+                total, correct = 0.0, 0.0
+                for input, labels in trainloader:
+                    opt.zero_grad()
 
-                if arg.cuda:
-                    input, labels = input.cuda(), labels.cuda()
-                input, labels = Variable(input), Variable(labels)
+                    if arg.cuda:
+                        input, labels = input.cuda(), labels.cuda()
+                    input, labels = Variable(input), Variable(labels)
 
-                output = model(input)
+                    output = model(input)
 
-                outcls = output.argmax(dim=1)
+                    outcls = output.argmax(dim=1)
 
-                total += outcls.size(0)
-                correct += (outcls == labels).sum().item()
+                    total += outcls.size(0)
+                    correct += (outcls == labels).sum().item()
 
-            acc = correct / float(total)
+                acc = correct / float(total)
 
-            print('\nepoch {}: {}\n'.format(e, acc))
-            tbw.add_scalar('sparsity/train acc', acc, e)
+                print('\nepoch {}: {}\n'.format(e, acc))
+                tbw.add_scalar('sparsity/train acc', acc, e)
 
 
 if __name__ == "__main__":
@@ -811,6 +812,11 @@ if __name__ == "__main__":
     parser.add_argument("--plot-every",
                         dest="plot_every",
                         help="How many epochs between plotting the sparse indices.",
+                        default=1, type=int)
+
+    parser.add_argument("--test-every",
+                        dest="test_every",
+                        help="How many epochs between testing for accuracy.",
                         default=1, type=int)
 
     parser.add_argument("--admode", dest="admode",

@@ -585,8 +585,6 @@ def go(arg):
             trainloader = DataLoader(train, batch_size=arg.batch_size, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
             testloader = DataLoader(train, batch_size=arg.batch_size,
                                     sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
-
-
     else:
         raise Exception('Task {} not recognized'.format(arg.task))
 
@@ -659,7 +657,7 @@ def go(arg):
             loss.backward()
 
             # clip gradients
-            if arg.gradient_clipping is not None:
+            if arg.gradient_clipping > 0.0:
                 nn.utils.clip_grad_norm_(model.parameters(), arg.gradient_clipping)
 
             opt.step()
@@ -828,7 +826,7 @@ if __name__ == "__main__":
                         default=0.5, type=float)
 
     parser.add_argument("--gradient-clipping",
-                        dest="gradient_clipping",
+                        dest="gradient_clipping (negative for no clipping)",
                         help="Gradient clipping.",
                         default=1.0, type=float)
 

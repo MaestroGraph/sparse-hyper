@@ -367,7 +367,7 @@ class DavidLayer(nn.Module):
 
 class DavidNet(nn.Module):
 
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, mul=1.0):
         super().__init__()
 
         self.prep = nn.Sequential(
@@ -385,12 +385,18 @@ class DavidNet(nn.Module):
 
         self.layer1 = DavidLayer(256, 512)
 
-        self.head = nn.Sequential(
-            nn.AdaptiveMaxPool2d(output_size=1),
-            util.Flatten(),
-            nn.Linear(512, num_classes)
-        )
+        # self.head = nn.Sequential(
+        #     nn.AdaptiveMaxPool2d(output_size=1),
+        #     util.Flatten(),
+        #     nn.Linear(512, num_classes)
+        # )
 
+        self.head = nn.Sequential(
+            nn.MaxPool2d(kernel_size=4),
+            util.Flatten(),
+            nn.Linear(512, num_classes),
+            util.Lambda(lambda x: x * mul)
+        )
 
     def forward(self, x):
 
@@ -603,7 +609,7 @@ def go(arg):
         sparse = True
 
     elif arg.model == 'david':
-        model = DavidNet(num_classes)
+        model = DavidNet(num_classes, mul=arg.mul)
         sparse = False
     else:
         raise Exception(f'Model {arg.model} not recognized')
@@ -661,10 +667,9 @@ def go(arg):
                 nn.utils.clip_grad_norm_(model.parameters(), arg.gradient_clipping)
 
             opt.step()
+            sch.step()
 
             tbw.add_scalar('sparsity/loss', loss.item()/b, seen)
-
-            sch.step()
 
             if sparse and i == 0 and e % arg.plot_every == 0:
                 if arg.model == '3c':
@@ -852,6 +857,10 @@ if __name__ == "__main__":
     parser.add_argument("--super", dest="super",
                         help="Use a superconvergence (triangular) lr schedule.",
                         action="store_true")
+
+    parser.add_argument("--mul", dest="mul",
+                        help="Logit multiplier.",
+                        default=1.0, type=float)
 
     options = parser.parse_args()
 

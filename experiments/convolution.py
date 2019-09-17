@@ -580,7 +580,13 @@ def go(arg):
         raise f'Optimizer {arg.optimizer} not recognized.'
 
 
-    sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(  i/arg.lr_warmup, 1.0) )
+    if arg.super:
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(i/arg.lr_warmup, 1.0) )
+    else:
+
+        total = arg.epochs * len(train)
+        mid = int(arg.epochs * (2/5)) * len(train) # peak at about 2/5 of the learning process
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i/mid if i < mid else (total - i)/(total - mid) )
 
     # Training loop
     util.makedirs(f'./{arg.task}/')
@@ -800,6 +806,10 @@ if __name__ == "__main__":
 
     parser.add_argument("--augmentation", dest="augmentation",
                         help="Whether to apply data augmentation (random crops and random flips).",
+                        action="store_true")
+
+    parser.add_argument("--super", dest="super",
+                        help="Use a superconvergence (triangular) lr schedule.",
                         action="store_true")
 
     options = parser.parse_args()

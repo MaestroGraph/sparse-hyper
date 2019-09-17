@@ -804,11 +804,6 @@ if __name__ == "__main__":
                         help="RNG seed. Negative for random",
                         default=1, type=int)
 
-    parser.add_argument("--test-every",
-                        dest="test_every",
-                        help="How many epochs between tests.",
-                        default=5, type=int)
-
     parser.add_argument("--plot-every",
                         dest="plot_every",
                         help="How many epochs between plotting the sparse indices.",

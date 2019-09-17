@@ -62,19 +62,20 @@ class Convolution(nn.Module):
     The pattern of input pixels, relative to the current output pixels is determined
     adaptively.
     """
-    def __init__(self, in_size, out_size, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
+    def __init__(self, in_size, cout, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
                  mmult=None, admode='full', modulo=True):
         """
         :param k: Number of connections to the input in total
         :param gadditional:
         :param radditional:
+        :param pooling factor: The output resolution is reduced by this factor.
         :param region:
         """
 
         super().__init__()
 
         cin, hin, win = in_size
-        cout, hout, wout = out_size
+        cout, hout, wout = cout, hin, win
 
         assert hin > 2 and win > 2, 'Input resolution must be larger than 2x2 for the sparse convolution to work.'
 
@@ -82,7 +83,7 @@ class Convolution(nn.Module):
 
         self.region = (max(int(region*hin), 2), max(int(region*win), 2))
 
-        self.in_size, self.out_size = in_size, out_size
+        self.in_size, self.out_size = in_size, ()
         self.min_sigma, self.sigma_scale = min_sigma, sigma_scale
         self.admode = admode
         self.modulo = modulo
@@ -635,6 +636,26 @@ def go(arg):
             print('\nepoch {}: {}\n'.format(e, acc))
             tbw.add_scalar('sparsity/test acc', acc, e)
 
+            total, correct = 0.0, 0.0
+            for input, labels in trainloader:
+                opt.zero_grad()
+
+                if arg.cuda:
+                    input, labels = input.cuda(), labels.cuda()
+                input, labels = Variable(input), Variable(labels)
+
+                output = model(input)
+
+                outcls = output.argmax(dim=1)
+
+                total += outcls.size(0)
+                correct += (outcls == labels).sum().item()
+
+            acc = correct / float(total)
+
+            print('\nepoch {}: {}\n'.format(e, acc))
+            tbw.add_scalar('sparsity/train acc', acc, e)
+
 
 if __name__ == "__main__":
 
@@ -760,7 +781,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--weight-decay",
                         dest="wd",
-                        help="Base weight-decay (multiplied by batchs size).",
+                        help="Base weight-decay (multiplied by batch size).",
                         default=0.0005, type=float)
 
 

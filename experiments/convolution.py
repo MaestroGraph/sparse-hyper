@@ -558,9 +558,9 @@ def go(arg):
     if arg.optimizer == 'adam':
         opt = torch.optim.Adam(params=model.parameters(), lr=arg.lr)
     elif arg.optimizer == 'adamw':
-        opt = torch.optim.AdamW(params=model.parameters(), lr=arg.lr)
+        opt = torch.optim.AdamW(params=model.parameters(), weight_decay=arg.wd * arg.batch_size, lr=arg.lr)
     elif arg.optimizer == 'nesterov':
-        opt = torch.optim.SGD(params=model.parameters(), lr=arg.lr, momentum=0.9, weight_decay=5e-4 * arg.batch_size, nesterov=True)
+        opt = torch.optim.SGD(params=model.parameters(), lr=arg.lr, momentum=0.9, weight_decay=arg.wd * arg.batch_size, nesterov=True)
     else:
         raise f'Optimizer {arg.optimizer} not recognized.'
 
@@ -757,6 +757,11 @@ if __name__ == "__main__":
                         dest="optimizer",
                         help="Which optimizer to use (adam, adamw, nesterov).",
                         default='adam', type=str)
+
+    parser.add_argument("--weight-decay",
+                        dest="wd",
+                        help="Base weight-decay (multiplied by batchs size).",
+                        default=0.0005, type=float)
 
 
     options = parser.parse_args()

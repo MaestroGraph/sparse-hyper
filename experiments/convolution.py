@@ -555,7 +555,16 @@ def go(arg):
     if arg.cuda:
         model.cuda()
 
-    opt = torch.optim.Adam(params=model.parameters(), lr=arg.lr)
+    if arg.optimizer == 'adam':
+        opt = torch.optim.Adam(params=model.parameters(), lr=arg.lr)
+    elif arg.optimizer == 'adamw':
+        opt = torch.optim.AdamW(params=model.parameters(), lr=arg.lr)
+    elif arg.optimizer == 'nesterov':
+        opt = torch.optim.SGD(params=model.parameters(), lr=arg.lr, momentum=0.9, weight_decay=5e-4 * arg.batch_size, nesterov=True)
+    else:
+        raise f'Optimizer {arg.optimizer} not recognized.'
+
+
     sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(  i/arg.lr_warmup, 1.0) )
 
     # Training loop
@@ -743,6 +752,11 @@ if __name__ == "__main__":
                         dest="lr_warmup",
                         help="Learning rate warmup.",
                         default=100000, type=int)
+
+    parser.add_argument("--optimizer",
+                        dest="optimizer",
+                        help="Which optimizer to use (adam, adamw, nesterov).",
+                        default='adam', type=str)
 
 
     options = parser.parse_args()

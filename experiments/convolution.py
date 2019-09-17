@@ -481,16 +481,26 @@ def go(arg):
 
     tbw = SummaryWriter(log_dir=arg.tb_dir)
 
-    normalize = transforms.Compose([transforms.ToTensor()])
+    tfms = transforms.Compose([transforms.ToTensor()])
 
     if (arg.task == 'mnist'):
+
+
+        shape = (1, 28, 28)
+        num_classes = 10
+
+        if arg.augmentation:
+            tfms = transforms.Compose(
+                [transforms.RandomCrop(size=shape[1:], padding=4), transforms.RandomHorizontalFlip(), transforms.ToTensor()]
+            )
+
         data = arg.data + os.sep + arg.task
 
         if arg.final:
-            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
+            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=tfms)
             trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=2)
 
-            test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=normalize)
+            test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=ToTensor())
             testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=2)
 
         else:
@@ -498,20 +508,25 @@ def go(arg):
             NUM_VAL = 5000
             total = NUM_TRAIN + NUM_VAL
 
-            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=normalize)
+            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=tfms)
 
             trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
             testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
-        shape = (1, 28, 28)
+    elif (arg.task == 'cifar10'):
+
+        shape = (3, 32, 32)
         num_classes = 10
 
-    elif (arg.task == 'cifar10'):
+        if arg.augmentation:
+            tfms = transforms.Compose(
+                [transforms.RandomCrop(size=shape[1:], padding=4), transforms.RandomHorizontalFlip(), transforms.ToTensor()]
+            )
 
         data = arg.data + os.sep + arg.task
 
         if arg.final:
-            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=ToTensor())
+            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=tfms)
             trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=2)
             test = torchvision.datasets.CIFAR10(root=data, train=False, download=True, transform=ToTensor())
             testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=2)
@@ -527,8 +542,7 @@ def go(arg):
             testloader = DataLoader(train, batch_size=arg.batch_size,
                                     sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
-            shape = (3, 32, 32)
-            num_classes = 10
+
     else:
         raise Exception('Task {} not recognized'.format(arg.task))
 
@@ -784,6 +798,9 @@ if __name__ == "__main__":
                         help="Base weight-decay (multiplied by batch size).",
                         default=0.0005, type=float)
 
+    parser.add_argument("--augmentation", dest="augmentation",
+                        help="Whether to apply data augmentation (random crops and random flips).",
+                        action="store_true")
 
     options = parser.parse_args()
 

@@ -581,12 +581,11 @@ def go(arg):
 
 
     if arg.super:
-        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(i/arg.lr_warmup, 1.0) )
-    else:
-
         total = arg.epochs * len(train)
         mid = int(arg.epochs * (2/5)) * len(train) # peak at about 2/5 of the learning process
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i/mid if i < mid else (total - i)/(total - mid) )
+    else:
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(i/arg.lr_warmup, 1.0) )
 
     # Training loop
     util.makedirs(f'./{arg.task}/')

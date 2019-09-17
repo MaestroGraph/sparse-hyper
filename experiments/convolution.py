@@ -826,8 +826,8 @@ if __name__ == "__main__":
                         default=0.5, type=float)
 
     parser.add_argument("--gradient-clipping",
-                        dest="gradient_clipping (negative for no clipping)",
-                        help="Gradient clipping.",
+                        dest="gradient_clipping",
+                        help="Gradient clipping (negative for no clipping).",
                         default=1.0, type=float)
 
     parser.add_argument("--lr-warmup",

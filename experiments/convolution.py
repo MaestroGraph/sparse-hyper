@@ -26,6 +26,92 @@ import matplotlib.pyplot as plt
 
 from util import d
 
+
+### Wide resnet. Ported from fast.ai lib
+
+def _bn(ni, init_zero=False):
+    """
+    Batchnorm layer with (optional) 0 initialization
+
+    :param ni:
+    :param init_zero:
+    :return:
+    """
+    m = nn.BatchNorm2d(ni)
+    m.weight.data.fill_(0 if init_zero else 1)
+    m.bias.data.zero_()
+    return m
+
+def bn_relu_conv(ni, nf, ks, stride, init_zero=False):
+    """
+    Batchnorm/relu/convolution block
+    """
+
+    bn_initzero = _bn(ni, init_zero=init_zero)
+
+    return nn.Sequential(
+        bn_initzero,
+        nn.ReLU(inplace=True),
+        nn.Conv2d(in_channels=ni, out_channels=nf, kernel_size=ks, stride=stride, padding=ks//2)
+    )
+
+
+class WideBlock(nn.Module):
+    """
+    Wide ResNet block
+    """
+    def __init__(self, ni, nf, stride, drop_p=0.0, mult=0.2):
+        super().__init__()
+
+        self.mult = mult
+        self.bn = nn.BatchNorm2d(ni)
+
+        self.conv1 = nn.Conv2d(in_channels=ni, out_channels=nf, kernel_size=3, stride=stride, padding=1)
+        self.conv2 = bn_relu_conv(nf, nf, 3, 1)
+
+        self.drop = nn.Dropout(drop_p) if drop_p else None
+        self.shortcut = nn.Conv2d(in_channels=ni, out_channels=nf, kernel_size=1, stride=stride) if ni != nf else util.Lambda(lambda x : x)
+
+    def forward(self, x):
+
+        x2 = F.relu(self.bn(x))
+
+        r = self.shortcut(x2)
+        x = self.conv1(x2)
+
+        if self.drop:
+            x = self.drop(x)
+        x = self.conv2(x) * self.mult
+
+        return x + r
+
+def _make_group(N, ni, nf, block, stride, drop_p):
+    return [block(ni if i == 0 else nf, nf, stride if i == 0 else 1, drop_p) for i in range(N)]
+
+class WideResNet(nn.Module):
+    """
+    Wide ResNet with `num_groups` and a width of `k`.
+    """
+    def __init__(self, num_classes:int, num_groups:int=3, N:int=3, k:int=6, drop_p:float=0.0, start_nf:int=16, n_in_channels:int=3):
+        super().__init__()
+
+        n_channels = [start_nf]
+        for i in range(num_groups): n_channels.append(start_nf*(2**i)*k)
+
+        layers = [nn.Conv2d(n_in_channels, n_channels[0], 3, 1, padding=1)]  # conv1
+        for i in range(num_groups):
+            layers += _make_group(N, n_channels[i], n_channels[i+1], WideBlock, (1 if i==0 else 2), drop_p)
+
+        layers += [
+            nn.BatchNorm2d(n_channels[num_groups]), nn.ReLU(),
+            nn.AdaptiveAvgPool2d(1), util.Flatten(),
+            nn.Linear(n_channels[num_groups], num_classes)
+        ]
+
+        self.features = nn.Sequential(*layers)
+
+    def forward(self, x): return self.features(x)
+
 class Cutout(object):
     """
     Cutout transform. From https://github.com/uoguelph-mlrg/Cutout/blob/master/util/cutout.py
@@ -46,6 +132,7 @@ class Cutout(object):
         Returns:
             Tensor: Image with n_holes of dimension length x length cut out of it.
         """
+
         h = img.size(1)
         w = img.size(2)
 
@@ -541,7 +628,7 @@ def go(arg):
 
         if arg.augmentation:
             tfms = transforms.Compose(
-                [transforms.RandomCrop(size=shape[1:], padding=4), transforms.RandomHorizontalFlip(), Cutout(1, 8), transforms.ToTensor()]
+                [transforms.RandomCrop(size=shape[1:], padding=4), transforms.RandomHorizontalFlip(), transforms.ToTensor(), Cutout(1, 8)]
             )
 
         data = arg.data + os.sep + arg.task
@@ -570,7 +657,7 @@ def go(arg):
 
         if arg.augmentation:
             tfms = transforms.Compose(
-                [transforms.RandomCrop(size=shape[1:], padding=4), transforms.RandomHorizontalFlip(), Cutout(1, 8), transforms.ToTensor()]
+                [transforms.RandomCrop(size=shape[1:], padding=4), transforms.RandomHorizontalFlip(), transforms.ToTensor(), Cutout(1, 8),]
             )
 
         data = arg.data + os.sep + arg.task
@@ -586,7 +673,7 @@ def go(arg):
             NUM_VAL = 5000
             total = NUM_TRAIN + NUM_VAL
 
-            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=ToTensor())
+            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=tfms)
 
             trainloader = DataLoader(train, batch_size=arg.batch_size, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
             testloader = DataLoader(train, batch_size=arg.batch_size,
@@ -611,6 +698,10 @@ def go(arg):
     elif arg.model == 'david':
         model = DavidNet(num_classes, mul=arg.mul)
         sparse = False
+
+    elif arg.model == 'wide':
+        model = WideResNet(num_classes)
+        sparse = False
     else:
         raise Exception(f'Model {arg.model} not recognized')
 
@@ -625,7 +716,7 @@ def go(arg):
     elif arg.optimizer == 'nesterov':
         opt = torch.optim.SGD(params=model.parameters(), lr=arg.lr, momentum=0.9, weight_decay=arg.wd * arg.batch_size, nesterov=True)
     else:
-        raise f'Optimizer {arg.optimizer} not recognized.'
+        raise Exception(f'Optimizer {arg.optimizer} not recognized.')
 
 
     if arg.super:

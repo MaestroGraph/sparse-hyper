@@ -718,13 +718,16 @@ def go(arg):
     else:
         raise Exception(f'Optimizer {arg.optimizer} not recognized.')
 
-
-    if arg.super:
-        total = arg.epochs * len(train)
+    total = arg.epochs * len(train)
+    if arg.schedule == 'tri':
         mid = int(arg.epochs * (2/5)) * len(train) # peak at about 2/5 of the learning process
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i/mid if i < mid else (total - i)/(total - mid) )
-    else:
+    elif arg.schedule == 'warmup':
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(i/arg.lr_warmup, 1.0) )
+    elif arg.schedule == 'flat':
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : 1.0)
+    elif arg.schedule == 'exp':
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : max(math.exp(i - total), 1e-8) )
 
     # Training loop
     util.makedirs(f'./{arg.task}/')
@@ -761,6 +764,7 @@ def go(arg):
             sch.step()
 
             tbw.add_scalar('sparsity/loss', loss.item()/b, seen)
+            tbw.add_scalar('sparsity/learning-rate', sch.get_lr()[0], seen)
 
             if sparse and i == 0 and e % arg.plot_every == 0:
                 if arg.model == '3c':
@@ -946,9 +950,9 @@ if __name__ == "__main__":
                         help="Whether to apply data augmentation (random crops and random flips).",
                         action="store_true")
 
-    parser.add_argument("--super", dest="super",
-                        help="Use a superconvergence (triangular) lr schedule.",
-                        action="store_true")
+    parser.add_argument("--schedule", dest="schedule",
+                        help="Learning rate schedule (flat, tri, warmup, exp)",
+                        default='warmup', type=str)
 
     parser.add_argument("--mul", dest="mul",
                         help="Logit multiplier.",

@@ -194,7 +194,7 @@ class Convolution(nn.Module):
     adaptively.
     """
     def __init__(self, in_size, cout, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
-                 mmult=None, admode='full', modulo=True):
+                 mmult=None, admode='full', modulo=True, bias=True):
         """
         :param k: Number of connections to the input in total
         :param gadditional:
@@ -228,7 +228,7 @@ class Convolution(nn.Module):
             self.mmult = mmult
 
         self.k = k
-        self.unify = nn.Linear(k*cin, cout)
+        self.unify = nn.Linear(k*cin, cout, bias=bias)
 
         if admode == 'none':
             self.params = nn.Parameter(torch.randn(size=(k*3, )))
@@ -425,58 +425,100 @@ class Convolution(nn.Module):
 
         plt.gcf()
 
+def conv(insize, cout, kernel_size=3, padding=1, sparse=True, **kwargs):
 
+    if sparse:
+        layer = Convolution(insize, cout, **kwargs)
+    else:
+        layer = nn.Conv2d(insize[0], cout, kernel_size=kernel_size, padding=padding)
+
+    return layer
 
 class DavidLayer(nn.Module):
 
-    def __init__(self, cin, cout, sparse=False, **kwargs):
+    def __init__(self, insize, cout, sparse=False, **kwargs):
+        c, h, w = insize
+
         super().__init__()
 
+        self.sparse_layers =[]
+
         self.block0 = nn.Sequential(
-            nn.Conv2d(cin, cout, kernel_size=3, padding=1, bias=False),
+            conv(insize, cout, kernel_size=3, padding=1, bias=False, sparse=sparse, **kwargs),
             nn.BatchNorm2d(cout), nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
         self.block1 = nn.Sequential(
-            nn.Conv2d(cout, cout, kernel_size=3, padding=1, bias=False),
+            conv((cout, h//2, w//2), cout, kernel_size=3, padding=1, bias=False, sparse=sparse, **kwargs),
             nn.BatchNorm2d(cout), nn.ReLU()
         )
 
         self.block2 = nn.Sequential(
-            nn.Conv2d(cout, cout, kernel_size=3, padding=1, bias=False),
+            conv((cout, h//2, w//2), cout, kernel_size=3, padding=1, bias=False, sparse=sparse, **kwargs),
             nn.BatchNorm2d(cout), nn.ReLU()
         )
 
     def forward(self, x):
 
         x = self.block0(x)
+
         return x + self.block2(self.block1(x))
+
+    def plot(self, inp, ims, pref, epoch, c=1):
+
+        sparse = list(self.block0.modules())[1]
+        sparse.plot(inp, ims=ims)
+
+        plt.savefig(pref + f'/convolution.{epoch:03}.{c}-block0.pdf')
+        plt.gcf().clear()
+
+        inp = self.block0(inp)
+
+        sparse = list(self.block1.modules())[1]
+        sparse.plot(inp, ims=ims)
+
+        plt.savefig(pref + f'/convolution.{epoch:03}.{c}-block1.pdf')
+        plt.gcf().clear()
+
+        inp = self.block1(inp)
+
+        sparse = list(self.block2.modules())[1]
+        sparse.plot(inp, ims=ims)
+
+        plt.savefig(pref + f'/convolution.{epoch:03}.{c}-block2.pdf')
+        plt.gcf().clear()
+
+    def sample(self, bl):
+        list(self.block0.modules())[1].sample(bl)
+        list(self.block1.modules())[1].sample(bl)
+        list(self.block2.modules())[1].sample(bl)
 
 class DavidNet(nn.Module):
 
-    def __init__(self, num_classes, mul=1.0):
+    def __init__(self, insize, num_classes, mul=1.0, sparse=False, **kwargs):
         super().__init__()
+        c, h, w = insize
 
         self.prep = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, padding=1, bias=False),
+            conv((c, h, w), 64, kernel_size=3, padding=1, bias=False, sparse=sparse,**kwargs),
             nn.BatchNorm2d(64), nn.ReLU()
         )
 
-        self.layer0 = DavidLayer(64, 128)
+        self.layer0 = DavidLayer((64, h, w), 128, sparse=sparse, **kwargs) # one maxpool
 
         self.mid = nn.Sequential(
-            nn.Conv2d(128, 256, kernel_size=3, padding=1, bias=False),
+            conv((128, h//2, w//2), 256, kernel_size=3, padding=1, bias=False, sparse=sparse, **kwargs),
             nn.BatchNorm2d(256), nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.MaxPool2d(kernel_size=2)
         )
 
-        self.layer1 = DavidLayer(256, 512)
+        self.layer1 = DavidLayer((256, h//4, w//4), 512, sparse=sparse, **kwargs) # one maxpool
 
-        self.head = nn.Sequential(
+        self.head = nn.Sequential( # h//8, w//8
             nn.MaxPool2d(kernel_size=4),
             util.Flatten(),
-            nn.Linear(512, num_classes),
+            nn.Linear(512 * h//32 * w//32, num_classes),
             util.Lambda(lambda x: x * mul)
         )
 
@@ -489,6 +531,40 @@ class DavidNet(nn.Module):
         x = self.head(x)
 
         return x
+
+    def plot(self, x, pref, epoch):
+
+        sparse = list(self.prep.modules())[1]
+        sparse.plot(x)
+
+        plt.savefig(pref + f'/convolution.{epoch:03}.0-prep.pdf')
+        plt.gcf().clear()
+
+        inp = self.prep(x)
+
+        self.layer0.plot(inp, ims=x, pref=pref, epoch=epoch, c=1)
+
+        inp = self.layer0(inp)
+
+        sparse = list(self.mid.modules())[1]
+        sparse.plot(inp, ims=x)
+
+        plt.savefig(pref + f'/convolution.{epoch:03}.2-mid.pdf')
+        plt.gcf().clear()
+
+        inp = self.mid(inp)
+
+        self.layer1.plot(inp, ims=x, pref=pref, epoch=epoch, c=3)
+
+    def sample(self, bl):
+
+        list(self.prep.modules())[1].sample(bl)
+        self.layer0.sample(bl)
+
+        list(self.mid.modules())[1].sample(bl)
+        self.layer1.sample(bl)
+
+
 
 class Classifier(nn.Module):
 
@@ -691,8 +767,13 @@ def go(arg):
         sparse = True
 
     elif arg.model == 'david':
-        model = DavidNet(num_classes, mul=arg.mul)
+        model = DavidNet(insize=shape, num_classes=num_classes, mul=arg.mul)
         sparse = False
+
+    elif arg.model == 'david-sparse':
+        model = DavidNet(insize=shape, num_classes=num_classes, mul=arg.mul, sparse=True, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+        sparse = True
 
     elif arg.model == 'wide':
         model = WideResNet(num_classes)
@@ -741,7 +822,7 @@ def go(arg):
             seen += b
 
             if sparse:
-                model.sparse.sample(random.random() < arg.sample_prob) # sample every tenth batch
+                model.sample(random.random() < arg.sample_prob) # sample every tenth batch
 
             if arg.cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
@@ -767,6 +848,8 @@ def go(arg):
 
             if sparse and i == 0 and e % arg.plot_every == 0:
                 if arg.model == '3c':
+                    model.plot(inputs[:10, ...], pref=f'{arg.task}/', epoch=e)
+                elif arg.model == 'david-sparse':
                     model.plot(inputs[:10, ...], pref=f'{arg.task}/', epoch=e)
                 else:
                     model.sparse.plot(inputs[:10, ...])

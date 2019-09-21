@@ -718,18 +718,18 @@ def go(arg):
     else:
         raise Exception(f'Optimizer {arg.optimizer} not recognized.')
 
-    total = arg.epochs * len(trainloader)
+    totalsteps = arg.epochs * len(trainloader)
     if arg.schedule == 'tri':
-        mid = total * (2/5)# peak at about 2/5 of the learning process
-        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i/mid if i < mid else (total - i)/(total - mid) )
+        mid = totalsteps * (2/5)# peak at about 2/5 of the learning process
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i/mid if i < mid else (totalsteps - i)/(totalsteps - mid) )
     elif arg.schedule == 'warmup':
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(i/arg.lr_warmup, 1.0) )
     elif arg.schedule == 'flat':
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : 1.0)
     elif arg.schedule == 'exp':
-        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : max(1.05 ** (i - total), 1e-8) )
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : max(1.05 ** (i - totalsteps), 1e-8) )
     elif arg.schedule == 'lin':
-        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i / total)
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i / totalsteps)
     else:
         raise Exception(f'Schedule {arg.schedule} not recognized.')
 
@@ -769,8 +769,6 @@ def go(arg):
 
             tbw.add_scalar('sparsity/loss', loss.item()/b, seen)
             tbw.add_scalar('sparsity/learning_rate', sch.get_lr()[0], seen)
-            
-            print(sch.get_lr()[0], total)
 
             if sparse and i == 0 and e % arg.plot_every == 0:
                 if arg.model == '3c':

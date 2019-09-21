@@ -425,9 +425,11 @@ class Convolution(nn.Module):
 
         plt.gcf()
 
+
+
 class DavidLayer(nn.Module):
 
-    def __init__(self, cin, cout, **kwargs):
+    def __init__(self, cin, cout, sparse=False, **kwargs):
         super().__init__()
 
         self.block0 = nn.Sequential(
@@ -449,7 +451,6 @@ class DavidLayer(nn.Module):
     def forward(self, x):
 
         x = self.block0(x)
-
         return x + self.block2(self.block1(x))
 
 class DavidNet(nn.Module):
@@ -471,12 +472,6 @@ class DavidNet(nn.Module):
         )
 
         self.layer1 = DavidLayer(256, 512)
-
-        # self.head = nn.Sequential(
-        #     nn.AdaptiveMaxPool2d(output_size=1),
-        #     util.Flatten(),
-        #     nn.Linear(512, num_classes)
-        # )
 
         self.head = nn.Sequential(
             nn.MaxPool2d(kernel_size=4),
@@ -723,7 +718,7 @@ def go(arg):
         mid = totalsteps * (2/5)# peak at about 2/5 of the learning process
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i/mid if i < mid else (totalsteps - i)/(totalsteps - mid) )
     elif arg.schedule == 'warmup':
-        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(i/arg.lr_warmup, 1.0) )
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(i/(arg.lr_warmup/arg.batch_size), 1.0) )
     elif arg.schedule == 'flat':
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : 1.0)
     elif arg.schedule == 'exp':

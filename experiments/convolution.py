@@ -548,7 +548,7 @@ class MiniClassifier(nn.Module):
             nn.Conv2d(64, 128, kernel_size=1), MobBlock(128),
             nn.MaxPool2d(kernel_size=2), # 4x4
             MobBlock(128), nn.Conv2d(128, 320, kernel_size=1),
-            nn.MaxPool2d(kernel_size=2),  # 2x2
+            # nn.MaxPool2d(kernel_size=2),  # 2x2
             # ResBlock(64), nn.Conv2d(64, 112, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2),  # 4x4
             # ResBlock(112, kernel=5), nn.Conv2d(112, 192, kernel_size=1),
@@ -556,7 +556,7 @@ class MiniClassifier(nn.Module):
             # ResBlock(192), nn.Conv2d(192, 320, kernel_size=1),
             # nn.MaxPool2d(kernel_size=2), # 1x1
             util.Flatten(),
-            nn.Linear(320 * 2 * 2, num_classes)
+            nn.Linear(320 * 4 * 4, num_classes)
         )
 
     def forward(self, x):
@@ -718,16 +718,20 @@ def go(arg):
     else:
         raise Exception(f'Optimizer {arg.optimizer} not recognized.')
 
-    total = arg.epochs * len(train)
+    total = arg.epochs * len(trainloader)
     if arg.schedule == 'tri':
-        mid = int(arg.epochs * (2/5)) * len(train) # peak at about 2/5 of the learning process
+        mid = total * (2/5)# peak at about 2/5 of the learning process
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i/mid if i < mid else (total - i)/(total - mid) )
     elif arg.schedule == 'warmup':
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : min(i/arg.lr_warmup, 1.0) )
     elif arg.schedule == 'flat':
         sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : 1.0)
     elif arg.schedule == 'exp':
-        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : max(math.exp(i - total), 1e-8) )
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i : max(1.05 ** (i - total), 1e-8) )
+    elif arg.schedule == 'lin':
+        sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: i / total)
+    else:
+        raise Exception(f'Schedule {arg.schedule} not recognized.')
 
     # Training loop
     util.makedirs(f'./{arg.task}/')
@@ -764,7 +768,9 @@ def go(arg):
             sch.step()
 
             tbw.add_scalar('sparsity/loss', loss.item()/b, seen)
-            tbw.add_scalar('sparsity/learning-rate', sch.get_lr()[0], seen)
+            tbw.add_scalar('sparsity/learning_rate', sch.get_lr()[0], seen)
+            
+            print(sch.get_lr()[0], total)
 
             if sparse and i == 0 and e % arg.plot_every == 0:
                 if arg.model == '3c':

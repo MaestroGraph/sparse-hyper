@@ -236,8 +236,30 @@ def accuracy(output, labels):
     correct = correct.sum()
     return correct / len(labels)
 
-# -- stable softmax
+def simple_normalize(indices, values, size, row=True, method='softplus', cuda=torch.cuda.is_available()):
+    """
+    Simple softmax-style normalization with
 
+    :param indices:
+    :param values:
+    :param size:
+    :param row:
+    :return:
+    """
+    epsilon = 1e-7
+
+    if method == 'softplus':
+        values = F.softplus(values)
+    elif method == 'abs':
+        values = values.abs()
+    else:
+        raise Exception(f'Method {method} not recognized')
+
+    sums = sum(indices, values, size, row=row)
+
+    return (values/(sums + epsilon)).log()
+
+# -- stable(ish) softmax
 def logsoftmax(indices, values, size, its=10, p=2, method='iteration', row=True, cuda=torch.cuda.is_available()):
     """
     Row or column log-softmaxes a sparse matrix (using logsumexp trick)

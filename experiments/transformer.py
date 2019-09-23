@@ -353,7 +353,7 @@ class ASH1DSelfAttention(nn.Module):
     Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
     embedding vector, position embedding and coordinate.
     """
-    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 1.0):
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 1.0, norm_method='softmax'):
         """
         :param emb:
         :param k: Number of connections to the input for each output
@@ -367,7 +367,7 @@ class ASH1DSelfAttention(nn.Module):
         super().__init__()
 
         self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
-        self.mmult = mmult
+        self.mmult, self.norm_method = mmult, norm_method
 
         self.tokeys = nn.Linear(emb, emb * heads, bias=False)
         self.toqueries = nn.Linear(emb, emb * heads, bias=False)
@@ -497,7 +497,11 @@ class ASH1DSelfAttention(nn.Module):
         assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
 
         # print(f'dot after  {dot.min()}, {dot.mean()}, {dot.max()}\n')
-        dot = sparse.logsoftmax(indices, weights * dot, s).exp()
+
+        if self.norm_method == 'softmax':
+            dot = sparse.logsoftmax(indices, weights * dot, s).exp()
+        else:
+            dot = sparse.simple_normalize(indices, weights * dot, s)
         # - dot now has row-wise self-attention probabilities
 
         assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
@@ -906,7 +910,12 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--model",
                         dest="model",
                         help="Which model to train (dense, sparse1d, sparse2d).",
-                        default='dense')
+                        default='dense', type=str)
+
+    parser.add_argument("--norm",
+                        dest="norm_method",
+                        help="How to normalize the attention matrix (softmax, softplus, abs).",
+                        default='softmax', type=str)
 
     parser.add_argument("-b", "--batch-size",
                         dest="batch_size",

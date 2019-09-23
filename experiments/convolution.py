@@ -564,7 +564,67 @@ class DavidNet(nn.Module):
         list(self.mid.modules())[1].sample(bl)
         self.layer1.sample(bl)
 
+class DavidOne(nn.Module):
+    """
+    DavidNet with one adaptive convolution layer (and normal convolutions everywhere else)
 
+    """
+
+    def __init__(self, insize, num_classes, mul=1.0, **kwargs):
+        super().__init__()
+        c, h, w = insize
+
+        self.prep = nn.Sequential(
+            conv((c, h, w), 64, kernel_size=3, padding=1, bias=False, sparse=False, **kwargs),
+            nn.BatchNorm2d(64), nn.ReLU()
+        )
+
+        self.layer0 = DavidLayer((64, h, w), 128, sparse=False, **kwargs) # one maxpool
+
+        self.mid = nn.Sequential(
+            conv((128, h//2, w//2), 256, kernel_size=3, padding=1, bias=False, sparse=True, **kwargs),
+            nn.BatchNorm2d(256), nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)
+        )
+
+        self.layer1 = DavidLayer((256, h//4, w//4), 512, sparse=False, **kwargs) # one maxpool
+
+        self.head = nn.Sequential( # h//8, w//8
+            nn.MaxPool2d(kernel_size=4),
+            util.Flatten(),
+            nn.Linear(512 * h//32 * w//32, num_classes),
+            util.Lambda(lambda x: x * mul)
+        )
+
+    def forward(self, x):
+
+        x = self.prep(x)
+        x = self.layer0(x)
+        x = self.mid(x)
+        x = self.layer1(x)
+        x = self.head(x)
+
+        return x
+
+    def plot(self, x, pref, epoch):
+
+        inp = self.prep(x)
+        inp = self.layer0(inp)
+
+        sparse = list(self.mid.modules())[1]
+        sparse.plot(inp, ims=x)
+
+        plt.savefig(pref + f'/convolution.{epoch:03}.mid.pdf')
+        plt.gcf().clear()
+
+    def sample(self, bl):
+        """
+        Turn sampling on or off.
+        :param bl:
+        :return:
+        """
+
+        list(self.mid.modules())[1].sample(bl)
 
 class Classifier(nn.Module):
 
@@ -775,6 +835,11 @@ def go(arg):
                        admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
         sparse = True
 
+    elif arg.model == 'david-one':
+        model = DavidOne(insize=shape, num_classes=num_classes, mul=arg.mul, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+        sparse = True
+
     elif arg.model == 'wide':
         model = WideResNet(num_classes)
         sparse = False
@@ -849,7 +914,7 @@ def go(arg):
             if sparse and i == 0 and e % arg.plot_every == 0:
                 if arg.model == '3c':
                     model.plot(inputs[:10, ...], pref=f'{arg.task}/', epoch=e)
-                elif arg.model == 'david-sparse':
+                elif arg.model == 'david-sparse' or arg.model == 'david-one':
                     model.plot(inputs[:10, ...], pref=f'{arg.task}/', epoch=e)
                 else:
                     model.sparse.plot(inputs[:10, ...])

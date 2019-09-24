@@ -938,7 +938,9 @@ def go(arg):
         with torch.no_grad():
             if e % arg.test_every == 0:
                 model.train(False)
-                model.sample(False)
+
+                if hasattr(model, 'sample'):
+                    model.sample(False)
 
                 total, correct = 0.0, 0.0
                 for input, labels in testloader:

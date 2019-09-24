@@ -227,6 +227,9 @@ class Convolution(nn.Module):
         else:
             self.mmult = mmult
 
+        # RM
+        self.mmult *= 5
+
         self.k = k
         self.unify = nn.Linear(k*cin, cout, bias=bias)
 
@@ -422,6 +425,17 @@ class Convolution(nn.Module):
             ax.imshow(im, interpolation='nearest', extent=(-0.5, wims-0.5, -0.5, hims-0.5), cmap='gray_r')
 
             util.plot(smeans.reshape(1, -1, 2), ssigmas.reshape(1, -1, 2), color.reshape(1, -1), axes=ax, flip_y=hims, tanh=False)
+
+            for i, ch in enumerate(choices):
+                chh, chw = ch//h, ch % w
+                chh, chw = chh * scale[0] + scale[0]/2, chw * scale[1] + scale[1]/2
+
+                for ik in range(k):
+                    x, y = smeans[i, ik, :]
+
+                    l, ml = math.sqrt((y - chw) ** 2 + (x - hims + chh) ** 2), math.sqrt(hims ** 2 + wims ** 2)
+
+                    ax.add_line(mpl.lines.Line2D([y, chw], [x, hims-chh], linestyle='-', alpha=max(0.0, (1.0 - (l/ml)) - 0.5), color='white', lw=0.5))
 
         plt.gcf()
 
@@ -887,7 +901,7 @@ def go(arg):
             seen += b
 
             if sparse:
-                model.sample(random.random() < arg.sample_prob) # sample every tenth batch
+                model.sample(random.random() < arg.sample_prob) # use sampling only on some proprtion of batches
 
             if arg.cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
@@ -924,6 +938,7 @@ def go(arg):
         with torch.no_grad():
             if e % arg.test_every == 0:
                 model.train(False)
+                model.sample(False)
 
                 total, correct = 0.0, 0.0
                 for input, labels in testloader:

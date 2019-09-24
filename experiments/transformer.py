@@ -739,7 +739,7 @@ def go(arg):
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
                              num_tokens=NUM_TOKENS, sparse=True, gadditional=arg.gadditional, radditional=arg.radditional,
                              region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult,
-                             oned=(arg.model == 'sparse1d'))
+                             oned=(arg.model == 'sparse1d'), norm_method=arg.norm_method)
     else:
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, num_tokens=NUM_TOKENS)
     if arg.cuda:

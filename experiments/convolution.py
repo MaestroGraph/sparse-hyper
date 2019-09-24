@@ -435,7 +435,7 @@ class Convolution(nn.Module):
 
                     l, ml = math.sqrt((y - chw) ** 2 + (x - hims + chh) ** 2), math.sqrt(hims ** 2 + wims ** 2)
 
-                    ax.add_line(mpl.lines.Line2D([y, chw], [x, hims-chh], linestyle='-', alpha=max(0.0, (1.0 - (l/ml)) - 0.5), color='white', lw=0.5))
+                    ax.add_line(mpl.lines.Line2D([y, chw], [hims-x, hims-chh], linestyle='-', alpha=max(0.0, (1.0 - (l/ml)) - 0.5), color='white', lw=0.5))
 
         plt.gcf()
 

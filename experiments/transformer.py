@@ -371,6 +371,9 @@ class ASH1DSelfAttention(nn.Module):
         self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
         self.mmult, self.norm_method, self.clamp = mmult, norm_method, clamp
 
+        if clamp:
+            self.mmult *= 3.0
+
         self.outputs = outputs
 
         self.tokeys = nn.Linear(emb, emb * heads, bias=False)

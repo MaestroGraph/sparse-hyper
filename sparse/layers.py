@@ -105,9 +105,12 @@ def transform_means(means, size, method='sigmoid'):
         return means
 
     if method == 'clamp':
-        means = means.clamp(0.0, 1.0)
-    else:
-        means = torch.sigmoid(means)
+        means = torch.max(means, torch.zeros(means.size()))
+        means = torch.min(means, s)
+
+        return means
+
+    means = torch.sigmoid(means)
 
     return means * s
 

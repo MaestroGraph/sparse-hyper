@@ -354,7 +354,7 @@ class ASH1DSelfAttention(nn.Module):
     embedding vector, position embedding and coordinate.
     """
     def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1,
-                 mmult = 1.0, norm_method='softmax', outputs=-1,  modulo=True):
+                 mmult = 1.0, norm_method='softmax', outputs=-1,  clamp=True):
         """
         :param emb:
         :param k: Number of connections to the input for each output
@@ -369,7 +369,7 @@ class ASH1DSelfAttention(nn.Module):
         super().__init__()
 
         self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
-        self.mmult, self.norm_method, self.modulo = mmult, norm_method, modulo
+        self.mmult, self.norm_method, self.clamp = mmult, norm_method, clamp
 
         self.outputs = outputs
 
@@ -411,7 +411,7 @@ class ASH1DSelfAttention(nn.Module):
 
         # Generate the logits that correspond to the horizontal coordinate of the current word
         diags = torch.arange(t, dtype=torch.float, device=d(x))
-        if not self.modulo:
+        if not self.clamp:
             diags = util.inv(diags, mx=t)
 
         diags = diags[None, :, None, None].expand(b, t, k, 1)
@@ -423,7 +423,7 @@ class ASH1DSelfAttention(nn.Module):
         means = diags - self.mmult * F.softplus(means)
 
         s = (t,)
-        means, sigmas = sparse.transform_means(means, s, method='modulo' if self.modulo else 'sigmoid'), \
+        means, sigmas = sparse.transform_means(means, s, method='clamp' if self.modulo else 'sigmoid'), \
                         sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
 
         return means, sigmas, values
@@ -744,7 +744,7 @@ def go(arg):
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
                              num_tokens=NUM_TOKENS, sparse=True, gadditional=arg.gadditional, radditional=arg.radditional,
                              region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult,
-                             oned=(arg.model == 'sparse1d'), norm_method=arg.norm_method, modulo=arg.modulo)
+                             oned=(arg.model == 'sparse1d'), norm_method=arg.norm_method, clamp=arg.clamp)
     else:
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, num_tokens=NUM_TOKENS)
     if arg.cuda:
@@ -1029,8 +1029,8 @@ if __name__ == "__main__":
                         help="Learning rate warmup.",
                         default=5000, type=int)
 
-    parser.add_argument("--modulo", dest="modulo",
-                        help="Use the modulo operation to fit the parameters to the space of index tuples.",
+    parser.add_argument("--clamp", dest="clamp",
+                        help="Use the clamp operation to fit the parameters to the space of index tuples.",
                         action="store_true")
 
 

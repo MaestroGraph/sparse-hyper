@@ -317,8 +317,18 @@ def contains_nan(input):
                 return True
         return False
     else:
-        return bool((input != input).sum() > 0)
+        return bool(torch.isnan(input).sum() > 0)
 #
+def contains_inf(input):
+    if (not isinstance(input, torch.Tensor)) and isinstance(input, Iterable):
+        for i in input:
+            if contains_inf(i):
+                return True
+        return False
+    else:
+        return bool(torch.isinf(input).sum() > 0)
+#
+
 # if __name__ == '__main__':
 #
 #

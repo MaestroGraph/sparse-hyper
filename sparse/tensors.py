@@ -252,12 +252,14 @@ def simple_normalize(indices, values, size, row=True, method='softplus', cuda=to
         values = F.softplus(values)
     elif method == 'abs':
         values = values.abs()
+    elif method == 'relu':
+        values = F.relu(values)
     else:
         raise Exception(f'Method {method} not recognized')
 
     sums = sum(indices, values, size, row=row)
 
-    return (values/(sums + epsilon)).log()
+    return (values/(sums + epsilon))
 
 # -- stable(ish) softmax
 def logsoftmax(indices, values, size, its=10, p=2, method='iteration', row=True, cuda=torch.cuda.is_available()):

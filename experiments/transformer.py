@@ -353,7 +353,8 @@ class ASH1DSelfAttention(nn.Module):
     Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
     embedding vector, position embedding and coordinate.
     """
-    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 1.0, norm_method='softmax', outputs=-1):
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1,
+                 mmult = 1.0, norm_method='softmax', outputs=-1,  modulo=True):
         """
         :param emb:
         :param k: Number of connections to the input for each output
@@ -368,7 +369,7 @@ class ASH1DSelfAttention(nn.Module):
         super().__init__()
 
         self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
-        self.mmult, self.norm_method = mmult, norm_method
+        self.mmult, self.norm_method, self.modulo = mmult, norm_method, modulo
 
         self.outputs = outputs
 
@@ -408,10 +409,10 @@ class ASH1DSelfAttention(nn.Module):
 
         assert not util.contains_nan(params),  f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
 
-
         # Generate the logits that correspond to the horizontal coordinate of the current word
         diags = torch.arange(t, dtype=torch.float, device=d(x))
-        diags = util.inv(diags, mx=t)
+        if not self.modulo:
+            diags = util.inv(diags, mx=t)
 
         diags = diags[None, :, None, None].expand(b, t, k, 1)
 
@@ -422,7 +423,7 @@ class ASH1DSelfAttention(nn.Module):
         means = diags - self.mmult * F.softplus(means)
 
         s = (t,)
-        means, sigmas = sparse.transform_means(means, s), \
+        means, sigmas = sparse.transform_means(means, s, method='modulo' if self.modulo else 'sigmoid'), \
                         sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
 
         return means, sigmas, values
@@ -498,10 +499,8 @@ class ASH1DSelfAttention(nn.Module):
 
         dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,t*vs)
 
-        # print(f'dot before {dot.min()}, {dot.mean()}, {dot.max()}')
+        assert not util.contains_inf(dot), f'dot contains inf (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
         assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
-
-        # print(f'dot after  {dot.min()}, {dot.mean()}, {dot.max()}\n')
 
         if self.norm_method == 'softmax':
             dot = sparse.logsoftmax(indices, weights * dot, s).exp()
@@ -509,6 +508,7 @@ class ASH1DSelfAttention(nn.Module):
             dot = sparse.simple_normalize(indices, weights * dot, s, method=self.norm_method)
         # - dot now has row-wise self-attention probabilities
 
+        assert not util.contains_inf(dot), f'dot contains inf (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
         assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
 
         # apply the self attention to the values
@@ -744,7 +744,7 @@ def go(arg):
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
                              num_tokens=NUM_TOKENS, sparse=True, gadditional=arg.gadditional, radditional=arg.radditional,
                              region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult,
-                             oned=(arg.model == 'sparse1d'), norm_method=arg.norm_method)
+                             oned=(arg.model == 'sparse1d'), norm_method=arg.norm_method, modulo=arg.modulo)
     else:
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, num_tokens=NUM_TOKENS)
     if arg.cuda:
@@ -1028,6 +1028,11 @@ if __name__ == "__main__":
                         dest="lr_warmup",
                         help="Learning rate warmup.",
                         default=5000, type=int)
+
+    parser.add_argument("--modulo", dest="modulo",
+                        help="Use the modulo operation to fit the parameters to the space of index tuples.",
+                        action="store_true")
+
 
     options = parser.parse_args()
 

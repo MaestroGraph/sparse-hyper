@@ -1,5 +1,5 @@
 from .util import \
-    makedirs, prod, contains_nan, bmult, duplicates, nduplicates, \
+    makedirs, prod, contains_nan, contains_inf, bmult, duplicates, nduplicates, \
     sparsemult, \
     xent, unique, \
     Bias, ChunkSampler, Flatten, Reshape, Debug, Lambda, \

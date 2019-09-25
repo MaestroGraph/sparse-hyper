@@ -353,7 +353,7 @@ class ASH1DSelfAttention(nn.Module):
     Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
     embedding vector, position embedding and coordinate.
     """
-    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 1.0, norm_method='softmax'):
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 1.0, norm_method='softmax', outputs=-1):
         """
         :param emb:
         :param k: Number of connections to the input for each output
@@ -361,6 +361,7 @@ class ASH1DSelfAttention(nn.Module):
         :param radditional:
         :param region:
         :param heads:
+        :param outputs: The number of units (at the end of the sequence) to compute new vectors for.
         :param mask:
         """
 
@@ -368,6 +369,8 @@ class ASH1DSelfAttention(nn.Module):
 
         self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
         self.mmult, self.norm_method = mmult, norm_method
+
+        self.outputs = outputs
 
         self.tokeys = nn.Linear(emb, emb * heads, bias=False)
         self.toqueries = nn.Linear(emb, emb * heads, bias=False)
@@ -394,12 +397,14 @@ class ASH1DSelfAttention(nn.Module):
         b, t, e = x.size()
         h, k, reg = self.heads, self.k, self.region
 
+        o = t if self.outputs < -1 else self.outputs
+
         # Generate coords
         coords = torch.arange(t, dtype=torch.float, device=d(x)) / t
         coords = coords[None, :, None,].expand(b, t, 1)
 
         input = torch.cat([x, coords], dim=2)
-        params = self.toparams(input) # (b, t, k*2)
+        params = self.toparams(input) # (b, o, k*2)
 
         assert not util.contains_nan(params),  f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
 
@@ -501,7 +506,7 @@ class ASH1DSelfAttention(nn.Module):
         if self.norm_method == 'softmax':
             dot = sparse.logsoftmax(indices, weights * dot, s).exp()
         else:
-            dot = sparse.simple_normalize(indices, weights * dot, s)
+            dot = sparse.simple_normalize(indices, weights * dot, s, method=self.norm_method)
         # - dot now has row-wise self-attention probabilities
 
         assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'

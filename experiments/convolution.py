@@ -511,6 +511,8 @@ class DavidNet(nn.Module):
         super().__init__()
         c, h, w = insize
 
+        self.sparse = sparse
+
         self.prep = nn.Sequential(
             conv((c, h, w), 64, kernel_size=3, padding=1, bias=False, sparse=sparse,**kwargs),
             nn.BatchNorm2d(64), nn.ReLU()
@@ -569,11 +571,12 @@ class DavidNet(nn.Module):
 
     def sample(self, bl):
 
-        list(self.prep.modules())[1].sample(bl)
-        self.layer0.sample(bl)
+        if self.sparse:
+            list(self.prep.modules())[1].sample(bl)
+            self.layer0.sample(bl)
 
-        list(self.mid.modules())[1].sample(bl)
-        self.layer1.sample(bl)
+            list(self.mid.modules())[1].sample(bl)
+            self.layer1.sample(bl)
 
 class DavidOne(nn.Module):
     """

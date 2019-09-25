@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import tensors
 
 from sparse import util
-from sparse.util import Bias, sparsemult, contains_nan, bmult, nduplicates
+from sparse.util import Bias, sparsemult, contains_nan, bmult, nduplicates, d
 
 import sys
 import random
@@ -94,7 +94,7 @@ def transform_means(means, size, method='sigmoid'):
     """
 
     # Compute upper bounds
-    s = torch.tensor(list(size), dtype=torch.float, device='cuda' if means.is_cuda else 'cpu') - 1
+    s = torch.tensor(list(size), dtype=torch.float, device=d(means)) - 1
     s = util.unsqueezen(s, len(means.size()) - 1)
     s = s.expand_as(means)
 
@@ -105,7 +105,7 @@ def transform_means(means, size, method='sigmoid'):
         return means
 
     if method == 'clamp':
-        means = torch.max(means, torch.zeros(means.size()))
+        means = torch.max(means, torch.zeros(means.size(), device=d(means)))
         means = torch.min(means, s)
 
         return means

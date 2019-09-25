@@ -423,7 +423,7 @@ class ASH1DSelfAttention(nn.Module):
         means = diags - self.mmult * F.softplus(means)
 
         s = (t,)
-        means, sigmas = sparse.transform_means(means, s, method='clamp' if self.modulo else 'sigmoid'), \
+        means, sigmas = sparse.transform_means(means, s, method='clamp' if self.clamp else 'sigmoid'), \
                         sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
 
         return means, sigmas, values

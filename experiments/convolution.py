@@ -194,7 +194,7 @@ class Convolution(nn.Module):
     adaptively.
     """
     def __init__(self, in_size, cout, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
-                 mmult=None, admode='full', modulo=True, bias=True):
+                 mmult=0.1, admode='full', edges='sigmoid', bias=True):
         """
         :param k: Number of connections to the input in total
         :param gadditional:
@@ -216,16 +216,13 @@ class Convolution(nn.Module):
 
         self.in_size, self.out_size = in_size, ()
         self.min_sigma, self.sigma_scale = min_sigma, sigma_scale
-        self.admode = admode
-        self.modulo = modulo
+        self.admode, self.mmult = admode, mmult
+        self.edges = edges
 
-        if mmult is None:
-            if admode == 'none':
-                self.mmult = 0.1
-            else:
-                self.mmult = 1.0 if modulo else 0.1
-        else:
-            self.mmult = mmult
+        if admode == 'none':
+            self.mmult *= 0.1
+        if edges == 'modulo' or edges == 'clamp':
+            self.mmult *= 5.0
 
         self.k = k
         self.unify = nn.Linear(k*cin, cout, bias=bias)
@@ -270,7 +267,7 @@ class Convolution(nn.Module):
         hw = torch.tensor((h, w), device=d(x), dtype=torch.float)
         mids = self.coords[None, :, :, :].expand(b, 2, h, w) * (hw - 1)[None, :, None, None]
         mids = mids.permute(0, 2, 3, 1)
-        if not self.modulo:
+        if self.edges == 'sigmoid':
             mids = util.inv(mids, mx=hw[None, None, None, :])
         mids = mids[:, :, :, None, :].expand(b, h, w, k, 2)
 
@@ -300,7 +297,7 @@ class Convolution(nn.Module):
         means = mids + self.mmult * means
 
         s = (h, w)
-        means  = sparse.transform_means(means, s, method='modulo' if self.modulo else 'sigmoid')
+        means  = sparse.transform_means(means, s, method=self.edges)
         sigmas = sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
 
         return means, sigmas, values
@@ -829,15 +826,15 @@ def go(arg):
     # Create model
     if arg.model == 'efficient':
         model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
         sparse = True
     elif arg.model == 'mini':
         model = MiniClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
         sparse = False
     elif arg.model == '3c':
         model = ThreeCClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
         sparse = True
 
     elif arg.model == 'david':
@@ -846,12 +843,12 @@ def go(arg):
 
     elif arg.model == 'david-sparse':
         model = DavidNet(insize=shape, num_classes=num_classes, mul=arg.mul, sparse=True, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
         sparse = True
 
     elif arg.model == 'david-one':
         model = DavidOne(insize=shape, num_classes=num_classes, mul=arg.mul, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, modulo=arg.modulo)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
         sparse = True
 
     elif arg.model == 'wide':
@@ -1077,13 +1074,9 @@ if __name__ == "__main__":
                         help="What input to condition the sparse convolution on (none, full, coords, inputs)",
                         default='full', type=str)
 
-    parser.add_argument("--modulo", dest="modulo",
-                        help="Use modulo operator to fit continuous index tuples to the required range.",
-                        action="store_true")
-    #
-    # parser.add_argument("--partial-loss", dest="ploss",
-    #                     help="Use only the last element of the sequence for the loss.",
-    #                     action="store_true")
+    parser.add_argument("--edges", dest="edges",
+                        help="Which operator to use to fit continuous index tuples to the required range.",
+                        default='sigmoid', type=str)
 
     parser.add_argument("--sample-prob",
                         dest="sample_prob",

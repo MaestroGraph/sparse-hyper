@@ -518,7 +518,7 @@ class ASH1DSelfAttention(nn.Module):
         out = out.transpose(1, 2).contiguous().view(b, t, h * e)
         out = self.unifyheads(out)
 
-        assert not util.contains_nan(out), f'output contains nan {out}'
+        assert not util.contains_nan(out), f'output contains nan {out}, dot min/max: {dot.min()}/{dot.max()}'
 
         return out
 

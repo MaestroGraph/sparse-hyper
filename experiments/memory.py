@@ -244,7 +244,7 @@ def go(arg):
         sigma_scale=arg.sigma_scale, min_sigma=arg.min_sigma)
 
     if arg.cuda:
-        model.cuda
+        model.cuda()
 
     opt = torch.optim.Adam(params=model.parameters(), lr=arg.lr)
 
@@ -266,6 +266,7 @@ def go(arg):
 
             if arg.cuda:
                 inputs = inputs.cuda()
+
             inputs = Variable(inputs)
 
             opt.zero_grad()

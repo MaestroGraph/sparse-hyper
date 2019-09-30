@@ -749,7 +749,9 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     global_ints.uniform_()
     global_ints *= (1.0 - EPSILON)
 
-    rng = FT(rng)
+    rng = FT(tuple(rng))
+    # - the tuple() is there in case a torch.Size() object is passed (which causes torch to
+    #   interpret the argument as the size of the tensor rather than its content).
     rngxp = util.unsqueezen(rng, len(gsize) - 1).expand_as(global_ints)
 
     global_ints = torch.floor(global_ints * rngxp).long()

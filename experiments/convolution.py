@@ -343,7 +343,7 @@ class Convolution(nn.Module):
             weights = mvalues[:, :, :, :, None, :].expand_as(props)
             # - add a dim for the MVNs
 
-            weights = props * weights
+            weights = props * weights # TODO mult by one, this can be removed
             weights = weights.sum(dim=5)  # - sum out the MVNs
 
             assert indices.size() == (b, h, w, k, vs, 2)

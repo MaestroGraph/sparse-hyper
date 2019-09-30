@@ -294,7 +294,7 @@ def go(arg):
                     for j in range(w):
 
                         ax = plt.subplot(h, w, s)
-                        ax.imshow(images[s-1].permute(1, 2, 0).squeeze(), cmap='Greys_r')
+                        ax.imshow(images[s-1].permute(1, 2, 0).squeeze().cpu(), cmap='Greys_r')
 
                         clean(ax)
 

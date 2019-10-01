@@ -277,6 +277,8 @@ def go(arg):
 
             loss.backward()
 
+            opt.step()
+
             tbw.add_scalar('memory/loss', loss.item()/b, seen)
 
         if e % arg.plot_every == 0 and len(arg.lgrid) == 3:

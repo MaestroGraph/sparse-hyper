@@ -230,9 +230,9 @@ def go(arg):
 
         if arg.final:
             train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=tfms)
-            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=2)
+            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch, shuffle=True, num_workers=2)
             test = torchvision.datasets.CIFAR10(root=data, train=False, download=True, transform=ToTensor())
-            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=2)
+            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=False, num_workers=2)
 
         else:
             NUM_TRAIN = 45000
@@ -241,8 +241,8 @@ def go(arg):
 
             train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=tfms)
 
-            trainloader = DataLoader(train, batch_size=arg.batch_size, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-            testloader = DataLoader(train, batch_size=arg.batch_size,
+            trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=arg.batch,
                                     sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
     elif arg.task == 'ffhq':
@@ -253,12 +253,12 @@ def go(arg):
 
         trainset = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'train',
                                                     transform=transform)
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=arg.batch_size,
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=arg.batch,
                                                   shuffle=True, num_workers=2)
 
         testset = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'valid',
                                                    transform=transform)
-        testloader = torch.utils.data.DataLoader(testset, batch_size=arg.batch_size,
+        testloader = torch.utils.data.DataLoader(testset, batch_size=arg.batch,
                                                  shuffle=False, num_workers=2)
 
     else:

@@ -248,8 +248,7 @@ def go(arg):
     elif arg.task == 'ffhq':
 
         transform = ToTensor()
-
-        C, H, W = 3, 128, 128
+        shape = (3, 128, 128)
 
         trainset = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'train',
                                                     transform=transform)

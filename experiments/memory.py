@@ -45,7 +45,7 @@ def clean(axes=None):
 
 class Model(nn.Module):
 
-    def __init__(self, data_size, latent_size=(5, 5, 128), gadditional=2, radditional=4, region=0.2,
+    def __init__(self, data_size, latent_size=(5, 5, 128), depth=3, gadditional=2, radditional=4, region=0.2,
                  method='clamp', sigma_scale=1.0, min_sigma=0.01):
         super().__init__()
 
@@ -61,40 +61,49 @@ class Model(nn.Module):
 
         c, h, w = data_size
 
-        c1, c2, c3 = 16, 32, 64
-        h1, h2, h3 = 256, 128, 64
+        cs = [c] + [2**(d+4) for d in range(depth)]
 
-        self.encoder = nn.Sequential(
-            nn.Conv2d(c, c1, (3, 3), padding=1), nn.ReLU(),
-            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-            nn.MaxPool2d((2, 2)),
-            nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.MaxPool2d((2, 2)),
-            nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
-            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-            nn.MaxPool2d((2, 2)),
+        div = 2 ** depth
+
+        modules = []
+
+        for d in range(depth):
+            modules += [
+                nn.Conv2d(cs[d], cs[d+1], 3, padding=1), nn.ReLU(),
+                nn.Conv2d(cs[d+1], cs[d+1], 3, padding=1), nn.ReLU(),
+                nn.MaxPool2d((2, 2))
+            ]
+
+        modules += [
             util.Flatten(),
-            nn.Linear(c3 * (h//8) * (w//8), h1), nn.ReLU(),
-            nn.Linear(h1, len(latent_size)) # encoder produces a cont. index tuple (ln -1 for the means, 1 for the sigma)
-        )
+            nn.Linear(cs[-1] * (h//div) * (w//div), 1024), nn.ReLU(),
+            nn.Linear(1024, len(latent_size)) # encoder produces a cont. index tuple (ln -1 for the means, 1 for the sigma)
+        ]
+
+        self.encoder = nn.Sequential(*modules)
 
         upmode = 'bilinear'
         cl = lambda x : int(math.ceil(x))
-        self.decoder = nn.Sequential(
-            nn.Linear(emb_size, c3 * cl(h/8) * cl(w/8)), nn.ReLU(),
-            util.Reshape( (c3, cl(h/8), cl(w/8)) ),
-            nn.Upsample(scale_factor=2, mode=upmode),
-            nn.ConvTranspose2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(c3, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode=upmode),
-            nn.ConvTranspose2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(c2, c1, (3, 3), padding=1), nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode=upmode),
-            nn.ConvTranspose2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(c1, c,  (3, 3), padding=1), nn.Sigmoid(),
+
+
+
+        modules = [
+            nn.Linear(emb_size, cs[-1] * cl(h/div) * cl(w/div)), nn.ReLU(),
+            util.Reshape( (cs[-1], cl(h/div), cl(w/div)) )
+        ]
+
+        for d in range(depth, 0, -1):
+            modules += [
+                nn.Upsample(scale_factor=2, mode=upmode),
+                nn.ConvTranspose2d(cs[d], cs[d], 3, padding=1), nn.ReLU(),
+                nn.ConvTranspose2d(cs[d], cs[d-1], 3, padding=1), nn.ReLU()
+            ]
+
+        modules += [
+            nn.ConvTranspose2d(c, c,  (3, 3), padding=1), nn.Sigmoid(),
             util.Lambda(lambda x : x[:, :, :h, :w]) # crop out any extra pixels due to rounding errors
-        )
+        ]
+        self.decoder = nn.Sequential(*modules)
 
         self.smp = True
 
@@ -235,6 +244,23 @@ def go(arg):
             trainloader = DataLoader(train, batch_size=arg.batch_size, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
             testloader = DataLoader(train, batch_size=arg.batch_size,
                                     sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+
+    elif arg.task == 'ffhq':
+
+        transform = ToTensor()
+
+        C, H, W = 3, 128, 128
+
+        trainset = torchvision.datasets.ImageFolder(root=arg.data_dir+os.sep+'train',
+                                                    transform=transform)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=arg.batch_size,
+                                                  shuffle=True, num_workers=2)
+
+        testset = torchvision.datasets.ImageFolder(root=arg.data_dir+os.sep+'valid',
+                                                   transform=transform)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=arg.batch_size,
+                                                 shuffle=False, num_workers=2)
+
     else:
         raise Exception('Task {} not recognized'.format(arg.task))
 
@@ -318,6 +344,11 @@ if __name__ == "__main__":
                         dest="batch",
                         help="Batch size",
                         default=64, type=int)
+
+    parser.add_argument("-d", "--depth",
+                        dest="depth",
+                        help="Depth",
+                        default=3, type=int)
 
     parser.add_argument("--task",
                         dest="task",

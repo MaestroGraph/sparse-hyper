@@ -251,12 +251,12 @@ def go(arg):
 
         C, H, W = 3, 128, 128
 
-        trainset = torchvision.datasets.ImageFolder(root=arg.data_dir+os.sep+'train',
+        trainset = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'train',
                                                     transform=transform)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=arg.batch_size,
                                                   shuffle=True, num_workers=2)
 
-        testset = torchvision.datasets.ImageFolder(root=arg.data_dir+os.sep+'valid',
+        testset = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'valid',
                                                    transform=transform)
         testloader = torch.utils.data.DataLoader(testset, batch_size=arg.batch_size,
                                                  shuffle=False, num_workers=2)

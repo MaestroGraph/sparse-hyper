@@ -156,6 +156,18 @@ class Model(nn.Module):
         # When sampling, this is a weighted sum, when not sampling, just one.
         indices = indices.view(b*vs, len(s))
 
+        # checks to prevent segfaults
+        if util.contains_nan(indices):
+
+            print(params)
+            raise Exception('Indices contain NaN')
+
+        if indices[:, 0].max() >= s[0] or indices[:, 1].max() >= s[1]:
+
+            print(indices.max())
+            print(params)
+            raise Exception('Indices out of bounds')
+
         if len(s) == 1:
             code = self.latent[indices[:, 0], :]
         elif len(s) == 2:

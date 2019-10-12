@@ -218,10 +218,10 @@ def go(arg):
 
         if arg.final:
             train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=tfms)
-            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=2)
+            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=0)
 
             test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=ToTensor())
-            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=2)
+            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=0)
 
         else:
             NUM_TRAIN = 45000

@@ -956,7 +956,7 @@ def go(arg):
 
                 acc = correct / float(total)
 
-                print('\nepoch {}: {}\n'.format(e, acc))
+                print(f'\nepoch {e}: test {acc:.4}', end='')
                 tbw.add_scalar('sparsity/test acc', acc, e)
 
                 total, correct = 0.0, 0.0
@@ -976,7 +976,7 @@ def go(arg):
 
                 acc = correct / float(total)
 
-                print('\nepoch {}: {}\n'.format(e, acc))
+                print(f' train {acc:.4}')
                 tbw.add_scalar('sparsity/train acc', acc, e)
 
 
@@ -1075,7 +1075,7 @@ if __name__ == "__main__":
                         default='full', type=str)
 
     parser.add_argument("--edges", dest="edges",
-                        help="Which operator to use to fit continuous index tuples to the required range.",
+                        help="Which operator to use to fit continuous index tuples to the required range (sigmoid, clamp, modulo)).",
                         default='sigmoid', type=str)
 
     parser.add_argument("--sample-prob",

@@ -983,7 +983,7 @@ def coordinates(res, cuda=False):
     """
     Compute the coordinate channels for a given resolution.
     :param res:
-    :return:
+    :return: (2, h, w) grid of rlative  x and y coordinates of each pixel in the grid.
     """
     dv = 'cuda' if cuda else 'cpu'
 

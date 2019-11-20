@@ -92,7 +92,7 @@ class WideResNet(nn.Module):
     """
     Wide ResNet with `num_groups` and a width of `k`.
     """
-    def __init__(self, num_classes:int, num_groups:int=3, N:int=3, k:int=6, drop_p:float=0.0, start_nf:int=16, n_in_channels:int=3):
+    def __init__(self, num_classes:int, num_groups:int=3, N:int=3, k:int=6, drop_p:float=0.0, start_nf:int=16, n_in_channels:int=3, **kwargs):
         super().__init__()
 
         n_channels = [start_nf]
@@ -194,7 +194,7 @@ class Convolution(nn.Module):
     adaptively.
     """
     def __init__(self, in_size, cout, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
-                 mmult=0.1, admode='full', edges='sigmoid', bias=True):
+                 mmult=0.1, admode='full', edges='sigmoid', bias=True, constrained=False):
         """
         :param k: Number of connections to the input in total
         :param gadditional:
@@ -243,13 +243,18 @@ class Convolution(nn.Module):
             hidden = cin * 4
             self.toparams = nn.Sequential(
                 nn.Linear(adin, hidden), nn.ReLU(),
-                nn.Linear(hidden, k * 3) # two means, one sigma
+                nn.Linear(hidden, 4 if constrained else k * 3) # two means, one sigma
             )
 
         self.register_buffer('mvalues', torch.ones((k,)))
         self.register_buffer('coords', util.coordinates((hin, win)))
 
         self.smp = True
+
+        self.constrained = constrained
+        if self.constrained:
+            kp = int(math.sqrt(k))
+            self.register_buffer('base', util.coordinates((kp, kp)) - 0.5)
 
         assert self.coords.size() == (2, hin, win)
 
@@ -288,10 +293,43 @@ class Convolution(nn.Module):
             x = x.permute(0, 2, 3, 1)
             params = self.toparams(x)
 
-        assert params.size() == (b, h, w, k * 3) # k index tuples per output pixel
+        if self.constrained:
+            # Take the three output values (per pixel) and use them to transform a grid of
+            # inputs
+            MULT = 10.0
 
-        means  = params[:, :, :, :k*2].view(b, h, w, k, 2)
-        sigmas = params[:, :, :, k*2:].view(b, h, w, k)
+            kp = int(math.sqrt(k))
+
+            assert params.size() == (b, h, w, 4)
+            scalex = params[:, :, :, 0:1, None, None]
+            scaley = params[:, :, :, 1:2, None, None]
+            rotate = params[:, :, :, 2:3, None, None]
+            sigmas = params[:, :, :, 3:4, None, None]
+
+
+            coords = self.base.view(1, 1, 1, 2, kp, kp).expand(b, h, w, 2, kp, kp).contiguous() * MULT
+
+            # scale
+            coords[:, :, :, 0:1, :, :] *= scalex
+            coords[:, :, :, 1:2, :, :] *= scaley
+
+            # rotate
+            rotx = coords[:, :, :, 0:1, :, :] * rotate.cos() - coords[:, :, :, 1:2, :, :] * rotate.sin()
+            roty = coords[:, :, :, 0:1, :, :] * rotate.sin() + coords[:, :, :, 1:2, :, :] * rotate.cos()
+
+            sigmas = sigmas.expand(b, h, w, 1, kp, kp)
+            params = torch.cat([rotx, roty, sigmas], dim=3)
+
+            assert params.size() == (b, h, w, 3, kp, kp)
+
+            params = params.reshape(b, h, w, 3, k).permute(0, 1, 2, 4, 3)
+        else:
+            params = params.reshape(b, h, w, k, 3)
+
+        assert params.size() == (b, h, w, k, 3) # k index tuples per output pixel
+
+        means  = params[:, :, :, :, :2]
+        sigmas = params[:, :, :, :, 2]
         values = self.mvalues[None, None, None, :].expand(b, h, w, k)
 
         means = mids + self.mmult * means
@@ -420,16 +458,16 @@ class Convolution(nn.Module):
 
             util.plot(smeans.reshape(1, -1, 2), ssigmas.reshape(1, -1, 2), color.reshape(1, -1), axes=ax, flip_y=hims, tanh=False)
 
-            for i, ch in enumerate(choices):
-                chh, chw = ch//h, ch % w
-                chh, chw = chh * scale[0] + scale[0]/2, chw * scale[1] + scale[1]/2
-
-                for ik in range(k):
-                    x, y = smeans[i, ik, :]
-
-                    l, ml = math.sqrt((y - chw) ** 2 + (x - hims + chh) ** 2), math.sqrt(hims ** 2 + wims ** 2)
-
-                    ax.add_line(mpl.lines.Line2D([y, chw], [hims-x, hims-chh], linestyle='-', alpha=max(0.0, (1.0 - (l/ml)) - 0.5), color='white', lw=0.5))
+            # for i, ch in enumerate(choices):
+            #     chh, chw = ch//h, ch % w
+            #     chh, chw = chh * scale[0] + scale[0]/2, chw * scale[1] + scale[1]/2
+            # 
+            #     for ik in range(k):
+            #         x, y = smeans[i, ik, :]
+            # 
+            #         l, ml = math.sqrt((y - chw) ** 2 + (x - hims + chh) ** 2), math.sqrt(hims ** 2 + wims ** 2)
+            # 
+            #         ax.add_line(mpl.lines.Line2D([y, chw], [hims-x, hims-chh], linestyle='-', alpha=max(0.0, (1.0 - (l/ml)) - 0.5), color='white', lw=0.5))
 
         plt.gcf()
 
@@ -826,33 +864,33 @@ def go(arg):
     # Create model
     if arg.model == 'efficient':
         model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
         sparse = True
     elif arg.model == 'mini':
         model = MiniClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
         sparse = False
     elif arg.model == '3c':
         model = ThreeCClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
         sparse = True
 
     elif arg.model == 'david':
-        model = DavidNet(insize=shape, num_classes=num_classes, mul=arg.mul)
+        model = DavidNet(insize=shape, num_classes=num_classes, mul=arg.mul, constrained=arg.constrained)
         sparse = False
 
     elif arg.model == 'david-sparse':
         model = DavidNet(insize=shape, num_classes=num_classes, mul=arg.mul, sparse=True, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
         sparse = True
 
     elif arg.model == 'david-one':
         model = DavidOne(insize=shape, num_classes=num_classes, mul=arg.mul, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
         sparse = True
 
     elif arg.model == 'wide':
-        model = WideResNet(num_classes)
+        model = WideResNet(num_classes, constrained=arg.constrained)
         sparse = False
     else:
         raise Exception(f'Model {arg.model} not recognized')
@@ -1105,6 +1143,10 @@ if __name__ == "__main__":
 
     parser.add_argument("--augmentation", dest="augmentation",
                         help="Whether to apply data augmentation (random crops and random flips).",
+                        action="store_true")
+
+    parser.add_argument("--constrained", dest="constrained",
+                        help="Whether to use a constrained convolution (pixels form a grid, but squashed and rotated)",
                         action="store_true")
 
     parser.add_argument("--schedule", dest="schedule",

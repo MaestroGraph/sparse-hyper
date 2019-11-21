@@ -228,7 +228,7 @@ class Convolution(nn.Module):
         self.unify = nn.Linear(k*cin, cout, bias=bias)
 
         if admode == 'none':
-            self.params = nn.Parameter(torch.randn(size=(k*3, )))
+            self.params = nn.Parameter(torch.randn(size=(4 if constrained else k * 3, )))
         else:
             if admode == 'full':
                 adin = 2 + cin
@@ -278,7 +278,7 @@ class Convolution(nn.Module):
 
         # add coords to channels
         if self.admode == 'none':
-            params = self.params[None, None, None, :].expand(b, h, w, k*3)
+            params = self.params[None, None, None, :].expand(b, h, w, 4 if self.constrained else k * 3)
         else:
             if self.admode == 'full':
                 coords = self.coords[None, :, :, :].expand(b, 2, h, w)
@@ -301,11 +301,11 @@ class Convolution(nn.Module):
             kp = int(math.sqrt(k))
 
             assert params.size() == (b, h, w, 4)
+
             scalex = params[:, :, :, 0:1, None, None]
             scaley = params[:, :, :, 1:2, None, None]
             rotate = params[:, :, :, 2:3, None, None]
             sigmas = params[:, :, :, 3:4, None, None]
-
 
             coords = self.base.view(1, 1, 1, 2, kp, kp).expand(b, h, w, 2, kp, kp).contiguous() * MULT
 

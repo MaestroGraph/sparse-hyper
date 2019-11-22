@@ -238,6 +238,9 @@ def go(arg):
 
             b, c, h, w = inputs.size()
 
+            if arg.cuda:
+                inputs = inputs.cuda()
+
             # compute actual gradient
             opt.zero_grad()
 
@@ -264,6 +267,8 @@ def go(arg):
             opt.step()
 
     inputs, _ = next(iter(trainloader))
+    if arg.cuda:
+        inputs = inputs.cuda()
 
     b, c, h, w = inputs.size()
 
@@ -273,7 +278,7 @@ def go(arg):
     latent = encoder(inputs)
     latent = F.softmax(latent, dim=1)
 
-    dinp = torch.eye(l)[None, :, :].expand(b, l, l).reshape(b*l, l)
+    dinp = torch.eye(l, device=d(arg.cuda))[None, :, :].expand(b, l, l).reshape(b*l, l)
     dout = decoder(dinp)
 
     assert dout.size() == (b*l, c, h, w)
@@ -292,20 +297,20 @@ def go(arg):
 
     # - Estimate the bias for the uninformed sampler
 
-    uste = torch.zeros((arg.samples, len(ti),))
+    uste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
 
     # Unbiased, uninformed STE
     for s in trange(arg.samples):
         opt.zero_grad()
 
         ks = [random.sample(range(arg.latent_size), k) for _ in range(b)]
-        ks = torch.tensor(ks, device=d())
+        ks = torch.tensor(ks, device=d(arg.cuda))
 
         latent = encoder(inputs)
         latent = torch.gather(latent, dim=1, index=ks); assert latent.size() == (b, k)
         latent = F.softmax(latent, dim=1)
 
-        dinp = torch.zeros(size=(b*k, l), device=d())
+        dinp = torch.zeros(size=(b*k, l), device=d(arg.cuda))
         dinp.scatter_(dim=1, index=ks.view(b*k, 1), value=1)
         dout = decoder(dinp)
 
@@ -325,7 +330,7 @@ def go(arg):
 
         del loss
 
-    iste = torch.zeros((arg.samples, len(ti),))
+    iste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
 
     # Unbiased, informed STE
     # This behaves like the USTE, but ensures that the argmax is always included in the sample
@@ -335,7 +340,7 @@ def go(arg):
         latent = encoder(inputs)
 
         ks = [random.sample(range(arg.latent_size-1), k-1) for _ in range(b)]
-        ks = torch.tensor(ks, device=d())
+        ks = torch.tensor(ks, device=d(arg.cuda))
         am = latent.argmax(dim=1, keepdim=True)
         ks[ks > am] += 1
 

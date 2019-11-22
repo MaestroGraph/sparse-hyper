@@ -1004,6 +1004,10 @@ def d(tensor=None):
     """
     if tensor is None:
         return 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    if type(tensor) is bool:
+        return 'cuda' if tensor else 'cpu'
+
     return 'cuda' if tensor.is_cuda else 'cpu'
 
 def here(subpath=None):

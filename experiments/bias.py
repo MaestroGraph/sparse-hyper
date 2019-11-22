@@ -22,6 +22,8 @@ import torchvision.transforms as transforms
 from torchvision.transforms import ToTensor
 from torch.utils.data import TensorDataset, DataLoader
 
+import torch.distributions as ds
+
 from argparse import ArgumentParser
 from torch.utils.tensorboard import SummaryWriter
 
@@ -31,6 +33,15 @@ import random, tqdm, sys, math, os
 Experiment to test bias of gradient estimator. Simple encoder/decoder with discrete latent space.
 
 """
+
+
+def sample_gumbel(shape, eps=1e-20, cuda=False):
+    U = torch.rand(shape, device=d(cuda))
+    return -Variable(torch.log(-torch.log(U + eps) + eps))
+
+def gumbelize(logits, temperature=1.0):
+    y = logits + sample_gumbel(logits.size(), logits.is_cuda)
+    return y / temperature
 
 def gradient(models):
     """
@@ -369,18 +380,56 @@ def go(arg):
 
         del loss
 
+    # Biased (?) gumbel STE
+    # STE with gumbel noise
+
+    gste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
+
+    for s in trange(arg.samples):
+        opt.zero_grad()
+
+        latent = encoder(inputs)
+
+        gumbelize(latent, temperature=arg.gumbel)
+        latent = F.softmax(latent, dim=1)
+
+        ks = latent.argmax(dim=1, keepdim=True)
+
+        dinp = torch.zeros(size=(b, l), device=d())
+        dinp.scatter_(dim=1, index=ks, value=1)
+
+        dinp = (dinp - latent).detach() + latent # straight-through trick
+        dout = decoder(dinp)
+
+        assert dout.size() == (b, c, h, w)
+
+        target = inputs.detach()
+
+        loss = F.binary_cross_entropy(dout, target, reduction='none')
+        loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b)
+        loss = loss.mean()
+
+        loss.backward()
+
+        samp_gradient = gradient([encoder])
+        gste[s, :] = samp_gradient[ti]
+
+        del loss
+
     for i in range(uste.size(1)):
 
         plt.gcf().clear()
 
         unump = uste[:, i].cpu().numpy()
         inump = iste[:, i].cpu().numpy()
+        gnump = gste[:, i].cpu().numpy()
 
-        plt.hist([unump, inump], color=['r', 'g'], label=['uninformed', 'informed'],bins='sturges')
+        plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=['uninformed', 'informed', f'gumbel STE t={arg.gumbel}'],bins='sturges')
 
         plt.axvline(x=unump.mean(), color='r')
         plt.axvline(x=inump.mean(), color='g')
-        plt.axvline(x=true_gradient[i], color='b', label='true gradient')
+        plt.axvline(x=gnump.mean(), color='b')
+        plt.axvline(x=true_gradient[i], color='k', label='true gradient')
 
         plt.title(f'estimates for parameter {ti[i]} ({uste.size(0)} samples)')
 
@@ -459,6 +508,11 @@ if __name__ == "__main__":
     parser.add_argument("-T", "--tb_dir", dest="tb_dir",
                         help="Data directory",
                         default=None)
+
+    parser.add_argument("-G", "--gumbel", dest="gumbel",
+                        help="Gumbel temp.",
+                        default=1.0, type=float)
+
 
     args = parser.parse_args()
 

@@ -40,7 +40,7 @@ def sample_gumbel(shape, eps=1e-20, cuda=False):
     return -Variable(torch.log(-torch.log(U + eps) + eps))
 
 def gumbelize(logits, temperature=1.0):
-    y = logits + sample_gumbel(logits.size(), logits.is_cuda)
+    y = logits + sample_gumbel(logits.size(), cuda=logits.is_cuda)
     return y / temperature
 
 def gradient(models):

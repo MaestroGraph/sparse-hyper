@@ -230,7 +230,7 @@ def go(arg):
     ti = random.sample(range(nparms), 15) # random indices of parameters for which to test the gradient
     k = arg.latent_size // 5
 
-    # Train for a fixed nr of instances
+    # Train for a fixed nr of instances (with the true gradient)
     for e in range(arg.epochs):
         print('epoch', e)
 
@@ -247,7 +247,7 @@ def go(arg):
             latent = encoder(inputs)
             latent = F.softmax(latent, dim=1)
 
-            dinp = torch.eye(l)[None, :, :].expand(b, l, l).reshape(b*l, l)
+            dinp = torch.eye(l, device=d(arg.cuda))[None, :, :].expand(b, l, l).reshape(b*l, l)
             dout = decoder(dinp)
 
             assert dout.size() == (b*l, c, h, w)

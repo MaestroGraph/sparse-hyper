@@ -238,8 +238,8 @@ def go(arg):
 
     seen = 0
     l = arg.latent_size
-    ti = random.sample(range(nparms), 15) # random indices of parameters for which to test the gradient
-    k = arg.latent_size // 5
+    ti = random.sample(range(nparms), arg.num_params) # random indices of parameters for which to test the gradient
+    k = arg.k
 
     # Train for a fixed nr of instances (with the true gradient)
     for e in range(arg.epochs):
@@ -386,58 +386,134 @@ def go(arg):
     gste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
 
     for s in trange(arg.samples):
-        opt.zero_grad()
+        for _ in range(k):
+            opt.zero_grad()
 
-        latent = encoder(inputs)
+            latent = encoder(inputs)
 
-        gumbelize(latent, temperature=arg.gumbel)
-        latent = F.softmax(latent, dim=1)
+            gumbelize(latent, temperature=arg.gumbel)
+            latent = F.softmax(latent, dim=1)
 
-        ks = latent.argmax(dim=1, keepdim=True)
+            ks = latent.argmax(dim=1, keepdim=True)
 
-        dinp = torch.zeros(size=(b, l), device=d())
-        dinp.scatter_(dim=1, index=ks, value=1)
+            dinp = torch.zeros(size=(b, l), device=d())
+            dinp.scatter_(dim=1, index=ks, value=1)
 
-        dinp = (dinp - latent).detach() + latent # straight-through trick
-        dout = decoder(dinp)
+            dinp = (dinp - latent).detach() + latent # straight-through trick
+            dout = decoder(dinp)
 
-        assert dout.size() == (b, c, h, w)
+            assert dout.size() == (b, c, h, w)
 
-        target = inputs.detach()
+            target = inputs.detach()
 
-        loss = F.binary_cross_entropy(dout, target, reduction='none')
-        loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b)
-        loss = loss.mean()
+            loss = F.binary_cross_entropy(dout, target, reduction='none')
+            loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b)
+            loss = loss.mean()
 
-        loss.backward()
+            loss.backward()
 
-        samp_gradient = gradient([encoder])
-        gste[s, :] = samp_gradient[ti]
+            samp_gradient = gradient([encoder])
+            gste[s, :] += samp_gradient[ti]
 
-        del loss
+            del loss
 
-    for i in range(uste.size(1)):
+        gste[s, :] /= k
+
+    # Classical STE
+    # cste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
+    #
+    # for s in trange(arg.samples):
+    #     opt.zero_grad()
+    #
+    #     latent = encoder(inputs)
+    #
+    #     # gumbelize(latent, temperature=arg.gumbel)
+    #     dist = ds.Categorical(logits=latent)
+    #     ks = dist.sample()[:, None]
+    #
+    #     dinp = torch.zeros(size=(b, l), device=d())
+    #     dinp.scatter_(dim=1, index=ks, value=1)
+    #
+    #     dinp = (dinp - latent).detach() + latent # straight-through trick
+    #     dout = decoder(dinp)
+    #
+    #     assert dout.size() == (b, c, h, w)
+    #
+    #     target = inputs.detach()
+    #
+    #     loss = F.binary_cross_entropy(dout, target, reduction='none')
+    #     loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b)
+    #     loss = loss.mean()
+    #
+    #     loss.backward()
+    #
+    #     samp_gradient = gradient([encoder])
+    #     cste[s, :] = samp_gradient[ti]
+    #
+    #     del loss
+
+    ind = true_gradient != 0.0
+    print(f'{ind.sum()} derivatives out of {ind.size()} not equal to zero.')
+
+    for nth, i in enumerate( torch.arange(ind.size(0))[ind][:40] ):
 
         plt.gcf().clear()
 
         unump = uste[:, i].cpu().numpy()
         inump = iste[:, i].cpu().numpy()
         gnump = gste[:, i].cpu().numpy()
+        # cnump = cste[:, i].cpu().numpy()
 
-        plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=['uninformed', 'informed', f'gumbel STE t={arg.gumbel}'],bins='sturges')
+        ulab = f'uninformed, var={unump.var():.4}'
+        ilab = f'informed, var={inump.var():.4}'
+        glab = f'Gumbel STE (t={arg.gumbel}) var={gnump.var():.4}'
+        # clab = f'Classical STE var={cnump.var():.4}'
+
+        plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab],bins='sturges')
 
         plt.axvline(x=unump.mean(), color='r')
         plt.axvline(x=inump.mean(), color='g')
         plt.axvline(x=gnump.mean(), color='b')
+        # plt.axvline(x=cnump.mean(), color='c')
         plt.axvline(x=true_gradient[i], color='k', label='true gradient')
 
         plt.title(f'estimates for parameter {ti[i]} ({uste.size(0)} samples)')
 
         plt.legend()
+        util.basic()
 
-        plt.savefig(f'histogram.{i}.pdf')
+        plt.savefig(f'histogram.{nth}.pdf')
 
+    plt.gcf().clear()
 
+    unump = uste[:, ind].mean(dim=0).cpu().numpy()
+    inump = iste[:, ind].mean(dim=0).cpu().numpy()
+    gnump = gste[:, ind].mean(dim=0).cpu().numpy()
+
+    tnump = true_gradient[ind].cpu().numpy()
+
+    unump = np.abs(unump - tnump)
+    inump = np.abs(inump - tnump)
+    gnump = np.abs(gnump - tnump)
+
+    ulab = f'uninformed, var={unump.var():.4}'
+    ilab = f'informed, var={inump.var():.4}'
+    glab = f'gumbel STE (t={arg.gumbel}) var={gnump.var():.4}'
+    # clab = f'Classical STE var={cnump.var():.4}'
+
+    plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab],bins='sturges')
+
+    plt.axvline(x=unump.mean(), color='r')
+    plt.axvline(x=inump.mean(), color='g')
+    plt.axvline(x=gnump.mean(), color='b')
+    # plt.axvline(x=cnump.mean(), color='c')
+
+    plt.title(f'Absolute error between true gradient and estimate \n over {ind.sum()} parameters with nonzero gradient.')
+
+    plt.legend()
+    util.basic()
+
+    plt.savefig(f'histogram.all.pdf')
 
 if __name__ == "__main__":
 
@@ -445,8 +521,8 @@ if __name__ == "__main__":
 
     parser.add_argument("-e", "--epochs",
                         dest="epochs",
-                        help="Number of epochs",
-                        default=250, type=int)
+                        help="Number of epochs to train (with the true gradient) before testing the estimator biases.",
+                        default=5, type=int)
 
     parser.add_argument("-b", "--batch",
                         dest="batch",
@@ -455,8 +531,13 @@ if __name__ == "__main__":
 
     parser.add_argument("-d", "--depth",
                         dest="depth",
-                        help="Depth",
+                        help="Depth of the autoencoder (number of maxpooling operations).",
                         default=3, type=int)
+
+    parser.add_argument("--num-params",
+                        dest="num_params",
+                        help="Depth",
+                        default=50000, type=int)
 
     parser.add_argument("--task",
                         dest="task",
@@ -477,6 +558,11 @@ if __name__ == "__main__":
                         dest="plot_every",
                         help="Number of epochs to wait between plotting",
                         default=1, type=int)
+
+    parser.add_argument("-k", "--set-size",
+                        dest="k",
+                        help="Size of the sample (the set S). For the gumbel softmax, we average the estimate over k separate samples",
+                        default=5, type=int)
 
     parser.add_argument("-l", "--learn-rate",
                         dest="lr",
@@ -510,7 +596,7 @@ if __name__ == "__main__":
                         default=None)
 
     parser.add_argument("-G", "--gumbel", dest="gumbel",
-                        help="Gumbel temp.",
+                        help="Gumbel temperature.",
                         default=1.0, type=float)
 
 

@@ -149,319 +149,334 @@ def go(arg):
 
     util.makedirs('./bias/')
 
-    if arg.seed < 0:
-        seed = random.randint(0, 1000000)
-        print('random seed: ', seed)
-    else:
-        torch.manual_seed(arg.seed)
+    if not os.path.exists('./bias/cached.npz'):
 
-    tbw = SummaryWriter(log_dir=arg.tb_dir)
-    tfms = transforms.Compose([transforms.ToTensor()])
+        if arg.seed < 0:
+            seed = random.randint(0, 1000000)
+            print('random seed: ', seed)
+        else:
+            torch.manual_seed(arg.seed)
 
-    if (arg.task == 'mnist'):
+        tbw = SummaryWriter(log_dir=arg.tb_dir)
+        tfms = transforms.Compose([transforms.ToTensor()])
 
-        shape = (1, 28, 28)
-        num_classes = 10
+        if (arg.task == 'mnist'):
 
-        data = arg.data + os.sep + arg.task
+            shape = (1, 28, 28)
+            num_classes = 10
 
-        if arg.final:
-            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=tfms)
-            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=0)
+            data = arg.data + os.sep + arg.task
 
-            test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=ToTensor())
-            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=0)
+            if arg.final:
+                train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=tfms)
+                trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=0)
+
+                test = torchvision.datasets.MNIST(root=data, train=False, download=True, transform=ToTensor())
+                testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=0)
+
+            else:
+                NUM_TRAIN = 45000
+                NUM_VAL = 5000
+                total = NUM_TRAIN + NUM_VAL
+
+                train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=tfms)
+
+                trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+                testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+
+        elif (arg.task == 'cifar10'):
+
+            shape = (3, 32, 32)
+            num_classes = 10
+
+            data = arg.data + os.sep + arg.task
+
+            if arg.final:
+                train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=tfms)
+                trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch, shuffle=True, num_workers=2)
+                test = torchvision.datasets.CIFAR10(root=data, train=False, download=True, transform=ToTensor())
+                testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=False, num_workers=2)
+
+            else:
+                NUM_TRAIN = 45000
+                NUM_VAL = 5000
+                total = NUM_TRAIN + NUM_VAL
+
+                train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=tfms)
+
+                trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+                testloader = DataLoader(train, batch_size=arg.batch,
+                                        sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+
+        elif arg.task == 'ffhq':
+
+            transform = ToTensor()
+            shape = (3, 128, 128)
+
+            trainset = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'train',
+                                                        transform=transform)
+            trainloader = torch.utils.data.DataLoader(trainset, batch_size=arg.batch,
+                                                      shuffle=True, num_workers=2)
+
+            testset = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'valid',
+                                                       transform=transform)
+            testloader = torch.utils.data.DataLoader(testset, batch_size=arg.batch,
+                                                     shuffle=False, num_workers=2)
 
         else:
-            NUM_TRAIN = 45000
-            NUM_VAL = 5000
-            total = NUM_TRAIN + NUM_VAL
+            raise Exception('Task {} not recognized'.format(arg.task))
 
-            train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=tfms)
+        encoder = Encoder(shape, latent_size=arg.latent_size, depth=arg.depth)
+        decoder = Decoder(shape, latent_size=arg.latent_size, depth=arg.depth)
 
-            trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-            testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+        if arg.cuda:
+            encoder.cuda()
+            decoder.cuda()
 
-    elif (arg.task == 'cifar10'):
+        opt = torch.optim.Adam(params=list(encoder.parameters()) + list(decoder.parameters()), lr=arg.lr)
 
-        shape = (3, 32, 32)
-        num_classes = 10
+        nparms = num_params([encoder])
+        print(f'{nparms} parameters in encoder.')
 
-        data = arg.data + os.sep + arg.task
+        seen = 0
+        l = arg.latent_size
+        ti = random.sample(range(nparms), arg.num_params) # random indices of parameters for which to test the gradient
+        k = arg.k
 
-        if arg.final:
-            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=tfms)
-            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch, shuffle=True, num_workers=2)
-            test = torchvision.datasets.CIFAR10(root=data, train=False, download=True, transform=ToTensor())
-            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=False, num_workers=2)
+        # Train for a fixed nr of instances (with the true gradient)
+        for e in range(arg.epochs):
+            print('epoch', e)
 
-        else:
-            NUM_TRAIN = 45000
-            NUM_VAL = 5000
-            total = NUM_TRAIN + NUM_VAL
+            for i, (inputs, _) in enumerate(trainloader):
 
-            train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=tfms)
+                b, c, h, w = inputs.size()
 
-            trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-            testloader = DataLoader(train, batch_size=arg.batch,
-                                    sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+                if arg.cuda:
+                    inputs = inputs.cuda()
 
-    elif arg.task == 'ffhq':
+                # compute actual gradient
+                opt.zero_grad()
 
-        transform = ToTensor()
-        shape = (3, 128, 128)
+                latent = encoder(inputs)
+                latent = F.softmax(latent, dim=1)
 
-        trainset = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'train',
-                                                    transform=transform)
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=arg.batch,
-                                                  shuffle=True, num_workers=2)
+                dinp = torch.eye(l, device=d(arg.cuda))[None, :, :].expand(b, l, l).reshape(b*l, l)
+                dout = decoder(dinp)
 
-        testset = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'valid',
-                                                   transform=transform)
-        testloader = torch.utils.data.DataLoader(testset, batch_size=arg.batch,
-                                                 shuffle=False, num_workers=2)
+                assert dout.size() == (b*l, c, h, w)
 
-    else:
-        raise Exception('Task {} not recognized'.format(arg.task))
+                target = inputs.detach()[:, None, :, :, :].expand(b, l, c, h, w).reshape(b*l, c, h, w)
 
-    encoder = Encoder(shape, latent_size=arg.latent_size, depth=arg.depth)
-    decoder = Decoder(shape, latent_size=arg.latent_size, depth=arg.depth)
+                loss = F.binary_cross_entropy(dout, target, reduction='none')
+                loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b, l)
 
-    if arg.cuda:
-        encoder.cuda()
-        decoder.cuda()
+                loss = (loss * latent).sum(dim=1).mean()
 
-    opt = torch.optim.Adam(params=list(encoder.parameters()) + list(decoder.parameters()), lr=arg.lr)
+                loss.backward()
 
-    nparms = num_params([encoder])
-    print(f'{nparms} parameters in encoder.')
+                true_gradient = gradient([encoder, decoder])
+                true_gradient = true_gradient[ti]
 
-    seen = 0
-    l = arg.latent_size
-    ti = random.sample(range(nparms), arg.num_params) # random indices of parameters for which to test the gradient
-    k = arg.k
+                opt.step()
 
-    # Train for a fixed nr of instances (with the true gradient)
-    for e in range(arg.epochs):
-        print('epoch', e)
+        inputs, _ = next(iter(trainloader))
+        if arg.cuda:
+            inputs = inputs.cuda()
 
-        for i, (inputs, _) in enumerate(trainloader):
+        b, c, h, w = inputs.size()
 
-            b, c, h, w = inputs.size()
+        # compute true gradient
+        opt.zero_grad()
 
-            if arg.cuda:
-                inputs = inputs.cuda()
+        latent = encoder(inputs)
+        latent = F.softmax(latent, dim=1)
 
-            # compute actual gradient
+        dinp = torch.eye(l, device=d(arg.cuda))[None, :, :].expand(b, l, l).reshape(b*l, l)
+        dout = decoder(dinp)
+
+        assert dout.size() == (b*l, c, h, w)
+
+        target = inputs.detach()[:, None, :, :, :].expand(b, l, c, h, w).reshape(b*l, c, h, w)
+
+        loss = F.binary_cross_entropy(dout, target, reduction='none')
+        loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b, l)
+
+        loss = (loss * latent).sum(dim=1).mean()
+
+        loss.backward()
+
+        true_gradient = gradient([encoder])
+        true_gradient = true_gradient[ti]
+
+        # - Estimate the bias for the uninformed sampler
+
+        uste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
+
+        # Unbiased, uninformed STE
+        for s in trange(arg.samples):
             opt.zero_grad()
 
+            ks = [random.sample(range(arg.latent_size), k) for _ in range(b)]
+            ks = torch.tensor(ks, device=d(arg.cuda))
+
             latent = encoder(inputs)
+            latent = torch.gather(latent, dim=1, index=ks); assert latent.size() == (b, k)
             latent = F.softmax(latent, dim=1)
 
-            dinp = torch.eye(l, device=d(arg.cuda))[None, :, :].expand(b, l, l).reshape(b*l, l)
+            dinp = torch.zeros(size=(b*k, l), device=d(arg.cuda))
+            dinp.scatter_(dim=1, index=ks.view(b*k, 1), value=1)
             dout = decoder(dinp)
 
-            assert dout.size() == (b*l, c, h, w)
+            assert dout.size() == (b * k, c, h, w)
 
-            target = inputs.detach()[:, None, :, :, :].expand(b, l, c, h, w).reshape(b*l, c, h, w)
+            target = inputs.detach()[:, None, :, :, :].expand(b, k, c, h, w).reshape(b * k, c, h, w)
 
             loss = F.binary_cross_entropy(dout, target, reduction='none')
-            loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b, l)
+            loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b, k)
 
             loss = (loss * latent).sum(dim=1).mean()
 
             loss.backward()
 
-            true_gradient = gradient([encoder, decoder])
-            true_gradient = true_gradient[ti]
+            samp_gradient = gradient([encoder])
+            uste[s, :] = samp_gradient[ti]
 
-            opt.step()
+            del loss
 
-    inputs, _ = next(iter(trainloader))
-    if arg.cuda:
-        inputs = inputs.cuda()
+        iste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
 
-    b, c, h, w = inputs.size()
-
-    # compute true gradient
-    opt.zero_grad()
-
-    latent = encoder(inputs)
-    latent = F.softmax(latent, dim=1)
-
-    dinp = torch.eye(l, device=d(arg.cuda))[None, :, :].expand(b, l, l).reshape(b*l, l)
-    dout = decoder(dinp)
-
-    assert dout.size() == (b*l, c, h, w)
-
-    target = inputs.detach()[:, None, :, :, :].expand(b, l, c, h, w).reshape(b*l, c, h, w)
-
-    loss = F.binary_cross_entropy(dout, target, reduction='none')
-    loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b, l)
-
-    loss = (loss * latent).sum(dim=1).mean()
-
-    loss.backward()
-
-    true_gradient = gradient([encoder])
-    true_gradient = true_gradient[ti]
-
-    # - Estimate the bias for the uninformed sampler
-
-    uste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
-
-    # Unbiased, uninformed STE
-    for s in trange(arg.samples):
-        opt.zero_grad()
-
-        ks = [random.sample(range(arg.latent_size), k) for _ in range(b)]
-        ks = torch.tensor(ks, device=d(arg.cuda))
-
-        latent = encoder(inputs)
-        latent = torch.gather(latent, dim=1, index=ks); assert latent.size() == (b, k)
-        latent = F.softmax(latent, dim=1)
-
-        dinp = torch.zeros(size=(b*k, l), device=d(arg.cuda))
-        dinp.scatter_(dim=1, index=ks.view(b*k, 1), value=1)
-        dout = decoder(dinp)
-
-        assert dout.size() == (b * k, c, h, w)
-
-        target = inputs.detach()[:, None, :, :, :].expand(b, k, c, h, w).reshape(b * k, c, h, w)
-
-        loss = F.binary_cross_entropy(dout, target, reduction='none')
-        loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b, k)
-
-        loss = (loss * latent).sum(dim=1).mean()
-
-        loss.backward()
-
-        samp_gradient = gradient([encoder])
-        uste[s, :] = samp_gradient[ti]
-
-        del loss
-
-    iste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
-
-    # Unbiased, informed STE
-    # This behaves like the USTE, but ensures that the argmax is always included in the sample
-    for s in trange(arg.samples):
-        opt.zero_grad()
-
-        latent = encoder(inputs)
-
-        ks = [random.sample(range(arg.latent_size-1), k-1) for _ in range(b)]
-        ks = torch.tensor(ks, device=d(arg.cuda))
-        am = latent.argmax(dim=1, keepdim=True)
-        ks[ks > am] += 1
-
-        ks = torch.cat([am, ks], dim=1)
-
-        latent = torch.gather(latent, dim=1, index=ks); assert latent.size() == (b, k)
-        latent = F.softmax(latent, dim=1)
-
-        dinp = torch.zeros(size=(b * k, l), device=d())
-        dinp.scatter_(dim=1, index=ks.view(b * k, 1), value=1)
-        dout = decoder(dinp)
-
-        assert dout.size() == (b * k, c, h, w)
-
-        target = inputs.detach()[:, None, :, :, :].expand(b, k, c, h, w).reshape(b * k, c, h, w)
-
-        loss = F.binary_cross_entropy(dout, target, reduction='none')
-        loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b, k)
-
-        loss = (loss * latent).sum(dim=1).mean()
-
-        loss.backward()
-
-        samp_gradient = gradient([encoder])
-        iste[s, :] = samp_gradient[ti]
-
-        del loss
-
-    # Biased (?) gumbel STE
-    # STE with gumbel noise
-
-    gste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
-
-    for s in trange(arg.samples):
-        for _ in range(k):
+        # Unbiased, informed STE
+        # This behaves like the USTE, but ensures that the argmax is always included in the sample
+        for s in trange(arg.samples):
             opt.zero_grad()
 
             latent = encoder(inputs)
 
-            gumbelize(latent, temperature=arg.gumbel)
+            ks = [random.sample(range(arg.latent_size-1), k-1) for _ in range(b)]
+            ks = torch.tensor(ks, device=d(arg.cuda))
+            am = latent.argmax(dim=1, keepdim=True)
+            ks[ks > am] += 1
+
+            ks = torch.cat([am, ks], dim=1)
+
+            latent = torch.gather(latent, dim=1, index=ks); assert latent.size() == (b, k)
             latent = F.softmax(latent, dim=1)
 
-            ks = latent.argmax(dim=1, keepdim=True)
-
-            dinp = torch.zeros(size=(b, l), device=d())
-            dinp.scatter_(dim=1, index=ks, value=1)
-
-            dinp = (dinp - latent).detach() + latent # straight-through trick
+            dinp = torch.zeros(size=(b * k, l), device=d())
+            dinp.scatter_(dim=1, index=ks.view(b * k, 1), value=1)
             dout = decoder(dinp)
 
-            assert dout.size() == (b, c, h, w)
+            assert dout.size() == (b * k, c, h, w)
 
-            target = inputs.detach()
+            target = inputs.detach()[:, None, :, :, :].expand(b, k, c, h, w).reshape(b * k, c, h, w)
 
             loss = F.binary_cross_entropy(dout, target, reduction='none')
-            loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b)
-            loss = loss.mean()
+            loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b, k)
+
+            loss = (loss * latent).sum(dim=1).mean()
 
             loss.backward()
 
             samp_gradient = gradient([encoder])
-            gste[s, :] += samp_gradient[ti]
+            iste[s, :] = samp_gradient[ti]
 
             del loss
 
-        gste[s, :] /= k
+        # Biased (?) gumbel STE
+        # STE with gumbel noise
 
-    # Classical STE
-    # cste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
-    #
-    # for s in trange(arg.samples):
-    #     opt.zero_grad()
-    #
-    #     latent = encoder(inputs)
-    #
-    #     # gumbelize(latent, temperature=arg.gumbel)
-    #     dist = ds.Categorical(logits=latent)
-    #     ks = dist.sample()[:, None]
-    #
-    #     dinp = torch.zeros(size=(b, l), device=d())
-    #     dinp.scatter_(dim=1, index=ks, value=1)
-    #
-    #     dinp = (dinp - latent).detach() + latent # straight-through trick
-    #     dout = decoder(dinp)
-    #
-    #     assert dout.size() == (b, c, h, w)
-    #
-    #     target = inputs.detach()
-    #
-    #     loss = F.binary_cross_entropy(dout, target, reduction='none')
-    #     loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b)
-    #     loss = loss.mean()
-    #
-    #     loss.backward()
-    #
-    #     samp_gradient = gradient([encoder])
-    #     cste[s, :] = samp_gradient[ti]
-    #
-    #     del loss
+        gste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
 
-    ind = true_gradient != 0.0
-    print(f'{ind.sum()} derivatives out of {ind.size()} not equal to zero.')
+        for s in trange(arg.samples):
+            for _ in range(k):
+                opt.zero_grad()
 
-    for nth, i in enumerate( torch.arange(ind.size(0))[ind][:40] ):
+                latent = encoder(inputs)
+
+                gumbelize(latent, temperature=arg.gumbel)
+                latent = F.softmax(latent, dim=1)
+
+                ks = latent.argmax(dim=1, keepdim=True)
+
+                dinp = torch.zeros(size=(b, l), device=d())
+                dinp.scatter_(dim=1, index=ks, value=1)
+
+                dinp = (dinp - latent).detach() + latent # straight-through trick
+                dout = decoder(dinp)
+
+                assert dout.size() == (b, c, h, w)
+
+                target = inputs.detach()
+
+                loss = F.binary_cross_entropy(dout, target, reduction='none')
+                loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b)
+                loss = loss.mean()
+
+                loss.backward()
+
+                samp_gradient = gradient([encoder])
+                gste[s, :] += samp_gradient[ti]
+
+                del loss
+
+            gste[s, :] /= k
+
+        # Classical STE
+        # cste = torch.zeros((arg.samples, len(ti),), device=d(arg.cuda))
+        #
+        # for s in trange(arg.samples):
+        #     opt.zero_grad()
+        #
+        #     latent = encoder(inputs)
+        #
+        #     # gumbelize(latent, temperature=arg.gumbel)
+        #     dist = ds.Categorical(logits=latent)
+        #     ks = dist.sample()[:, None]
+        #
+        #     dinp = torch.zeros(size=(b, l), device=d())
+        #     dinp.scatter_(dim=1, index=ks, value=1)
+        #
+        #     dinp = (dinp - latent).detach() + latent # straight-through trick
+        #     dout = decoder(dinp)
+        #
+        #     assert dout.size() == (b, c, h, w)
+        #
+        #     target = inputs.detach()
+        #
+        #     loss = F.binary_cross_entropy(dout, target, reduction='none')
+        #     loss = loss.sum(dim=1).sum(dim=1).sum(dim=1).view(b)
+        #     loss = loss.mean()
+        #
+        #     loss.backward()
+        #
+        #     samp_gradient = gradient([encoder])
+        #     cste[s, :] = samp_gradient[ti]
+        #
+        #     del loss
+
+        uste = uste.cpu().numpy()
+        iste = iste.cpu().numpy()
+        gste = gste.cpu().numpy()
+        tgrd = true_gradient.cpu().numpy()
+
+        np.savez_compressed('./bias/cached.npz', uste=uste, iste=iste, gste=gste, tgrd=tgrd)
+
+    else:
+        res = np.load('./bias/cached.npz')
+        uste, iste, gste, tgrd = res['uste'], res['iste'], res['gste'], res['tgrd']
+
+    ind = tgrd != 0.0
+    print(tgrd.shape, ind)
+
+    print(f'{ind.sum()} derivatives out of {ind.shape} not equal to zero.')
+
+    for nth, i in enumerate( np.arange(ind.shape[0])[ind][:40] ):
 
         plt.gcf().clear()
 
-        unump = uste[:, i].cpu().numpy()
-        inump = iste[:, i].cpu().numpy()
-        gnump = gste[:, i].cpu().numpy()
+        unump = uste[:, i]
+        inump = iste[:, i]
+        gnump = gste[:, i]
         # cnump = cste[:, i].cpu().numpy()
 
         ulab = f'uninformed, var={unump.var():.4}'
@@ -475,22 +490,23 @@ def go(arg):
         plt.axvline(x=inump.mean(), color='g')
         plt.axvline(x=gnump.mean(), color='b')
         # plt.axvline(x=cnump.mean(), color='c')
-        plt.axvline(x=true_gradient[i], color='k', label='true gradient')
+        plt.axvline(x=tgrd[i], color='k', label='true gradient')
 
-        plt.title(f'estimates for parameter {ti[i]} ({uste.size(0)} samples)')
+        plt.title(f'estimates for parameter ... ({uste.shape[0]} samples)')
 
         plt.legend()
         util.basic()
 
-        plt.savefig(f'histogram.{nth}.pdf')
+        plt.savefig(f'./bias/histogram.{nth}.pdf')
+
 
     plt.gcf().clear()
 
-    unump = uste[:, ind].mean(dim=0).cpu().numpy()
-    inump = iste[:, ind].mean(dim=0).cpu().numpy()
-    gnump = gste[:, ind].mean(dim=0).cpu().numpy()
+    unump = uste[:, ind].mean(axis=0)
+    inump = iste[:, ind].mean(axis=0)
+    gnump = gste[:, ind].mean(axis=0)
 
-    tnump = true_gradient[ind].cpu().numpy()
+    tnump = tgrd[ind]
 
     unump = np.abs(unump - tnump)
     inump = np.abs(inump - tnump)
@@ -513,7 +529,10 @@ def go(arg):
     plt.legend()
     util.basic()
 
-    plt.savefig(f'histogram.all.pdf')
+    if arg.range is not None:
+        plt.xlim(*arg.range)
+
+    plt.savefig(f'./bias/histogram.all.pdf')
 
 if __name__ == "__main__":
 
@@ -599,6 +618,10 @@ if __name__ == "__main__":
                         help="Gumbel temperature.",
                         default=1.0, type=float)
 
+    parser.add_argument("--range", dest="range",
+                        help="Range for the 'all' plot.",
+                        nargs=2,
+                        default=None, type=float)
 
     args = parser.parse_args()
 

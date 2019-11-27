@@ -519,9 +519,9 @@ def go(arg):
 
     plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab]) #, bins='sturges')
 
-    plt.axvline(x=unump.mean(), color='r')
-    plt.axvline(x=inump.mean(), color='g')
-    plt.axvline(x=gnump.mean(), color='b')
+    plt.axvline(x=unump.mean(), color='r', ls='--')
+    plt.axvline(x=inump.mean(), color='g', ls='-.')
+    plt.axvline(x=gnump.mean(), color='b', ls=':')
     # plt.axvline(x=cnump.mean(), color='c')
 
     plt.title(f'Absolute error between true gradient and estimate \n over {ind.sum()} parameters with nonzero gradient.')

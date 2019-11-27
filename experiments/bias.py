@@ -470,7 +470,7 @@ def go(arg):
 
     print(f'{ind.sum()} derivatives out of {ind.shape} not equal to zero.')
 
-    for nth, i in enumerate( np.arange(ind.shape[0])[ind][:40] ):
+    for nth, i in enumerate( np.arange(ind.shape[0])[ind][:5] ):
 
         plt.gcf().clear()
 
@@ -486,11 +486,11 @@ def go(arg):
 
         plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab],bins='sturges')
 
-        plt.axvline(x=unump.mean(), color='r')
-        plt.axvline(x=inump.mean(), color='g')
-        plt.axvline(x=gnump.mean(), color='b')
-        # plt.axvline(x=cnump.mean(), color='c')
         plt.axvline(x=tgrd[i], color='k', label='true gradient')
+        plt.axvline(x=unump.mean(), color='r', ls='--')
+        plt.axvline(x=inump.mean(), color='g', ls='-.')
+        plt.axvline(x=gnump.mean(), color='b', ls=':')
+        # plt.axvline(x=cnump.mean(), color='c')
 
         plt.title(f'estimates for parameter ... ({uste.shape[0]} samples)')
 
@@ -517,7 +517,7 @@ def go(arg):
     glab = f'gumbel STE (t={arg.gumbel}) var={gnump.var():.4}'
     # clab = f'Classical STE var={cnump.var():.4}'
 
-    plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab],bins='sturges')
+    plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab]) #, bins='sturges')
 
     plt.axvline(x=unump.mean(), color='r')
     plt.axvline(x=inump.mean(), color='g')

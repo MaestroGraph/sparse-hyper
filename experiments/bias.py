@@ -484,7 +484,7 @@ def go(arg):
         glab = f'Gumbel STE (t={arg.gumbel}) var={gnump.var():.4}'
         # clab = f'Classical STE var={cnump.var():.4}'
 
-        plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab],bins='sturges')
+        plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab], bins=arg.bins)
 
         plt.axvline(x=tgrd[i], color='k', label='true gradient')
         plt.axvline(x=unump.mean(), color='r', ls='--')
@@ -517,7 +517,7 @@ def go(arg):
     glab = f'gumbel STE (t={arg.gumbel}) var={gnump.var():.4}'
     # clab = f'Classical STE var={cnump.var():.4}'
 
-    plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab]) #, bins='sturges')
+    plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab], bins=arg.bins)
 
     plt.axvline(x=unump.mean(), color='r', ls='--')
     plt.axvline(x=inump.mean(), color='g', ls='-.')
@@ -622,6 +622,11 @@ if __name__ == "__main__":
                         help="Range for the 'all' plot.",
                         nargs=2,
                         default=None, type=float)
+
+
+    parser.add_argument("--bins", dest="bins",
+                        help="Nr of bind (or binning strategy).",
+                        default='sturges')
 
     args = parser.parse_args()
 

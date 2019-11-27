@@ -147,6 +147,11 @@ class Decoder(nn.Module):
 
 def go(arg):
 
+    try:
+        arg.bins = int(arg.bins)
+    except ValueError:
+        pass
+
     util.makedirs('./bias/')
 
     if not os.path.exists('./bias/cached.npz'):
@@ -622,7 +627,6 @@ if __name__ == "__main__":
                         help="Range for the 'all' plot.",
                         nargs=2,
                         default=None, type=float)
-
 
     parser.add_argument("--bins", dest="bins",
                         help="Nr of bind (or binning strategy).",

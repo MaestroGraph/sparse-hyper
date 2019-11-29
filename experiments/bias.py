@@ -629,8 +629,13 @@ if __name__ == "__main__":
                         default=None, type=float)
 
     parser.add_argument("--bins", dest="bins",
-                        help="Nr of bind (or binning strategy).",
+                        help="Nr of bins (or binning strategy).",
                         default='sturges')
+
+    parser.add_argument("--skip", dest="skip",
+                        help="Skip the per-parameter histograms.",
+                        action="store_true")
+
 
     args = parser.parse_args()
 

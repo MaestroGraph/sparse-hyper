@@ -475,34 +475,35 @@ def go(arg):
 
     print(f'{ind.sum()} derivatives out of {ind.shape} not equal to zero.')
 
-    for nth, i in enumerate( np.arange(ind.shape[0])[ind][:5] ):
+    if not arg.skip:
+        for nth, i in enumerate( np.arange(ind.shape[0])[ind][:5] ):
 
-        plt.gcf().clear()
+            plt.gcf().clear()
 
-        unump = uste[:, i]
-        inump = iste[:, i]
-        gnump = gste[:, i]
-        # cnump = cste[:, i].cpu().numpy()
+            unump = uste[:, i]
+            inump = iste[:, i]
+            gnump = gste[:, i]
+            # cnump = cste[:, i].cpu().numpy()
 
-        ulab = f'uninformed, var={unump.var():.4}'
-        ilab = f'informed, var={inump.var():.4}'
-        glab = f'Gumbel STE (t={arg.gumbel}) var={gnump.var():.4}'
-        # clab = f'Classical STE var={cnump.var():.4}'
+            ulab = f'uninformed, var={unump.var():.4}'
+            ilab = f'informed, var={inump.var():.4}'
+            glab = f'Gumbel STE (t={arg.gumbel}) var={gnump.var():.4}'
+            # clab = f'Classical STE var={cnump.var():.4}'
 
-        plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab], bins=arg.bins)
+            plt.hist([unump, inump, gnump], color=['r', 'g', 'b'], label=[ulab, ilab, glab], bins=arg.bins)
 
-        plt.axvline(x=tgrd[i], color='k', label='true gradient')
-        plt.axvline(x=unump.mean(), color='r', ls='--')
-        plt.axvline(x=inump.mean(), color='g', ls='-.')
-        plt.axvline(x=gnump.mean(), color='b', ls=':')
-        # plt.axvline(x=cnump.mean(), color='c')
+            plt.axvline(x=tgrd[i], color='k', label='true gradient')
+            plt.axvline(x=unump.mean(), color='r', ls='--')
+            plt.axvline(x=inump.mean(), color='g', ls='-.')
+            plt.axvline(x=gnump.mean(), color='b', ls=':')
+            # plt.axvline(x=cnump.mean(), color='c')
 
-        plt.title(f'estimates for parameter ... ({uste.shape[0]} samples)')
+            plt.title(f'estimates for parameter ... ({uste.shape[0]} samples)')
 
-        plt.legend()
-        util.basic()
+            plt.legend()
+            util.basic()
 
-        plt.savefig(f'./bias/histogram.{nth}.pdf')
+            plt.savefig(f'./bias/histogram.{nth}.pdf')
 
 
     plt.gcf().clear()

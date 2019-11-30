@@ -1034,7 +1034,7 @@ def enwik8(path, n_train=int(90e6), n_valid=int(5e6), n_test=int(5e6)):
 
 def go(arg):
 
-    if arg.model.startswith('sparse'):
+    if arg.model.startswith('sparse') or arg.model == 'strided':
         util.makedirs('./transformer-plots/')
 
     if arg.seed < 0:

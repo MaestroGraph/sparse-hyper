@@ -121,7 +121,8 @@ class MSparseSelfAttention(nn.Module):
         means, sigmas, mvalues = self.hyper(x)
 
         # sample integer indices and values
-        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t, t), relative_range=(self.region, self.region), cuda=x.is_cuda)
+        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t, t),
+                                   relative_range=(self.region, self.region), cuda=x.is_cuda)
         indices = util.flip(indices)
 
         indfl = indices.float()
@@ -190,7 +191,8 @@ class ASH2DSelfAttention(nn.Module):
     Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
     embedding vector, position embedding and coordinate.
     """
-    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05, sigma_scale=0.1, mmult = 1.0):
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, mask=False, min_sigma=0.05,
+                 sigma_scale=0.1, mmult = 1.0):
         """
         :param emb:
         :param k: Number of connections to the input for each output
@@ -238,7 +240,8 @@ class ASH2DSelfAttention(nn.Module):
         input = torch.cat([x, coords], dim=2)
         params = self.toparams(input) # (b, t, k*3)
 
-        assert not util.contains_nan(params),  f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
+        assert not util.contains_nan(params),  \
+            f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
 
         # Generate the logits that correspond to the diagonals of the matrix
         diags = torch.arange(t, dtype=torch.float, device=d(x))
@@ -272,7 +275,8 @@ class ASH2DSelfAttention(nn.Module):
         means, sigmas, mvalues = self.hyper(x)
 
         # sample integer indices and values
-        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t, t), relative_range=(self.region, self.region), cuda=x.is_cuda)
+        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t, t),
+                                   relative_range=(self.region, self.region), cuda=x.is_cuda)
 
         indices = util.flip(indices)
 
@@ -410,7 +414,8 @@ class ASH1DSelfAttention(nn.Module):
         input = torch.cat([x, coords], dim=2)
         params = self.toparams(input) # (b, o, k*2)
 
-        assert not util.contains_nan(params),  f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
+        assert not util.contains_nan(params),  \
+            f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
 
         # Generate the logits that correspond to the horizontal coordinate of the current word
         diags = torch.arange(t, dtype=torch.float, device=d(x))
@@ -442,7 +447,8 @@ class ASH1DSelfAttention(nn.Module):
         means, sigmas, mvalues = self.hyper(x)
 
         # sample integer indices and values
-        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t,), relative_range=(self.region, ), cuda=x.is_cuda)
+        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t,),
+                                   relative_range=(self.region, ), cuda=x.is_cuda)
         indfl = indices.float()
 
         vs = k * (2 + self.radditional + self.gadditional)
@@ -516,6 +522,112 @@ class ASH1DSelfAttention(nn.Module):
 
         # apply the self attention to the values
         out = sparse.batchmm(indices, dot, size=(t, t), xmatrix=values)
+
+        # swap h, t back, unify heads
+        out = out.transpose(1, 2).contiguous().view(b, t, h * e)
+        out = self.unifyheads(out)
+
+        assert not util.contains_nan(out), f'output contains nan {out}, dot min/max: {dot.min()}/{dot.max()}'
+
+        return out
+
+class ConvSelfAttention(nn.Module):
+    """
+    Self-attention with a hardwired convolutional sparsity pattern. That is, each node depends on the k
+    nodes before.
+
+    Wiring is always "causal" (ie. layer only looks into the past).
+
+    Padding is addded to the input to ensure the input and output have the same length.
+
+    """
+    def __init__(self, emb, heads=8, norm_method='softmax', k=32, **kwargs):
+        """
+        :param emb:
+        :param k: Number of connections to the input for each output
+        :param gadditional:
+        :param radditional:
+        :param region:
+        :param heads:
+        :param outputs: The number of units (at the end of the sequence) to compute new vectors for.
+        :param mask:
+        """
+
+        super().__init__()
+
+        self.emb, self.heads = emb, heads
+        self.norm_method = norm_method
+
+        self.tokeys    = nn.Linear(emb, emb * heads, bias=False)
+        self.toqueries = nn.Linear(emb, emb * heads, bias=False)
+        self.tovalues  = nn.Linear(emb, emb * heads, bias=False)
+
+        self.unifyheads = nn.Linear(heads * emb, emb)
+
+        self.k = k
+
+    def forward(self, x):
+
+        b, t, e = x.size()
+        h, k = self.heads, self.k
+
+        tp = t + k - 1
+        s = (t, tp)
+
+        xp = F.pad(x, [0, 0, k-1, 0, 0, 0]) # zero pad the beginning of x
+
+        assert xp.size() == (b, tp, e)
+
+        assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
+
+        # compute keys, queries, values (note that the self attention matrix is slightly rectangular)
+        queries = self.toqueries(x).view(b, t, h, e)
+        keys    = self.tokeys(xp)  .view(b, tp, h, e)
+        values  = self.tovalues(xp).view(b, tp, h, e)
+
+        # - fold heads into the batch dimension
+        queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
+        keys = keys.transpose(1, 2).contiguous().view(b * h, tp, e)
+        values = values.transpose(1, 2).contiguous().view(b * h, tp, e)
+
+        queries = queries / (e ** (1/4)) # b*h, t, e
+        keys    = keys    / (e ** (1/4))
+
+        # Get dot product of queries and keys
+        # - this will be a sparse matrix with the indices we've just computed, and values
+        #   defined by the dot product
+
+        # generate the indices (t*k pairs of integers per attention head)
+        indices = torch.arange(t, dtype=torch.long, device=d(x))[:, None, None].expand(t, k, 2).contiguous()
+        deltas  = torch.arange(k, dtype=torch.long, device=d(x))[None, :, None].expand(t, k, 1)
+        indices[:, :, 1:] += deltas
+        indices = indices[None, None, :, :, :].expand(b, h, t, k, 2).contiguous()
+
+        indflat = indices.view(b*h*t*k, 2)
+
+        # select the queries and the keys (left and right column of index matrix) and take their dot
+        # product (note that they are already scaled)
+        ar = torch.arange(b*h, dtype=torch.long, device=d(x))[:, None].expand(b*h, t*k).contiguous().view(b*h*t*k)
+        squeries = queries[ar, indflat[:, 0], :]
+        skeys    = keys   [ar, indflat[:, 1], :]
+
+        dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,t*k)
+        indices = indices.view(b*h, t*k, 2)
+
+        # assert not util.contains_inf(dot), f'dot contains inf (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+        # assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+
+        if self.norm_method == 'softmax':
+            dot = sparse.logsoftmax(indices, dot, s).exp()
+        else:
+            dot = sparse.simple_normalize(indices, dot, s, method=self.norm_method)
+        # - dot now has row-wise self-attention probabilities
+
+        # assert not util.contains_inf(dot), f'dot contains inf (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+        # assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+
+        # apply the self attention to the values
+        out = sparse.batchmm(indices, dot, size=s, xmatrix=values)
 
         # swap h, t back, unify heads
         out = out.transpose(1, 2).contiguous().view(b, t, h * e)
@@ -599,10 +711,10 @@ class SelfAttention(nn.Module):
 
 class TransformerBlock(nn.Module):
 
-    def __init__(self, emb, heads, mask, seq_length, ff_hidden_mult=4, dropout=0.0, sparse=False, oned=True, **kwargs):
+    def __init__(self, emb, heads, mask, ff_hidden_mult=4, dropout=0.0, type='dense', oned=True, **kwargs):
         super().__init__()
 
-        if sparse:
+        if type == 'sparse':
             if mask:
                 if oned:
                     self.attention = ASH1DSelfAttention(emb, heads=heads, **kwargs)
@@ -610,7 +722,10 @@ class TransformerBlock(nn.Module):
                     self.attention = ASH2DSelfAttention(emb, heads=heads, **kwargs)
             else:
                 raise Exception('Not implemented yet')
-        else:
+
+        elif type == 'conv':
+            self.attention = ConvSelfAttention(emb, heads, **kwargs)
+        elif type == 'dense':
             self.attention = SelfAttention(emb, heads=heads, mask=mask)
 
         self.norm1 = nn.LayerNorm(emb)
@@ -748,8 +863,15 @@ def go(arg):
                              num_tokens=NUM_TOKENS, sparse=True, gadditional=arg.gadditional, radditional=arg.radditional,
                              region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult,
                              oned=(arg.model == 'sparse1d'), norm_method=arg.norm_method, clamp=arg.clamp)
+    elif arg.model == 'conv':
+        model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, k=arg.k,
+                             num_tokens=NUM_TOKENS, type='conv')
+    elif arg.model == 'dense':
+        model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
+                             num_tokens=NUM_TOKENS)
     else:
-        model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, num_tokens=NUM_TOKENS)
+        raise Exception(f'Model name unknown: {arg.model}')
+
     if arg.cuda:
         model.cuda()
 
@@ -779,11 +901,6 @@ def go(arg):
         output = model(source)
 
         loss = F.nll_loss(output.transpose(2, 1), target, reduction='none')
-
-        # if i % 50 == 0:
-        #     print(loss[0, 0], output[0, 0, input[0, 0]])
-        #     sys.exit()
-
         loss = loss.mean()
 
         tbw.add_scalar('transformer/train-loss', float(loss.item()) * LOG2E, i * arg.batch_size)
@@ -917,7 +1034,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-m", "--model",
                         dest="model",
-                        help="Which model to train (dense, sparse1d, sparse2d).",
+                        help="Which model to train (dense, sparse1d, sparse2d, conv, mixed).",
                         default='dense', type=str)
 
     parser.add_argument("--norm",

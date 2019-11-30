@@ -531,6 +531,197 @@ class ASH1DSelfAttention(nn.Module):
 
         return out
 
+
+class StridedSparseSelfAttention(nn.Module):
+    """
+    Masked sparse self attention. One degree of freedom, the receptive field is adaptive, based on the incoming
+    embedding vector, position embedding and coordinate.
+    """
+    def __init__(self, emb, k, gadditional, radditional, region, heads=8, stride=32, mask=False, min_sigma=0.05, sigma_scale=0.1,
+                 mmult = 1.0, norm_method='softmax',  clamp=True, **kwargs):
+        """
+        :param emb:
+        :param k: Number of connections to the input for each output
+        :param gadditional:
+        :param radditional:
+        :param region:
+        :param heads:
+        :param outputs: The number of units (at the end of the sequence) to compute new vectors for.
+        :param mask:
+        """
+
+        super().__init__()
+
+        self.emb, self.heads, self.mask, self.min_sigma, self.sigma_scale = emb, heads, mask, min_sigma, sigma_scale
+        self.mmult, self.norm_method, self.clamp = mmult, norm_method, clamp
+        self.stride = stride
+
+        if clamp:
+            self.mmult *= 3.0
+
+        self.tokeys = nn.Linear(emb, emb * heads, bias=False)
+        self.toqueries = nn.Linear(emb, emb * heads, bias=False)
+        self.tovalues = nn.Linear(emb, emb * heads, bias=False)
+
+        self.unifyheads = nn.Linear(heads * emb, emb)
+
+        self.gadditional = gadditional
+        self.radditional = radditional
+        self.region = region
+        self.k = k
+
+        self.register_buffer('mvalues', torch.ones((k, )))
+
+        # network that generates the coordinates and sigmas
+        hidden = emb * 4
+        self.toparams = nn.Sequential(
+            nn.Linear(emb + 1, hidden), nn.ReLU(),
+            nn.Linear(hidden, k * 2) # one mean, one sigma
+        )
+
+    def hyper(self, x):
+
+        b, t, e = x.size()
+        h, k, reg = self.heads, self.k, self.region
+        r = self.stride
+        s = (t,)
+
+        # Generate input selection
+        selection = torch.arange(t//r, dtype=torch.long, device=d(x))
+        selection = (selection + 1) * r - 1
+        tp = selection.size(0)
+
+        # Generate coords
+        coords = torch.arange(tp, dtype=torch.float, device=d(x)) / tp
+        coords = coords[None, :, None,].expand(b, tp, 1)
+
+        input = torch.cat([x[:, selection, :], coords], dim=2)
+        params = self.toparams(input) # (b, tp, k*2)
+
+        assert not util.contains_nan(params),  \
+            f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
+
+        # Generate the logits/coordinates that correspond to the horizontal coordinate of the current word
+        diags = selection.to(torch.float)
+        if not self.clamp:
+            diags = util.inv(diags, mx=t)
+
+        diags = diags[None, :, None, None].expand(b, tp, k, 1)
+
+        means =  params[:, :, :k].view(b, tp, k, 1)
+        sigmas = params[:, :, k:].view(b, tp, k)
+        values = self.mvalues[None, None, :].expand(b, tp, k)
+
+        means = diags - self.mmult * F.softplus(means)
+
+        means, sigmas = sparse.transform_means(means, s, method='clamp' if self.clamp else 'sigmoid'), \
+                        sparse.transform_sigmas(sigmas, s, min_sigma=self.min_sigma) * self.sigma_scale
+
+        return means, sigmas, values
+
+    def forward(self, x):
+
+        b, t, e = x.size()
+        h, k, reg = self.heads, self.k, self.region
+        r = self.stride
+
+        s = (t, t)
+
+        # Generate input selection
+        selection = torch.arange(t//r, dtype=torch.long, device=d(x))
+        selection = (selection + 1) * r - 1
+        tp = selection.size(0)
+
+        assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
+
+        means, sigmas, mvalues = self.hyper(x)
+
+        # sample integer indices and values
+        indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t,),
+                                   relative_range=(self.region, ), cuda=x.is_cuda)
+        indfl = indices.float()
+
+        vs = k * (2 + self.radditional + self.gadditional)
+        assert indices.size() == (b, tp, vs, 1), f'{indices.size()}, {(b, tp, vs, 1)}'
+
+        m = selection[None, :, None, None].expand(b, tp, vs, k)
+
+        props = sparse.densities(indfl, means, sigmas).clone() # (b, tp, vs, k)
+
+        # Mask for duplicate indices
+        dups = util.nduplicates(indices).to(torch.bool)
+
+        # compute (unnormalized) densities under the given MVNs (proportions)
+        props[dups, :] = 0
+        props[indices > m] = 0 # mask out any forward connections (is this still necessary?)
+
+        props = props / props.sum(dim=2, keepdim=True)  # normalize over all points of a given index tuple
+
+        # weight the values by the proportions
+        weights = mvalues[:, :, None, :].expand_as(props)
+        # - add a dim for the MVNs
+
+        weights = props * weights
+        weights = weights.sum(dim=3) # - sum out the MVNs
+
+        out = selection[None, :, None, None].expand(b, tp, vs, 1)
+        indices = torch.cat([out, indices], dim=3)
+
+        assert indices.size() == (b, tp, vs, 2), f'{indices.size()}, {(b, tp, vs, 2)}'
+        assert weights.size() == (b, tp, vs), f'{weights.size()},  {(b, tp, vs)}'
+
+        # expand for heads, fold heads into batch
+        indices = indices[:, None, :, :, :].expand(b, h, tp, vs, 2).contiguous().view(b*h, tp*vs, 2)
+        weights = weights[:, None, :, :].expand(b, h, tp, vs).contiguous().view(b*h, tp*vs)
+
+        # compute keys, queries, values
+        keys    = self.tokeys(x)   .view(b, t, h, e) # note: t not tp, we compute _all_ queries, keys and values
+        queries = self.toqueries(x).view(b, t, h, e)
+        values  = self.tovalues(x) .view(b, t, h, e)
+        # - fold heads into the batch dimension
+        keys = keys.transpose(1, 2).contiguous().view(b * h, t, e)
+        queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
+        values = values.transpose(1, 2).contiguous().view(b * h, t, e)
+        # -- We could actually select first, and _then_ transform to kqv's. May be better for very large contexts
+
+        queries = queries / (e ** (1/4)) # b*h, t, e
+        keys    = keys    / (e ** (1/4))
+
+        # get dot product of queries and keys
+        # - this will be a sparse matrix with the indices we've just computed, and values
+        #   defined by the dot product
+
+        # select the queries
+        indflat = indices.view(b*h*tp*vs, 2)
+        ar = torch.arange(b*h, dtype=torch.long, device=d(x))[:, None].expand(b*h, tp*vs).contiguous().view(b*h*tp*vs)
+        squeries = queries[ar, indflat[:, 0], :]
+        skeys    = keys   [ar, indflat[:, 1], :]
+
+        dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,tp*vs)
+
+        assert not util.contains_inf(dot), f'dot contains inf (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+        assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+
+        if self.norm_method == 'softmax':
+            dot = sparse.logsoftmax(indices, weights * dot, s).exp()
+        else:
+            dot = sparse.simple_normalize(indices, weights * dot, s, method=self.norm_method)
+        # - dot now has row-wise self-attention probabilities
+
+        assert not util.contains_inf(dot), f'dot contains inf (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+        assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+
+        # apply the self attention to the values
+        out = sparse.batchmm(indices, dot, size=(t, t), xmatrix=values)
+
+        # swap h, t back, unify heads
+        out = out.transpose(1, 2).contiguous().view(b, t, h * e)
+        out = self.unifyheads(out)
+
+        assert not util.contains_nan(out), f'output contains nan {out}, dot min/max: {dot.min()}/{dot.max()}'
+
+        return out
+
 class ConvSelfAttention(nn.Module):
     """
     Self-attention with a hardwired convolutional sparsity pattern. That is, each node depends on the k
@@ -722,11 +913,14 @@ class TransformerBlock(nn.Module):
                     self.attention = ASH2DSelfAttention(emb, heads=heads, **kwargs)
             else:
                 raise Exception('Not implemented yet')
-
+        elif type == 'strided':
+            self.attention = StridedSparseSelfAttention(emb, heads=heads, **kwargs)
         elif type == 'conv':
             self.attention = ConvSelfAttention(emb, heads, **kwargs)
         elif type == 'dense':
             self.attention = SelfAttention(emb, heads=heads, mask=mask)
+        else:
+            raise Exception('Not implemented yet')
 
         self.norm1 = nn.LayerNorm(emb)
         self.norm2 = nn.LayerNorm(emb)
@@ -863,6 +1057,11 @@ def go(arg):
                              num_tokens=NUM_TOKENS, sparse=True, gadditional=arg.gadditional, radditional=arg.radditional,
                              region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult,
                              oned=(arg.model == 'sparse1d'), norm_method=arg.norm_method, clamp=arg.clamp)
+    elif arg.model == 'strided':
+        model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
+                             num_tokens=NUM_TOKENS, gadditional=arg.gadditional, radditional=arg.radditional,
+                             region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult,
+                             norm_method=arg.norm_method, clamp=arg.clamp, stride=arg.stride, type='strided')
     elif arg.model == 'conv':
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, k=arg.k,
                              num_tokens=NUM_TOKENS, type='conv')
@@ -917,7 +1116,7 @@ def go(arg):
 
         opt.step()
 
-        if arg.model.startswith('sparse') and arg.plot_every > 0 and i % arg.plot_every == 0:
+        if (arg.model.startswith('sparse') or arg.model == 'strided') and arg.plot_every > 0 and i % arg.plot_every == 0:
             shape = (arg.context, arg.context)
 
             means, sigmas, values = model.forward_for_plot(source)
@@ -935,6 +1134,14 @@ def go(arg):
                     ind = torch.arange(c, dtype=torch.float, device=d(m))[None, :, None].expand(b, c, k).reshape(b, c*k, 1)
                     m = torch.cat([ind, m], dim=2)
                     util.plot1d(m[0].data, s[0].data, v[0].data, shape=shape)
+                elif arg.model == 'strided':
+                    r = arg.stride
+                    ind = torch.arange(c, dtype=torch.float, device=d(m))
+                    ind = (ind + 1) * r - 1
+                    ind = ind[None, :, None].expand(b, c, k).reshape(b, c*k, 1)
+                    m = torch.cat([ind, m], dim=2)
+                    util.plot1d(m[0].data, s[0].data, v[0].data, shape=shape)
+
                 else:
                     util.plot(m, s, v, shape=shape)
 
@@ -1118,6 +1325,11 @@ if __name__ == "__main__":
                         dest="seed",
                         help="RNG seed. Negative for random",
                         default=1, type=int)
+
+    parser.add_argument("--stride",
+                        dest="stride",
+                        help="Stride length for the strided self attention",
+                        default=32, type=int)
 
     parser.add_argument("--test-every",
                         dest="test_every",

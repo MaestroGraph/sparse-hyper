@@ -789,10 +789,11 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     idxs = upper > rngxp
     lower[idxs] = rngxp[idxs] - rrng[idxs]
 
+    cached = local_ints.clone()
     local_ints = (local_ints * rrng + lower).long()
 
     assert (local_ints >= bounds).sum() == 0, f'One of the local sampled indices is outside the tensor bounds ' \
-        f'\n {means}, {local_ints}'
+        f'\n {(cached * rrng).max()}, {means}\n {local_ints}\n {cached * rrng}'
 
     all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=-2)
 

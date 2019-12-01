@@ -719,6 +719,12 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
 
     FT = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
+    rng = FT(tuple(rng))
+    # - the tuple() is there in case a torch.Size() object is passed (which causes torch to
+    #   interpret the argument as the size of the tensor rather than its content).
+
+    bounds = util.unsqueezen(rng, len(pref) + 1).long() # index bound with unsqueezed dims for broadcasting
+
     if seed is not None:
         torch.manual_seed(seed)
 
@@ -737,8 +743,8 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     neighbor_ints[~fm] = neighbor_ints[~fm].ceil()
 
     neighbor_ints = neighbor_ints.long()
-    # print('means     ', means.contiguous().view(-1, rank).max(dim=0)[0])
-    # print('neighbors ', neighbor_ints.view(-1, rank).max(dim=0)[0])
+
+    assert (neighbor_ints >= bounds).sum() == 0, 'One of the neigbor indices is outside the tensor bounds'
 
     """
     Sample uniformly from all integer tuples
@@ -749,14 +755,11 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     global_ints.uniform_()
     global_ints *= (1.0 - EPSILON)
 
-    rng = FT(tuple(rng))
-    # - the tuple() is there in case a torch.Size() object is passed (which causes torch to
-    #   interpret the argument as the size of the tensor rather than its content).
     rngxp = util.unsqueezen(rng, len(gsize) - 1).expand_as(global_ints)
 
     global_ints = torch.floor(global_ints * rngxp).long()
 
-    # print('globals ', global_ints.view(-1, rank).max(dim=0)[0])
+    assert (global_ints >= bounds).sum() == 0, 'One of the global sampled indices is outside the tensor bounds'
 
     """
     Sample uniformly from a small range around the given index tuple
@@ -788,10 +791,10 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
 
     local_ints = (local_ints * rrng + lower).long()
 
-    # print('mns_expand ', mns_expand.view(-1, rank).max(dim=0)[0])
-    # print('local      ', local_ints.view(-1, rank).max(dim=0)[0])
+    assert (local_ints >= bounds).sum() == 0, 'One of the local sampled indices is outside the tensor bounds'
 
     all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=-2)
 
     fsize = pref[:-1] + (-1, rank)
+
     return all.view(*fsize) # combine all indices sampled within a chunk

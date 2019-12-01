@@ -643,11 +643,6 @@ class StridedSparseSelfAttention(nn.Module):
                                    relative_range=(self.region, ), cuda=x.is_cuda, epsilon=10e-5)
         indfl = indices.float()
 
-        if indices.max() >= t:
-            print(means.min(), means.mean(), means.max())
-            print(self.region)
-            sys.exit()
-
         vs = k * (2 + self.radditional + self.gadditional) # number of sampled integer index tuples
         assert indices.size() == (b, tp, vs, 1), f'{indices.size()}, {(b, tp, vs, 1)}'
 

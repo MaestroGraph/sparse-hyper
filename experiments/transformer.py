@@ -599,7 +599,9 @@ class StridedSparseSelfAttention(nn.Module):
         params = self.toparams(input) # (b, tp, k*2)
 
         assert not util.contains_nan(params),  \
-            f'params contain NaN\n intput {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
+            f'params contain NaN\n input {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
+        assert not util.contains_inf(params),  \
+            f'params contain inf\n input {input.min()} {input.max()} \n {list(self.toparams.parameters())}'
 
         # Generate the logits/coordinates that correspond to the horizontal coordinate of the current word
         diags = selection.to(torch.float)
@@ -610,7 +612,7 @@ class StridedSparseSelfAttention(nn.Module):
 
         means =  params[:, :, :k].view(b, tp, k, 1)
         sigmas = params[:, :, k:].view(b, tp, k)
-        values = self.mvalues[None, None, :].expand(b, tp, k)
+        values = self.mvalues[None, None, :].expand(b, tp, k) # all ones atm
 
         means = diags - self.mmult * F.softplus(means)
 
@@ -625,12 +627,12 @@ class StridedSparseSelfAttention(nn.Module):
         h, k, reg = self.heads, self.k, self.region
         r = self.stride
 
-        s = (t, t)
-
-        # Generate input selection
+        # Generate input selection (the fixed output indices, which are 'stride' units apart)
         selection = torch.arange(t//r, dtype=torch.long, device=d(x))
         selection = (selection + 1) * r - 1
         tp = selection.size(0)
+
+        s = (t, t)
 
         assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
 
@@ -641,7 +643,7 @@ class StridedSparseSelfAttention(nn.Module):
                                    relative_range=(self.region, ), cuda=x.is_cuda)
         indfl = indices.float()
 
-        vs = k * (2 + self.radditional + self.gadditional)
+        vs = k * (2 + self.radditional + self.gadditional) # number of sampled integer index tuples
         assert indices.size() == (b, tp, vs, 1), f'{indices.size()}, {(b, tp, vs, 1)}'
 
         m = selection[None, :, None, None].expand(b, tp, vs, k)
@@ -655,7 +657,7 @@ class StridedSparseSelfAttention(nn.Module):
         props[dups, :] = 0
         props[indices > m] = 0 # mask out any forward connections
         # -- note that while all the continuous index tuples are guaranteed to point backwards, the sampled discrete
-        #    index tuples might point forward, so the need to be zerod out here.
+        #    index tuples might point forward, so they still need to be zeroed out here.
 
         props = props / props.sum(dim=2, keepdim=True)  # normalize over all points of a given index tuple
 
@@ -666,7 +668,7 @@ class StridedSparseSelfAttention(nn.Module):
         weights = props * weights
         weights = weights.sum(dim=3) # - sum out the MVNs
 
-        out = selection[None, :, None, None].expand(b, tp, vs, 1)
+        out = selection[None, :, None, None].expand(b, tp, vs, 1) # output indices
         indices = torch.cat([out, indices], dim=3)
 
         assert indices.size() == (b, tp, vs, 2), f'{indices.size()}, {(b, tp, vs, 2)}'
@@ -681,10 +683,11 @@ class StridedSparseSelfAttention(nn.Module):
         queries = self.toqueries(x).view(b, t, h, e)
         values  = self.tovalues(x) .view(b, t, h, e)
         # - fold heads into the batch dimension
-        keys = keys.transpose(1, 2).contiguous().view(b * h, t, e)
+        keys    = keys.transpose(1, 2).contiguous()   .view(b * h, t, e)
         queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
-        values = values.transpose(1, 2).contiguous().view(b * h, t, e)
-        # -- We could actually select first, and _then_ transform to kqv's. May be better for very large contexts
+        values  = values.transpose(1, 2).contiguous() .view(b * h, t, e)
+        # -- We could actually select first, and _then_ transform to kqv's. May be better for very large contexts and
+        #    small batches
 
         queries = queries / (e ** (1/4)) # b*h, t, e
         keys    = keys    / (e ** (1/4))
@@ -701,8 +704,8 @@ class StridedSparseSelfAttention(nn.Module):
 
         dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,tp*vs)
 
-        assert not util.contains_inf(dot), f'dot contains inf (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
-        assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+        assert not util.contains_inf(dot), f'dot contains inf (before norm) {dot.min()}, {dot.mean()}, {dot.max()}'
+        assert not util.contains_nan(dot), f'dot contains nan (before norm) {dot.min()}, {dot.mean()}, {dot.max()}'
 
         if self.norm_method == 'softmax':
             dot = sparse.logsoftmax(indices, weights * dot, s).exp()
@@ -710,8 +713,8 @@ class StridedSparseSelfAttention(nn.Module):
             dot = sparse.simple_normalize(indices, weights * dot, s, method=self.norm_method)
         # - dot now has row-wise self-attention probabilities
 
-        assert not util.contains_inf(dot), f'dot contains inf (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
-        assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
+        assert not util.contains_inf(dot), f'dot contains inf (after norm) {dot.min()}, {dot.mean()}, {dot.max()}'
+        assert not util.contains_nan(dot), f'dot contains nan (after norm) {dot.min()}, {dot.mean()}, {dot.max()}'
 
         # apply the self attention to the values
         out = sparse.batchmm(indices, dot, size=s, xmatrix=values)

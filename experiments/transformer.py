@@ -645,7 +645,7 @@ class StridedSparseSelfAttention(nn.Module):
 
         if indices.max() >= t:
             print(means.min(), means.mean(), means.max())
-            print(means)
+            print(self.region)
             sys.exit()
 
         vs = k * (2 + self.radditional + self.gadditional) # number of sampled integer index tuples

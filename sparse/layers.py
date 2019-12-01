@@ -706,10 +706,13 @@ def generate_integer_tuples(means, gadditional, ladditional, rng=None, relative_
     return all.view(b, k, -1, rank) # combine all indices sampled within a chunk
 
 
-def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, seed=None, cuda=False, fm=None):
+def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, seed=None, cuda=False, fm=None, epsilon=EPSILON):
     """
 
     Generates random integer index tuples based on continuous parameters.
+
+    :param epsilon: The random bumbers are based on uniform samples in (0, 1-epsilon). Note that
+      in some cases epsilon needs to be relatively big (e.g. 10-5)
 
     """
 
@@ -753,7 +756,7 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     global_ints = FT(*gsize)
 
     global_ints.uniform_()
-    global_ints *= (1.0 - EPSILON)
+    global_ints *= (1.0 - epsilon)
 
     rngxp = util.unsqueezen(rng, len(gsize) - 1).expand_as(global_ints)
 
@@ -768,7 +771,7 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     local_ints = FT(*lsize)
 
     local_ints.uniform_()
-    local_ints *= (1.0 - EPSILON)
+    local_ints *= (1.0 - epsilon)
 
     rngxp = util.unsqueezen(rng, len(lsize) - 1).expand_as(local_ints) # bounds of the tensor
 
@@ -792,10 +795,10 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     cached = local_ints.clone()
     local_ints = (local_ints * rrng + lower).long()
 
-    assert (local_ints >= bounds).sum() == 0, f'One of the local sampled indices is outside the tensor bounds ' \
-        f'\n max  {(cached * rrng).max().item()}  {(cached * rrng).max().long().item()} {lower.max().item()}' \
-        f'\n      {((cached * rrng).max() + lower.max()).item()}' \
-        f'\n      {((cached * rrng).max() + lower.max()).long().item()}'
+    assert (local_ints >= bounds).sum() == 0, f'One of the local sampled indices is outside the tensor bounds (this may mean the epsilon is too small)' \
+        f'\n max sampled  {(cached * rrng).max().item()}, rounded {(cached * rrng).max().long().item()}  max lower limit {lower.max().item()}' \
+        f'\n sum          {((cached * rrng).max() + lower.max()).item()}' \
+        f'\n rounds to    {((cached * rrng).max() + lower.max()).long().item()}'
         #f'\n {means}\n {local_ints}\n {cached * rrng}'
 
     all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=-2)

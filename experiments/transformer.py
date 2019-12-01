@@ -640,7 +640,7 @@ class StridedSparseSelfAttention(nn.Module):
 
         # sample integer indices and values
         indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t,),
-                                   relative_range=(self.region, ), cuda=x.is_cuda)
+                                   relative_range=(self.region, ), cuda=x.is_cuda, epsilon=10e-5)
         indfl = indices.float()
 
         if indices.max() >= t:

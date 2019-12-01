@@ -643,6 +643,11 @@ class StridedSparseSelfAttention(nn.Module):
                                    relative_range=(self.region, ), cuda=x.is_cuda)
         indfl = indices.float()
 
+        if indices.max() >= t:
+            print(means.min(), means.mean(), means.max())
+            print(means)
+            sys.exit()
+
         vs = k * (2 + self.radditional + self.gadditional) # number of sampled integer index tuples
         assert indices.size() == (b, tp, vs, 1), f'{indices.size()}, {(b, tp, vs, 1)}'
 
@@ -696,18 +701,11 @@ class StridedSparseSelfAttention(nn.Module):
         # - this will be a sparse matrix with the indices we've just computed, and values
         #   defined by the dot product
 
-        print('indices min/max',indices.cpu().min(), indices.cpu().max())
-
         # select the queries
         indflat = indices.view(b*h*tp*vs, 2)
         ar = torch.arange(b*h, dtype=torch.long, device=d(x))[:, None].expand(b*h, tp*vs).contiguous().view(b*h*tp*vs)
         squeries = queries[ar, indflat[:, 0], :]
-
-        try:
-            skeys    = keys   [ar, indflat[:, 1], :]
-        except RuntimeError:
-            print('runtime error')
-            sys.exit()
+        skeys    = keys   [ar, indflat[:, 1], :]
 
         dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,tp*vs)
 

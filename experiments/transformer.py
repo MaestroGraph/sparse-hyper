@@ -653,7 +653,9 @@ class StridedSparseSelfAttention(nn.Module):
 
         # compute (unnormalized) densities under the given MVNs (proportions)
         props[dups, :] = 0
-        props[indices > m] = 0 # mask out any forward connections (is this still necessary?)
+        props[indices > m] = 0 # mask out any forward connections
+        # -- note that while all the continuous index tuples are guaranteed to point backwards, the sampled discrete
+        #    index tuples might point forward, so the need to be zerod out here.
 
         props = props / props.sum(dim=2, keepdim=True)  # normalize over all points of a given index tuple
 
@@ -712,7 +714,7 @@ class StridedSparseSelfAttention(nn.Module):
         assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
 
         # apply the self attention to the values
-        out = sparse.batchmm(indices, dot, size=(t, t), xmatrix=values)
+        out = sparse.batchmm(indices, dot, size=s, xmatrix=values)
 
         # swap h, t back, unify heads
         out = out.transpose(1, 2).contiguous().view(b, t, h * e)

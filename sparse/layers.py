@@ -744,7 +744,7 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
 
     neighbor_ints = neighbor_ints.long()
 
-    assert (neighbor_ints >= bounds).sum() == 0, 'One of the neigbor indices is outside the tensor bounds'
+    assert (neighbor_ints >= bounds).sum() == 0, 'One of the neighbor indices is outside the tensor bounds'
 
     """
     Sample uniformly from all integer tuples
@@ -791,7 +791,8 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
 
     local_ints = (local_ints * rrng + lower).long()
 
-    assert (local_ints >= bounds).sum() == 0, 'One of the local sampled indices is outside the tensor bounds'
+    assert (local_ints >= bounds).sum() == 0, f'One of the local sampled indices is outside the tensor bounds ' \
+        f'\n {means}, {local_ints}'
 
     all = torch.cat([neighbor_ints, global_ints, local_ints] , dim=-2)
 

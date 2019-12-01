@@ -696,6 +696,8 @@ class StridedSparseSelfAttention(nn.Module):
         # - this will be a sparse matrix with the indices we've just computed, and values
         #   defined by the dot product
 
+        print('indices min/max',indices.cpu().min(), indices.cpu().max())
+
         # select the queries
         indflat = indices.view(b*h*tp*vs, 2)
         ar = torch.arange(b*h, dtype=torch.long, device=d(x))[:, None].expand(b*h, tp*vs).contiguous().view(b*h*tp*vs)
@@ -705,7 +707,6 @@ class StridedSparseSelfAttention(nn.Module):
             skeys    = keys   [ar, indflat[:, 1], :]
         except RuntimeError:
             print('runtime error')
-            print(indices.cpu().min(), indices.cpu().max())
             sys.exit()
 
         dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,tp*vs)

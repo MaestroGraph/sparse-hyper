@@ -793,7 +793,7 @@ def ngenerate(means, gadditional, ladditional, rng=None, relative_range=None, se
     local_ints = (local_ints * rrng + lower).long()
 
     assert (local_ints >= bounds).sum() == 0, f'One of the local sampled indices is outside the tensor bounds ' \
-        f'\n max  {(cached * rrng).max().item()}  {(cached * rrng).max().long().item()}' \
+        f'\n max  {(cached * rrng).max().item()}  {(cached * rrng).max().long().item()} {lower.max().item()}' \
         f'\n      {((cached * rrng).max() + lower.max()).item()}' \
         f'\n      {((cached * rrng).max() + lower.max()).long().item()}'
         #f'\n {means}\n {local_ints}\n {cached * rrng}'

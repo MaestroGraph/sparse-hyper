@@ -705,7 +705,7 @@ class StridedSparseSelfAttention(nn.Module):
             skeys    = keys   [ar, indflat[:, 1], :]
         except RuntimeError:
             print('runtime error')
-            print(indflat[:,1].min(), indflat[:,1].max())
+            print(indices.cpu().min(), indices.cpu().max())
             sys.exit()
 
         dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,tp*vs)

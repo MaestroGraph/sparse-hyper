@@ -924,6 +924,19 @@ class TransformerBlock(nn.Module):
             self.attention = ConvSelfAttention(emb, heads, **kwargs)
         elif type == 'dense':
             self.attention = SelfAttention(emb, heads=heads, mask=mask)
+        elif type == 'mixed':
+
+            layers = []
+            for type in kwargs['mixture']:
+                if type == 'c':
+                    layers.append(ConvSelfAttention(emb, heads, **kwargs))
+                elif type == 's':
+                    layers.append(StridedSparseSelfAttention(emb, heads=heads, **kwargs))
+                else:
+                    raise Exception(f'layer type {type} not recognized/')
+
+            self.attention = nn.Sequential(*layers)
+
         else:
             raise Exception('Not implemented yet')
 
@@ -1068,11 +1081,18 @@ def go(arg):
                              region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult,
                              norm_method=arg.norm_method, clamp=arg.clamp, stride=arg.stride, type='strided')
     elif arg.model == 'conv':
-        model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, k=arg.k,
+        model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, k=arg.kconv,
                              num_tokens=NUM_TOKENS, type='conv')
     elif arg.model == 'dense':
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
                              num_tokens=NUM_TOKENS)
+    elif arg.model == 'mixed':
+        model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
+                             num_tokens=NUM_TOKENS, gadditional=arg.gadditional, radditional=arg.radditional,
+                             region=arg.region, k=arg.k, min_sigma=arg.min_sigma, sigma_scale=arg.sigma_mult,
+                             norm_method=arg.norm_method, clamp=arg.clamp, stride=arg.stride, type='mixed',
+                             kconv=arg.kconv, mixture=arg.mixture)
+
     else:
         raise Exception(f'Model name unknown: {arg.model}')
 
@@ -1249,6 +1269,11 @@ if __name__ == "__main__":
                         help="Which model to train (dense, sparse1d, sparse2d, conv, mixed).",
                         default='dense', type=str)
 
+    parser.add_argument("--mixture",
+                        dest="mixture",
+                        help="Character string describing the sequence of convotlutions (c) and strided attentions (s).",
+                        default='cccs', type=str)
+
     parser.add_argument("--norm",
                         dest="norm_method",
                         help="How to normalize the attention matrix (softmax, softplus, abs).",
@@ -1263,6 +1288,11 @@ if __name__ == "__main__":
                         dest="k",
                         help="Number of index tuples per output in the sparse transformer.",
                         default=32, type=int)
+
+    parser.add_argument("--k-conv",
+                        dest="kconv",
+                        help="Convolution kernel size.",
+                        default=3, type=int)
 
     parser.add_argument("-a", "--gadditional",
                         dest="gadditional",

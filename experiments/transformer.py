@@ -674,6 +674,9 @@ class StridedSparseSelfAttention(nn.Module):
         assert indices.size() == (b, tp, vs, 2), f'{indices.size()}, {(b, tp, vs, 2)}'
         assert weights.size() == (b, tp, vs), f'{weights.size()},  {(b, tp, vs)}'
 
+        assert not util.contains_inf(weights), f'weights contains inf (before norm) {weights.min()}, {weights.mean()}, {weights.max()}'
+        assert not util.contains_nan(weights), f'weights contains nan (before norm) {weights.min()}, {weights.mean()}, {weights.max()}'
+
         # expand for heads, fold heads into batch
         indices = indices[:, None, :, :, :].expand(b, h, tp, vs, 2).contiguous().view(b*h, tp*vs, 2)
         weights = weights[:, None, :, :].expand(b, h, tp, vs).contiguous().view(b*h, tp*vs)
@@ -703,6 +706,7 @@ class StridedSparseSelfAttention(nn.Module):
         skeys    = keys   [ar, indflat[:, 1], :]
 
         dot = torch.bmm(squeries[:, None, :], skeys[:, :, None]).view(b*h,tp*vs)
+        dot_logits = dot.data.clone()
 
         assert not util.contains_inf(dot), f'dot contains inf (before norm) {dot.min()}, {dot.mean()}, {dot.max()}'
         assert not util.contains_nan(dot), f'dot contains nan (before norm) {dot.min()}, {dot.mean()}, {dot.max()}'
@@ -714,7 +718,23 @@ class StridedSparseSelfAttention(nn.Module):
         # - dot now has row-wise self-attention probabilities
 
         assert not util.contains_inf(dot), f'dot contains inf (after norm) {dot.min()}, {dot.mean()}, {dot.max()}'
-        assert not util.contains_nan(dot), f'dot contains nan (after norm) {dot.min()}, {dot.mean()}, {dot.max()}'
+
+        try:
+            assert not util.contains_nan(dot), f'dot contains nan (after norm) {dot.min()}, {dot.mean()}, {dot.max()}'
+        except AssertionError:
+
+            print(dot.sum(dim=1))
+            print('\n\n\n')
+            for i in range(b*h):
+                print(f'*** {i}')
+                print(indices[i])
+                print(dot_logits[i])
+                print((weights * dot_logits)[i])
+
+
+                print('\n\n\n')
+
+            sys.exit()
 
         # apply the self attention to the values
         out = sparse.batchmm(indices, dot, size=s, xmatrix=values)
@@ -953,6 +973,8 @@ class TransformerBlock(nn.Module):
 
     def forward(self, x):
 
+        b, t, e = x.size()
+
         attended = self.attention(x)
 
         x = self.norm1(attended + x)
@@ -1082,7 +1104,7 @@ def go(arg):
                              norm_method=arg.norm_method, clamp=arg.clamp, stride=arg.stride, type='strided')
     elif arg.model == 'conv':
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context, k=arg.kconv,
-                             num_tokens=NUM_TOKENS, type='conv')
+                             num_tokens=NUM_TOKENS, type='conv', norm_method=arg.norm_method)
     elif arg.model == 'dense':
         model = GTransformer(emb=arg.embedding_size, heads=arg.num_heads, depth=arg.depth, seq_length=arg.context,
                              num_tokens=NUM_TOKENS)
@@ -1330,7 +1352,7 @@ if __name__ == "__main__":
     parser.add_argument("-M", "--min-sigma",
                         dest="min_sigma",
                         help="Minimum value of sigma.",
-                        default=0.0, type=float)
+                        default=0.01, type=float)
 
     parser.add_argument("-T", "--tb_dir", dest="tb_dir",
                         help="Data directory",

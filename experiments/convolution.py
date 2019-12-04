@@ -193,7 +193,7 @@ class Convolution(nn.Module):
     The pattern of input pixels, relative to the current output pixels is determined
     adaptively.
     """
-    def __init__(self, in_size, cout, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
+    def __init__(self, cin, cout, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
                  mmult=0.1, admode='full', edges='sigmoid', bias=True, constrained=False):
         """
         :param k: Number of connections to the input in total
@@ -205,16 +205,13 @@ class Convolution(nn.Module):
 
         super().__init__()
 
-        cin, hin, win = in_size
-        cout, hout, wout = cout, hin, win
-
-        assert hin > 2 and win > 2, 'Input resolution must be larger than 2x2 for the sparse convolution to work.'
+        # cin, _, _ = in_size
+        # cout, hout, wout = cout, hin, win
 
         self.gadditional, self.radditional = gadditional, radditional
 
-        self.region = (max(int(region*hin), 2), max(int(region*win), 2))
+        self.region = region
 
-        self.in_size, self.out_size = in_size, ()
         self.min_sigma, self.sigma_scale = min_sigma, sigma_scale
         self.admode, self.mmult = admode, mmult
         self.edges = edges
@@ -247,7 +244,7 @@ class Convolution(nn.Module):
             )
 
         self.register_buffer('mvalues', torch.ones((k,)))
-        self.register_buffer('coords', util.coordinates((hin, win)))
+        self.register_buffer('coords', )
 
         self.smp = True
 
@@ -255,8 +252,6 @@ class Convolution(nn.Module):
         if self.constrained:
             kp = int(math.sqrt(k))
             self.register_buffer('base', util.coordinates((kp, kp)) - 0.5)
-
-        assert self.coords.size() == (2, hin, win)
 
     def sample(self, smp):
         self.smp = smp
@@ -266,6 +261,8 @@ class Convolution(nn.Module):
         assert x.size()[1:] == self.in_size
         b, c, h, w = x.size()
         k = self.k
+
+        coors = util.coordinates((h, w), cuda=x.is_cuda)
 
         # the coordinates of the current pixels in parameters space
         # - the index tuples are described relative to these
@@ -347,6 +344,8 @@ class Convolution(nn.Module):
         b, c, h, w = x.size()
         k = self.k
         s = (h, w)
+
+        assert h > 2 and w > 2, 'Input resolution must be larger than 2x2 for the sparse convolution to work.'
 
         means, sigmas, mvalues = self.hyper(x)
 
@@ -854,6 +853,33 @@ def go(arg):
             total = NUM_TRAIN + NUM_VAL
 
             train = torchvision.datasets.CIFAR10(root=data, train=True, download=True, transform=tfms)
+
+            trainloader = DataLoader(train, batch_size=arg.batch_size, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=arg.batch_size,
+                                    sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+
+    elif (arg.task == 'imagenette'):
+
+        shape = (3, None, None)
+        num_classes = 10
+
+        if arg.augmentation:
+            tfms = transforms.Compose(
+                [transforms.RandomCrop(size=shape[1:], padding=4), transforms.RandomHorizontalFlip(), transforms.ToTensor(), Cutout(1, 8),]
+            )
+
+        if arg.final:
+            train = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'train', transform=tfms)
+            trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch_size, shuffle=True, num_workers=2)
+            test = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'val', transform=tfms)
+            testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch_size, shuffle=False, num_workers=2)
+
+        else:
+            NUM_TRAIN = 10_000
+            NUM_VAL = 3_000
+            total = NUM_TRAIN + NUM_VAL
+
+            train = torchvision.datasets.ImageFolder(root=arg.data+os.sep+'train', transform=tfms)
 
             trainloader = DataLoader(train, batch_size=arg.batch_size, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
             testloader = DataLoader(train, batch_size=arg.batch_size,

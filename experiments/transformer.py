@@ -1156,6 +1156,8 @@ def go(arg):
         loss.backward()
 
         assert not util.contains_nan(model.parameters()), f'Parameters have become NaN {model.parameters()}'
+        if arg.cuda and (i == 0 or random.random() < 0.001): # occasionally print peak GPU memory usage
+            print(f'Peak gpu memory use is {torch.cuda.max_memory_cached() / 1e9} Gb')
 
         # clip gradients
         if arg.gradient_clipping is not None:

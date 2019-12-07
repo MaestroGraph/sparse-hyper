@@ -951,7 +951,9 @@ class TransformerBlock(nn.Module):
                 if type == 'c':
                     layers.append(ConvSelfAttention(emb, heads, **kwargs))
                 elif type == 's':
-                    layers.append(StridedSparseSelfAttention(emb, heads=heads, **kwargs))
+                    strided = StridedSparseSelfAttention(emb, heads=heads, **kwargs)
+                    layers.append(strided)
+                    self.toplot = strided
                 else:
                     raise Exception(f'layer type {type} not recognized/')
 
@@ -1050,11 +1052,21 @@ class GTransformer(nn.Module):
         x = tokens + positions
 
         for tblock in self.tblocks:
-            m, s, v = tblock.attention.hyper(x)
-            means.append(m)
-            sigmas.append(s)
-            values.append(v)
+            if type(tblock.attention) is not nn.Sequential:
+                m, s, v = tblock.attention.hyper(x)
+                means.append(m)
+                sigmas.append(s)
+                values.append(v)
+            else:
+                xc = x.clone()
+                for layer in tblock.attention: # walk through the attention layers
+                    if type(layer) == StridedSparseSelfAttention:
+                        m, s, v = layer.hyper(xc)
+                        means.append(m)
+                        sigmas.append(s)
+                        values.append(v)
 
+                    xc = layer(xc)
             x = tblock(x)
 
         return means, sigmas, values
@@ -1156,8 +1168,8 @@ def go(arg):
         loss.backward()
 
         assert not util.contains_nan(model.parameters()), f'Parameters have become NaN {model.parameters()}'
-        if arg.cuda and i == 0 : # occasionally print peak GPU memory usage
-            print(f'Peak gpu memory use is {torch.cuda.max_memory_cached() / 1e9:.2} Gb')
+        if arg.cuda and (i == 0 or random.random() < 0.0005): # occasionally print peak GPU memory usage
+            print(f'\nPeak gpu memory use is {torch.cuda.max_memory_cached() / 1e9:.2} Gb')
 
         # clip gradients
         if arg.gradient_clipping is not None:
@@ -1165,7 +1177,7 @@ def go(arg):
 
         opt.step()
 
-        if (arg.model.startswith('sparse') or arg.model == 'strided') and arg.plot_every > 0 and i % arg.plot_every == 0:
+        if (arg.model.startswith('sparse') or arg.model == 'strided' or arg.model == 'mixed') and arg.plot_every > 0 and i % arg.plot_every == 0:
             shape = (arg.context, arg.context)
 
             means, sigmas, values = model.forward_for_plot(source)
@@ -1183,7 +1195,7 @@ def go(arg):
                     ind = torch.arange(c, dtype=torch.float, device=d(m))[None, :, None].expand(b, c, k).reshape(b, c*k, 1)
                     m = torch.cat([ind, m], dim=2)
                     util.plot1d(m[0].data, s[0].data, v[0].data, shape=shape)
-                elif arg.model == 'strided':
+                elif arg.model == 'strided' or arg.model == 'mixed':
                     r = arg.stride
                     ind = torch.arange(c, dtype=torch.float, device=d(m))
                     ind = (ind + 1) * r - 1
@@ -1398,7 +1410,7 @@ if __name__ == "__main__":
     parser.add_argument("--plot-every",
                         dest="plot_every",
                         help="How many batches between plotting the sparse indices.",
-                        default=100, type=int)
+                        default=1000, type=int)
 
     parser.add_argument("--test-subset",
                         dest="test_subset",

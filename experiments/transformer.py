@@ -575,9 +575,10 @@ class StridedSparseSelfAttention(nn.Module):
         # network that generates the coordinates and sigmas
         hidden = emb * 4
         self.toparams = nn.Sequential(
-            nn.Linear(emb + 1, hidden), nn.ReLU(),
+            nn.Linear(2 * emb + 1, hidden), nn.ReLU(),
             nn.Linear(hidden, k * 2) # one mean, one sigma
         )
+        # -- input is the current token's embedding vector, the sum of preceding embedding vectors, and the coordinate.
 
     def hyper(self, x):
 
@@ -595,7 +596,9 @@ class StridedSparseSelfAttention(nn.Module):
         coords = torch.arange(tp, dtype=torch.float, device=d(x)) / tp
         coords = coords[None, :, None,].expand(b, tp, 1)
 
-        input = torch.cat([x[:, selection, :], coords], dim=2)
+        summed = (x.cumsum(dim=1) - x) / torch.arange(start=1, end=t+1, device=d(), dtype=torch.float)[None, :, None]
+
+        input = torch.cat([x[:, selection, :], coords, summed[:, selection, :]], dim=2)
         params = self.toparams(input) # (b, tp, k*2)
 
         assert not util.contains_nan(params),  \
@@ -659,7 +662,7 @@ class StridedSparseSelfAttention(nn.Module):
         # -- note that while all the continuous index tuples are guaranteed to point backwards, the sampled discrete
         #    index tuples might point forward, so they still need to be zeroed out here.
 
-        props = props / props.sum(dim=2, keepdim=True)  # normalize over all points of a given index tuple
+        props = props / props.sum(dim=2, keepdim=True)  # normalize over all remaining points of a given index tuple
 
         # weight the values by the proportions
         weights = mvalues[:, :, None, :].expand_as(props)

@@ -1044,3 +1044,33 @@ def flip(x):
     y[toflip, 1] = t[toflip]
 
     return y.view(*(bdims + (2,)))
+
+def schedule(epoch, schedule):
+    """
+    Provides a piecewise linear schedule for some parameter
+
+    :param epoch:
+    :param schedule: Dictionary of integer key and floating point value pairs
+    :return:
+    """
+
+    schedule = [(k, v) for k, v in schedule.items()]
+    schedule = sorted(schedule, key = lambda x : x[0])
+
+    for i, (k, v) in enumerate(schedule):
+
+        if epoch <= k:
+            if i == 0:
+                return v
+            else:
+                # interpolate between i-1 and 1
+
+                kl, vl = schedule[i-1]
+                rng = k - kl
+
+                prop = (epoch - kl) / rng
+                propl = 1.0 - prop
+
+                return propl * vl + prop * v
+
+    return v

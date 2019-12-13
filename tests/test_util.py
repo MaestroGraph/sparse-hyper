@@ -273,6 +273,13 @@ class TestLayers(unittest.TestCase):
         self.assertEqual( (f[:, 0] < f[:, 1]).sum(), 0)
         self.assertEqual(len(x.size()), 3)
 
+    def test_schedule(self):
+
+        sched = {10: 0.1, 90:0.99}
+
+        for e in range(100):
+            print(util.schedule(e, sched))
+
 
 if __name__ == '__main__':
     unittest.main()

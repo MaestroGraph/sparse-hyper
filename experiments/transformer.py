@@ -559,11 +559,13 @@ class StridedSparseSelfAttention(nn.Module):
         if clamp:
             self.mmult *= 3.0
 
-        self.tokeys = nn.Linear(emb, emb * heads, bias=False)
-        self.toqueries = nn.Linear(emb, emb * heads, bias=False)
-        self.tovalues = nn.Linear(emb, emb * heads, bias=False)
+        s = emb // heads
 
-        self.unifyheads = nn.Linear(heads * emb, emb)
+        self.tokeys =    nn.Linear(s, s, bias=False)
+        self.toqueries = nn.Linear(s, s, bias=False)
+        self.tovalues =  nn.Linear(s, s, bias=False)
+
+        self.unifyheads = nn.Linear(s * heads, emb)
 
         self.gadditional = gadditional
         self.radditional = radditional
@@ -635,11 +637,12 @@ class StridedSparseSelfAttention(nn.Module):
         selection = (selection + 1) * r - 1
         tp = selection.size(0)
 
-        s = (t, t)
-
-        assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
+        size = (t, t)
 
         means, sigmas, mvalues = self.hyper(x)
+
+        s = e // h
+        x = x.view(b, t, h, s)
 
         # sample integer indices and values
         indices = sparse.ngenerate(means, self.gadditional, self.radditional, rng=(t,),
@@ -685,13 +688,13 @@ class StridedSparseSelfAttention(nn.Module):
         weights = weights[:, None, :, :].expand(b, h, tp, vs).contiguous().view(b*h, tp*vs)
 
         # compute keys, queries, values
-        keys    = self.tokeys(x)   .view(b, t, h, e) # note: t not tp, we compute _all_ queries, keys and values
-        queries = self.toqueries(x).view(b, t, h, e)
-        values  = self.tovalues(x) .view(b, t, h, e)
+        keys    = self.tokeys(x)    # note: t not tp, we compute _all_ queries, keys and values
+        queries = self.toqueries(x)
+        values  = self.tovalues(x)
         # - fold heads into the batch dimension
-        keys    = keys.transpose(1, 2).contiguous()   .view(b * h, t, e)
-        queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
-        values  = values.transpose(1, 2).contiguous() .view(b * h, t, e)
+        keys    = keys.transpose(1, 2).contiguous()   .view(b * h, t, s)
+        queries = queries.transpose(1, 2).contiguous().view(b * h, t, s)
+        values  = values.transpose(1, 2).contiguous() .view(b * h, t, s)
         # -- We could actually select first, and _then_ transform to kqv's. May be better for very large contexts and
         #    small batches
 
@@ -715,9 +718,9 @@ class StridedSparseSelfAttention(nn.Module):
         assert not util.contains_nan(dot), f'dot contains nan (before norm) {dot.min()}, {dot.mean()}, {dot.max()}'
 
         if self.norm_method == 'softmax':
-            dot = sparse.logsoftmax(indices, weights * dot, s).exp()
+            dot = sparse.logsoftmax(indices, weights * dot, size).exp()
         else:
-            dot = sparse.simple_normalize(indices, weights * dot, s, method=self.norm_method)
+            dot = sparse.simple_normalize(indices, weights * dot, size, method=self.norm_method)
         # - dot now has row-wise self-attention probabilities
 
         assert not util.contains_inf(dot), f'dot contains inf (after norm) {dot.min()}, {dot.mean()}, {dot.max()}'
@@ -740,10 +743,10 @@ class StridedSparseSelfAttention(nn.Module):
             sys.exit()
 
         # apply the self attention to the values
-        out = sparse.batchmm(indices, dot, size=s, xmatrix=values)
+        out = sparse.batchmm(indices, dot, size=size, xmatrix=values)
 
         # swap h, t back, unify heads
-        out = out.transpose(1, 2).contiguous().view(b, t, h * e)
+        out = out.transpose(1, 2).contiguous().view(b, t, h * s)
         out = self.unifyheads(out)
 
         assert not util.contains_nan(out), f'output contains nan {out}, dot min/max: {dot.min()}/{dot.max()}'
@@ -777,11 +780,13 @@ class ConvSelfAttention(nn.Module):
         self.emb, self.heads = emb, heads
         self.norm_method = norm_method
 
-        self.tokeys    = nn.Linear(emb, emb * heads, bias=False)
-        self.toqueries = nn.Linear(emb, emb * heads, bias=False)
-        self.tovalues  = nn.Linear(emb, emb * heads, bias=False)
+        s = emb // heads
 
-        self.unifyheads = nn.Linear(heads * emb, emb)
+        self.tokeys    = nn.Linear(s, s, bias=False)
+        self.toqueries = nn.Linear(s, s, bias=False)
+        self.tovalues  = nn.Linear(s, s, bias=False)
+
+        self.unifyheads = nn.Linear(s * heads, emb)
 
         self.k = k
 
@@ -790,26 +795,28 @@ class ConvSelfAttention(nn.Module):
         b, t, e = x.size()
         h, k = self.heads, self.k
 
+        s = e // h
+
+        x = x.view(b, t, h, s)
+
         tp = t + k - 1
-        s = (t, tp)
+        size = (t, tp)
 
-        xp = F.pad(x, [0, 0, k-1, 0, 0, 0]) # zero pad the beginning of x
+        xp = F.pad(x, [0, 0, 0, 0, k-1, 0, 0, 0]) # zero pad the beginning of x
 
-        assert xp.size() == (b, tp, e)
-
-        assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
+        assert xp.size() == (b, tp, h, s), f'{xp.size()} vs {(b, tp, h, s)}'
 
         # compute keys, queries, values (note that the self attention matrix is slightly rectangular)
-        queries = self.toqueries(x).view(b, t, h, e)
-        keys    = self.tokeys(xp)  .view(b, tp, h, e)
-        values  = self.tovalues(xp).view(b, tp, h, e)
+        queries = self.toqueries(x)
+        keys    = self.tokeys(xp)
+        values  = self.tovalues(xp)
 
         # - fold heads into the batch dimension
-        queries = queries.transpose(1, 2).contiguous().view(b * h, t, e)
-        keys = keys.transpose(1, 2).contiguous().view(b * h, tp, e)
-        values = values.transpose(1, 2).contiguous().view(b * h, tp, e)
+        queries = queries.transpose(1, 2) .contiguous().view(b * h, t, s)
+        keys    = keys.transpose(1, 2)    .contiguous().view(b * h, tp, s)
+        values  = values.transpose(1, 2)  .contiguous().view(b * h, tp, s)
 
-        queries = queries / (e ** (1/4)) # b*h, t, e
+        queries = queries / (e ** (1/4)) # shoudl this be s?
         keys    = keys    / (e ** (1/4))
 
         # Get dot product of queries and keys
@@ -837,19 +844,19 @@ class ConvSelfAttention(nn.Module):
         # assert not util.contains_nan(dot), f'dot contains nan (before softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
 
         if self.norm_method == 'softmax':
-            dot = sparse.logsoftmax(indices, dot, s).exp()
+            dot = sparse.logsoftmax(indices, dot, size).exp()
         else:
-            dot = sparse.simple_normalize(indices, dot, s, method=self.norm_method)
+            dot = sparse.simple_normalize(indices, dot, size, method=self.norm_method)
         # - dot now has row-wise self-attention probabilities
 
         # assert not util.contains_inf(dot), f'dot contains inf (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
         # assert not util.contains_nan(dot), f'dot contains nan (after softmax) {dot.min()}, {dot.mean()}, {dot.max()}'
 
         # apply the self attention to the values
-        out = sparse.batchmm(indices, dot, size=s, xmatrix=values)
+        out = sparse.batchmm(indices, dot, size=size, xmatrix=values)
 
         # swap h, t back, unify heads
-        out = out.transpose(1, 2).contiguous().view(b, t, h * e)
+        out = out.transpose(1, 2).contiguous().view(b, t, h * s)
         out = self.unifyheads(out)
 
         assert not util.contains_nan(out), f'output contains nan {out}, dot min/max: {dot.min()}/{dot.max()}'

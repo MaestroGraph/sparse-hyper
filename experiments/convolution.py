@@ -210,7 +210,7 @@ class Convolution(nn.Module):
 
         self.gadditional, self.radditional = gadditional, radditional
 
-        self.region = region
+        self.region = (region, region)
 
         self.min_sigma, self.sigma_scale = min_sigma, sigma_scale
         self.admode, self.mmult = admode, mmult
@@ -244,7 +244,6 @@ class Convolution(nn.Module):
             )
 
         self.register_buffer('mvalues', torch.ones((k,)))
-        self.register_buffer('coords', )
 
         self.smp = True
 
@@ -258,16 +257,15 @@ class Convolution(nn.Module):
 
     def hyper(self, x):
 
-        assert x.size()[1:] == self.in_size
         b, c, h, w = x.size()
         k = self.k
 
-        coors = util.coordinates((h, w), cuda=x.is_cuda)
+        coords = util.coordinates((h, w), cuda=x.is_cuda)
 
         # the coordinates of the current pixels in parameters space
         # - the index tuples are described relative to these
         hw = torch.tensor((h, w), device=d(x), dtype=torch.float)
-        mids = self.coords[None, :, :, :].expand(b, 2, h, w) * (hw - 1)[None, :, None, None]
+        mids = coords[None, :, :, :].expand(b, 2, h, w) * (hw - 1)[None, :, None, None]
         mids = mids.permute(0, 2, 3, 1)
         if self.edges == 'sigmoid':
             mids = util.inv(mids, mx=hw[None, None, None, :])
@@ -278,10 +276,10 @@ class Convolution(nn.Module):
             params = self.params[None, None, None, :].expand(b, h, w, 4 if self.constrained else k * 3)
         else:
             if self.admode == 'full':
-                coords = self.coords[None, :, :, :].expand(b, 2, h, w)
-                x = torch.cat([x, coords], dim=1)
+                crds = coords[None, :, :, :].expand(b, 2, h, w)
+                x = torch.cat([x, crds], dim=1)
             elif self.admode == 'coords':
-                x = self.coords[None, :, :, :].expand(b, 2, h, w)
+                x = coords[None, :, :, :].expand(b, 2, h, w)
             elif self.admode == 'inputs':
                 pass
             else:
@@ -338,8 +336,6 @@ class Convolution(nn.Module):
         return means, sigmas, values
 
     def forward(self, x):
-
-        assert x.size()[1:] == self.in_size
 
         b, c, h, w = x.size()
         k = self.k
@@ -674,6 +670,70 @@ class DavidOne(nn.Module):
 
         list(self.mid.modules())[1].sample(bl)
 
+class Baseline(nn.Module):
+    """
+    A baseline model with no pooling.
+
+    """
+
+    def __init__(self, num_classes, depth=3, c=16, sparse=False, in_channels=3, **kwargs):
+        super().__init__()
+
+
+        layers = []
+        for i in range(depth):
+            layers += [
+                self.layer(i=in_channels if i ==0 else c, o=c, sparse=sparse, **kwargs), nn.ReLU()
+            ]
+
+        self.layers = nn.Sequential(*layers)
+        self.toclasses = nn.Linear(c, num_classes)
+
+
+    def layer(self, i, o, sparse, **kwargs):
+
+        if sparse:
+            return Convolution(cin=i, cout=o, **kwargs)
+
+        return nn.Conv2d(i, o, kernel_size=3, padding=1)
+
+    def forward(self, x):
+
+        # convolutions
+        x = self.layers(x)
+
+        # global pool
+        x = x.mean(-1).mean(-1)
+
+        return self.toclasses(x)
+
+    def sample(self, bl):
+        """
+        Turn sampling on or off.
+        :param bl:
+        :return:
+        """
+        for layer in self.layers:
+            if type(layer) == Convolution:
+                layer.sample(bl)
+
+    def plot(self, x, pref, epoch):
+
+        with torch.no_grad():
+            ims = x
+            i = 0
+
+            for layer in self.layers:
+
+                if type(layer) == Convolution:
+                    layer.plot(x, ims=ims)
+                    plt.savefig(pref + f'/convolution.{epoch:03}.{i}.pdf')
+                    i += 1
+                    plt.gcf().clear()
+
+                x = layer(x)
+
+
 class Classifier(nn.Module):
 
     def __init__(self, in_size, num_classes, **kwargs):
@@ -826,8 +886,8 @@ def go(arg):
 
             train = torchvision.datasets.MNIST(root=data, train=True, download=True, transform=tfms)
 
-            trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
-            testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+            trainloader = DataLoader(train, batch_size=arg.batch_size, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+            testloader = DataLoader(train, batch_size=arg.batch_size, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
     elif (arg.task == 'cifar10'):
 
@@ -915,6 +975,16 @@ def go(arg):
                        admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
         sparse = True
 
+    elif arg.model == 'baseline':
+        model = Baseline(num_classes=num_classes, in_channels=shape[0], k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
+        sparse = False
+
+    elif arg.model == 'baseline-sparse':
+        model = Baseline(num_classes=num_classes, in_channels=shape[0], sparse=True, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
+        sparse = True
+
     elif arg.model == 'wide':
         model = WideResNet(num_classes, constrained=arg.constrained)
         sparse = False
@@ -990,6 +1060,8 @@ def go(arg):
                 if arg.model == '3c':
                     model.plot(inputs[:10, ...], pref=f'{arg.task}/', epoch=e)
                 elif arg.model == 'david-sparse' or arg.model == 'david-one':
+                    model.plot(inputs[:10, ...], pref=f'{arg.task}/', epoch=e)
+                elif arg.model == 'baseline-sparse':
                     model.plot(inputs[:10, ...], pref=f'{arg.task}/', epoch=e)
                 else:
                     model.sparse.plot(inputs[:10, ...])
@@ -1082,7 +1154,7 @@ if __name__ == "__main__":
     parser.add_argument("-R", "--region",
                         dest="region",
                         help="Size of the (square) region to use for local sampling.",
-                        default=0.25, type=float)
+                        default=8, type=int)
 
     parser.add_argument("-c", "--cuda", dest="cuda",
                         help="Whether to use cuda.",

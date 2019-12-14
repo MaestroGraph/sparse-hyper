@@ -194,7 +194,7 @@ class Convolution(nn.Module):
     adaptively.
     """
     def __init__(self, cin, cout, k, gadditional, radditional, region, min_sigma=0.05, sigma_scale=0.05,
-                 mmult=0.1, admode='full', edges='sigmoid', bias=True, constrained=False):
+                 mmult=1.0, admode='full', edges='sigmoid', bias=True, constraints='free'):
         """
         :param k: Number of connections to the input in total
         :param gadditional:
@@ -223,9 +223,20 @@ class Convolution(nn.Module):
 
         self.k = k
         self.unify = nn.Linear(k*cin, cout, bias=bias)
+        self.constraints = constraints
+
+        # Set number of output parameters per pixel
+        if self.constraints == 'free':
+            self.nparms = k * 3
+        elif self.constraints == 'affine':
+            self.nparms = 4
+        elif self.constraints == 'scale':
+            self.nparms = 2
+        else:
+            raise Exception(f'{self.constraints}')
 
         if admode == 'none':
-            self.params = nn.Parameter(torch.randn(size=(4 if constrained else k * 3, )))
+            self.params = nn.Parameter(torch.randn(size=(self.nparms, )))
         else:
             if admode == 'full':
                 adin = 2 + cin
@@ -240,15 +251,14 @@ class Convolution(nn.Module):
             hidden = cin * 4
             self.toparams = nn.Sequential(
                 nn.Linear(adin, hidden), nn.ReLU(),
-                nn.Linear(hidden, 4 if constrained else k * 3) # two means, one sigma
+                nn.Linear(hidden, self.nparms) # two means, one sigma
             )
 
         self.register_buffer('mvalues', torch.ones((k,)))
 
         self.smp = True
 
-        self.constrained = constrained
-        if self.constrained:
+        if self.constraints == 'affine' or self.constraints == 'scale':
             kp = int(math.sqrt(k))
             self.register_buffer('base', util.coordinates((kp, kp)) - 0.5)
 
@@ -273,7 +283,7 @@ class Convolution(nn.Module):
 
         # add coords to channels
         if self.admode == 'none':
-            params = self.params[None, None, None, :].expand(b, h, w, 4 if self.constrained else k * 3)
+            params = self.params[None, None, None, :].expand(b, h, w, self.nparms)
         else:
             if self.admode == 'full':
                 crds = coords[None, :, :, :].expand(b, 2, h, w)
@@ -288,9 +298,9 @@ class Convolution(nn.Module):
             x = x.permute(0, 2, 3, 1)
             params = self.toparams(x)
 
-        if self.constrained:
+        if self.constraints == 'affine':
             # Take the three output values (per pixel) and use them to transform a grid of
-            # inputs
+            # inputs (rotated and scale in two dimensions)
             MULT = 10.0
 
             kp = int(math.sqrt(k))
@@ -318,8 +328,33 @@ class Convolution(nn.Module):
             assert params.size() == (b, h, w, 3, kp, kp)
 
             params = params.reshape(b, h, w, 3, k).permute(0, 1, 2, 4, 3)
-        else:
+        elif self.constraints == 'scale':
+            # Take the output values (per pixel) and use them to transform a grid of
+            # inputs (uniformly scaled)
+            MULT = 10.0
+
+            kp = int(math.sqrt(k))
+
+            assert params.size() == (b, h, w, 2)
+
+            scales = params[:, :, :, 0:1, None, None]
+            sigmas = params[:, :, :, 1:2, None, None]
+
+            coords = self.base.view(1, 1, 1, 2, kp, kp).expand(b, h, w, 2, kp, kp).contiguous() * MULT
+
+            # scale
+            coords[:, :, :, :, :, :] *= scales
+
+            sigmas = sigmas.expand(b, h, w, 1, kp, kp)
+            params = torch.cat([coords, sigmas], dim=3)
+
+            assert params.size() == (b, h, w, 3, kp, kp)
+
+            params = params.reshape(b, h, w, 3, k).permute(0, 1, 2, 4, 3)
+        elif self.constraints == 'free':
             params = params.reshape(b, h, w, k, 3)
+        else:
+            raise Exception(f'{self.constraints}')
 
         assert params.size() == (b, h, w, k, 3) # k index tuples per output pixel
 
@@ -950,43 +985,43 @@ def go(arg):
     # Create model
     if arg.model == 'efficient':
         model = Classifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constraints=arg.constraints)
         sparse = True
     elif arg.model == 'mini':
         model = MiniClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constraints=arg.constraints)
         sparse = False
     elif arg.model == '3c':
         model = ThreeCClassifier(shape, num_classes, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constraints=arg.constraints)
         sparse = True
 
     elif arg.model == 'david':
-        model = DavidNet(insize=shape, num_classes=num_classes, mul=arg.mul, constrained=arg.constrained)
+        model = DavidNet(insize=shape, num_classes=num_classes, mul=arg.mul, constraints=arg.constraints)
         sparse = False
 
     elif arg.model == 'david-sparse':
         model = DavidNet(insize=shape, num_classes=num_classes, mul=arg.mul, sparse=True, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constraints=arg.constraints)
         sparse = True
 
     elif arg.model == 'david-one':
         model = DavidOne(insize=shape, num_classes=num_classes, mul=arg.mul, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constraints=arg.constraints)
         sparse = True
 
     elif arg.model == 'baseline':
         model = Baseline(num_classes=num_classes, in_channels=shape[0], k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constraints=arg.constraints)
         sparse = False
 
     elif arg.model == 'baseline-sparse':
         model = Baseline(num_classes=num_classes, in_channels=shape[0], sparse=True, k=arg.k, gadditional=arg.gadditional, radditional=arg.radditional, region=arg.region,
-                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constrained=arg.constrained)
+                       admode=arg.admode, sigma_scale=arg.sigma_scale, edges=arg.edges, constraints=arg.constraints)
         sparse = True
 
     elif arg.model == 'wide':
-        model = WideResNet(num_classes, constrained=arg.constrained)
+        model = WideResNet(num_classes, constraints=arg.constraints)
         sparse = False
     else:
         raise Exception(f'Model {arg.model} not recognized')
@@ -1243,9 +1278,9 @@ if __name__ == "__main__":
                         help="Whether to apply data augmentation (random crops and random flips).",
                         action="store_true")
 
-    parser.add_argument("--constrained", dest="constrained",
-                        help="Whether to use a constrained convolution (pixels form a grid, but squashed and rotated)",
-                        action="store_true")
+    parser.add_argument("--constraints", dest="constraints",
+                        help="How to constrain the convolution. free: no constraints, affine: pixels form a grid, but squashed and rotate, scale: a single scaling parameter",
+                        default='scale', type=str)
 
     parser.add_argument("--schedule", dest="schedule",
                         help="Learning rate schedule (flat, tri, warmup, exp)",
